@@ -17,7 +17,7 @@ smart_semicolon = { ";" | NEWLINE }
 
 //========================================================Identifier names
 
-// ES6 allows very generic vairable names, like you can even use chars from Hindi and other languages
+// ES6 allows very generic variable names, like you can even use chars from Hindi and other languages
 // but we restrict the scope here to one which is practically needed
 identifier = @{ !keywords ~ ("$" | "_" | ASCII_ALPHA)+ ~ ("$" | "_" | ASCII_ALPHANUMERIC)* }
 
@@ -38,11 +38,11 @@ decimal_number = ${
 
 exponent = @{ ("e" | "E") ~ ("+" | "-")? ~ ASCII_DIGIT+ }
 
-decimal_number_with_dot = ${ ("0" | (ASCII_NONZERO_DIGIT ~ ASCII_DIGIT*)) ~ "." ~ ASCII_DIGIT* ~ exponent? }
+decimal_number_with_dot = @{ ("0" | (ASCII_NONZERO_DIGIT ~ ASCII_DIGIT*)) ~ "." ~ ASCII_DIGIT* ~ exponent? }
 
-decimal_number_with_dot_at_start = ${ "." ~ ASCII_DIGIT+ ~ exponent? }
+decimal_number_with_dot_at_start = @{ "." ~ ASCII_DIGIT+ ~ exponent? }
 
-decimal_number_with_no_dot = ${ ("0" | (ASCII_NONZERO_DIGIT ~ ASCII_DIGIT*)) ~ exponent? }
+decimal_number_with_no_dot = @{ ("0" | (ASCII_NONZERO_DIGIT ~ ASCII_DIGIT*)) ~ exponent? }
 
 binary_number  = @{ ("0b" | "0B") ~ ASCII_BIN_DIGIT+ }
 
@@ -132,17 +132,20 @@ template_chars = @{
     | any_escape_seq
 }
 
-template_tokens = @{ "${" ~ (!"}" ~ ANY)+ ~ "}" } // TODO change any to script token
+template_tokens = @{ "${" ~ (!"}" ~ ANY)+ ~ "}" } // ANY should be statement_list but for parsing performance we keep it as ANY
 
 //========================================================Array literals
 
-arrays = { "[" ~ array_items ~ "]" }
+arrays = { "[" ~ element_list ~ "]" }
 
-array_items = { ","* ~ ("," ~ array_item)* ~ ","* }
+element_list = {
+    (","
+    | ( array_item ~ ("," ~ array_item?) )
+    )*
+}
 
 array_item = {
-    assignment_exp
-    | spread_exp
+    spread_exp | assignment_exp
 }
 
 spread_exp = { "..." ~ assignment_exp }
@@ -181,14 +184,13 @@ computed_property_name = { "[" ~ assignment_exp ~ "]" }
 //========================================================Op expressions
 
 postfix_exp = {
-    lhs_exp
-    | (lhs_exp ~ "++")
+    (lhs_exp ~ "++")
     | (lhs_exp ~ "--")
+    | lhs_exp
 }
 
 unary_exp = {
-    postfix_exp
-    | ("delete" ~ unary_exp)
+    ("delete" ~ unary_exp)
     | ("void" ~ unary_exp)
     | ("typeof" ~ unary_exp)
     | ("++" ~ unary_exp)
@@ -197,6 +199,7 @@ unary_exp = {
     | ("-" ~ unary_exp)
     | ("~" ~ unary_exp)
     | ("!" ~ unary_exp)
+    | postfix_exp
 }
 
 multiplicative_exp = { unary_exp ~ (("*" | "/" | "%") ~ unary_exp)* }
@@ -221,16 +224,16 @@ logical_and_exp = { bitwise_or_exp ~ ("&&" ~ bitwise_or_exp)* }
 
 logical_or_exp = { logical_and_exp ~ ("||" ~ logical_and_exp)* }
 
-conditional_exp = { logical_or_exp | (logical_or_exp ~ "?" ~ assignment_exp ~ ":" ~ assignment_exp) }
+conditional_exp = { (logical_or_exp ~ "?" ~ assignment_exp ~ ":" ~ assignment_exp) | logical_or_exp }
 
 //========================================================Assignment exps
 
 assignment_exp = {
-    conditional_exp
-    | yield_exp
+    yield_exp
     | arrow_function
     | (lhs_exp ~ "=" ~ assignment_exp)
     | (lhs_exp ~ ("*=" | "/=" | "%=" | "+=" | "-=" | "<<=" | ">>=" | ">>>=" | "&=" | "^=" | "|=") ~ assignment_exp)
+    | conditional_exp
 }
 
 assignment_pattern = { object_assignment_pattern | array_assignment_pattern }
@@ -247,12 +250,14 @@ array_assignment_pattern = { "[" ~ array_assignment_inner ~ "]" }
 
 assignment_rest_element = { "..." ~ lhs_exp }
 
-assigment_element_list = { ","* ~ ("," ~ assignment_element)* ~ ","* }
+assigment_element_list = {
+    ("," | (assignment_element ~ ("," ~ assignment_element)))+
+}
 
 array_assignment_inner = {
-    (","* ~ assignment_rest_element?)
-    | assigment_element_list
+    (","* ~ assignment_rest_element)
     | (assigment_element_list ~ ","+ ~ assignment_rest_element)
+    | assigment_element_list
 }
 
 expression = { assignment_exp ~ ("," ~ assignment_exp)* }
@@ -276,27 +281,26 @@ primary_exp = {
     | object
     | regex_exp
     | template_string
-    | cover_parenthesized_expression_and_arrow_paramter_list
+    | cover_parenthesized_expression_and_arrow_parameter_list
 }
 
-cover_parenthesized_expression_and_arrow_paramter_list = {
-    "(" ~ cpe_params_iiner ~ ")"
+cover_parenthesized_expression_and_arrow_parameter_list = {
+    "(" ~ cpe_params_inner ~ ")"
 }
 
-cpe_params_iiner = { (expression ~ ("," ~ expression)*)? ~ ("..." ~ binding_identifier)? }
+cpe_params_inner = { (expression ~ ("," ~ expression)*)? ~ ("..." ~ binding_identifier)? }
 
 lhs_exp = {
-    new_exp
-    | call_exp
+    call_exp | new_exp
 }
 
 new_exp = {
-    member_exp
-    | "new" ~ new_exp
+    "new" ~ new_exp
+    | member_exp
 }
 
 call_exp = {
-    (member_exp ~ arguments | super_call)? ~ (arguments | "[" ~ expression ~ "]" | "." ~ identifier | template_string)*
+    (super_call | member_exp ~ arguments)+ ~ (arguments | "[" ~ expression ~ "]" | "." ~ identifier | template_string)*
 }
 
 super_call = { "super" ~ arguments }
@@ -310,9 +314,15 @@ super_ppty = {
     | "super" ~ "." ~ identifier
 }
 
-arguments = { "(" ~ arguments_list? ~ ")" }
+arguments = { "(" ~ argument_list? ~ ")" }
 
-arguments_list = { assignment_exp* ~ spread_exp? }
+argument_list_head = { assignment_exp ~ ("," ~ assignment_exp)* }
+
+argument_list = {
+    spread_exp
+    | argument_list_head ~ "," ~ spread_exp
+    | argument_list_head
+}
 
 initializer = { assignment_exp }
 
@@ -444,11 +454,11 @@ statement_list_item = {
 
 //========================================================Functions
 
-function_declaration = { "function" ~ binding_identifier ~ "(" ~ formal_paramters ~ ")" ~ "{" ~ function_body ~ "}" }
+function_declaration = { "function" ~ binding_identifier ~ "(" ~ formal_parameters ~ ")" ~ "{" ~ function_body ~ "}" }
 
-function_expression = { "function" ~ binding_identifier? ~ "(" ~ formal_paramters ~ ")" ~ "{" ~ function_body ~ "}" }
+function_expression = { "function" ~ binding_identifier? ~ "(" ~ formal_parameters ~ ")" ~ "{" ~ function_body ~ "}" }
 
-formal_paramters = { (binding_element ~ ("," ~ binding_element)*)? ~ binding_rest_element? }
+formal_parameters = { (binding_element ~ ("," ~ binding_element)*)? ~ binding_rest_element? }
 
 function_body = { statement_list? }
 
@@ -458,7 +468,7 @@ arrow_function = { arrow_parameters ~ "=>" ~ concise_body }
 
 arrow_parameters = {
     binding_identifier
-    | cover_parenthesized_expression_and_arrow_paramter_list
+    | cover_parenthesized_expression_and_arrow_parameter_list
 }
 
 concise_body = {
@@ -467,24 +477,24 @@ concise_body = {
 }
 
 method_definition = {
-    property_name ~ "(" ~ formal_paramters ~ ")" ~ "{" ~ function_body ~ "}"
-    | gnerator_method
+    property_name ~ "(" ~ formal_parameters ~ ")" ~ "{" ~ function_body ~ "}"
+    | generator_method
     | "get" ~ property_name ~ "(" ~ ")" ~ "{" ~ function_body ~ "}"
-    | "set" ~ property_name ~ "(" ~ formal_paramters ~ ")" ~ "{" ~ function_body ~ "}"
+    | "set" ~ property_name ~ "(" ~ formal_parameters ~ ")" ~ "{" ~ function_body ~ "}"
 }
 
 //========================================================Generators
 
-gnerator_method = {
-    "*" ~ property_name ~ "(" ~ formal_paramters ~ ")" ~ "{" ~ function_body ~ "}"
+generator_method = {
+    "*" ~ property_name ~ "(" ~ formal_parameters ~ ")" ~ "{" ~ function_body ~ "}"
 }
 
 generator_declaration = {
-    "function" ~ "*" ~ binding_identifier ~ "(" ~ formal_paramters ~ ")" ~ "{" ~ function_body ~ "}"
+    "function" ~ "*" ~ binding_identifier ~ "(" ~ formal_parameters ~ ")" ~ "{" ~ function_body ~ "}"
 }
 
 generator_expression = {
-    "function" ~ "*" ~ binding_identifier? ~ "(" ~ formal_paramters ~ ")" ~ "{" ~ function_body ~ "}"
+    "function" ~ "*" ~ binding_identifier? ~ "(" ~ formal_parameters ~ ")" ~ "{" ~ function_body ~ "}"
 }
 
 yield_exp = {
