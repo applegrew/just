@@ -5,7 +5,8 @@
 //
 
 WHITESPACE = _{ " " | "\t" }
-COMMENT = _{ multi_line_comment }
+COMMENT = _{ comment }
+s = _{ line_terminator* }
 comment = { multi_line_comment | single_line_comment }
 multi_line_comment = @{ "/*" ~ multi_line_comment_chars? ~ "*/" }
 multi_line_comment_chars = { multi_line_not_asterisk_char ~ multi_line_comment_chars? | "*" ~ post_asterisk_comment_chars? }
@@ -16,8 +17,9 @@ single_line_comment = @{ "//" ~ single_line_comment_chars? }
 single_line_comment_chars = { single_line_comment_char ~ single_line_comment_chars? }
 single_line_comment_char = { !line_terminator ~ source_character }
 whitespace = _{ WHITESPACE }
-line_terminator = { "\n" | "\r" }
+line_terminator = _{ "\n" | "\r" }
 line_terminator_sequence = { "\n" | "\r\n" | "\r" }
+//Used by parseInt(string)
 string_numeric_literal = { str_white_space? ~ str_numeric_literal ~ str_white_space? | str_white_space? }
 str_white_space = { str_white_space_char ~ str_white_space? }
 str_white_space_char = { whitespace | line_terminator }
@@ -35,11 +37,11 @@ exponent_part = ${ exponent_indicator ~ signed_integer }
 exponent_indicator = _{ "e" | "E" }
 signed_integer = { decimal_digits | "+" ~ decimal_digits | "-" ~ decimal_digits }
 source_character = { ANY }
-input_element_div = { whitespace | line_terminator | comment | common_token | div_punctuator | right_brace_punctuator }
-input_element_regexp = { whitespace | line_terminator | comment | common_token | right_brace_punctuator | regular_expression_literal }
-input_element_regexp_or_template_tail = { whitespace | line_terminator | comment | common_token | regular_expression_literal | template_substitution_tail }
-input_element_template_tail = { whitespace | line_terminator | comment | common_token | div_punctuator | template_substitution_tail }
-common_token = { identifier_name | punctuator | numeric_literal | string_literal | template }
+//input_element_div = ${ whitespace | line_terminator | comment | common_token | div_punctuator | right_brace_punctuator }
+//input_element_regexp = ${ whitespace | line_terminator | comment | common_token | right_brace_punctuator | regular_expression_literal }
+//input_element_regexp_or_template_tail = ${ whitespace | line_terminator | comment | common_token | regular_expression_literal | template_substitution_tail }
+//input_element_template_tail = ${ whitespace | line_terminator | comment | common_token | div_punctuator | template_substitution_tail }
+//common_token = ${ identifier_name | punctuator | numeric_literal | string_literal | template }
 identifier_name = @{ identifier_start ~ identifier_part* }
 identifier_start = { ID_START | "$" | "_"  }
 identifier_part = { ID_CONTINUE | "$" | "_" }
@@ -51,15 +53,15 @@ keyword = {
     | "default" | "if" | "throw" | "delete" | "import" | "try" | "let" | "static"
 }
 future_reserved_word = { "enum" | "await" }
-punctuator = {
-    "{" | "(" | ")" | "[" | "]" | "." | "..." | ";" | "," | "<" | ">" | "<="
-    | ">=" | "==" | "!=" | "===" | "!==" | " " | "+" | "-" | "*" | "%" | "++"
-    | "--" | "<<" | ">>" | ">>>" | "&" | "|" | "^" | "!" | "~" | "&&" | "||"
-    | "?" | ":" | "=" | "+=" | "-=" | "*=" | "%=" | "<<=" | ">>=" | ">>>="
-    | "&=" | "|=" | "^=" | "=>"
-}
-div_punctuator = { "/" | "/=" }
-right_brace_punctuator = { "}" }
+// punctuator = {
+//     "{" | "(" | ")" | "[" | "]" | "." | "..." | ";" | "," | "<" | ">" | "<="
+//     | ">=" | "==" | "!=" | "===" | "!==" | " " | "+" | "-" | "*" | "%" | "++"
+//     | "--" | "<<" | ">>" | ">>>" | "&" | "|" | "^" | "!" | "~" | "&&" | "||"
+//     | "?" | ":" | "=" | "+=" | "-=" | "*=" | "%=" | "<<=" | ">>=" | ">>>="
+//     | "&=" | "|=" | "^=" | "=>"
+// }
+// div_punctuator = { "/" | "/=" }
+// right_brace_punctuator = { "}" }
 null_literal = @{ "null" }
 boolean_literal = @{ "true" | "false" }
 numeric_literal = { binary_integer_literal | octal_integer_literal | hex_integer_literal |  decimal_literal }
@@ -133,16 +135,17 @@ template_character = @{
     | !("`" | "\\" | "$" | line_terminator) ~ source_character
 }
 identifier_reference = @{ identifier }
-identifier_reference__yield = @{ identifier | "yield" }
+identifier_reference__yield = @{ "yield" | identifier }
 binding_identifier = @{ identifier }
-binding_identifier__yield = @{ identifier | "yield" }
+binding_identifier__yield = @{ "yield" | identifier }
 label_identifier = @{ identifier }
-label_identifier__yield = @{ identifier | "yield" }
-identifier = @{ !reserved_keyword ~ identifier_name }
+label_identifier__yield = @{ "yield" | identifier }
+// The second production is for cases where the identifier is like 'thisIsMe'
+identifier = @{ !reserved_keyword ~ identifier_name | reserved_keyword ~ identifier_part+ }
 primary_expression = {
-    "this"
-    | identifier_reference
+    identifier_reference
     | literal
+    | "this"
     | array_literal
     | object_literal
     | function_expression
@@ -153,9 +156,9 @@ primary_expression = {
     | cover_parenthesized_expression_and_arrow_parameter_list
 }
 primary_expression__yield = {
-    "this"
-    | identifier_reference__yield
+    identifier_reference__yield
     | literal
+    | "this"
     | array_literal__yield
     | object_literal__yield
     | function_expression
@@ -166,16 +169,16 @@ primary_expression__yield = {
     | cover_parenthesized_expression_and_arrow_parameter_list__yield
 }
 cover_parenthesized_expression_and_arrow_parameter_list = {
-    "(" ~ expression__in ~ ")"
-    | "(" ~ ")"
-    | "(" ~ "..." ~ binding_identifier ~ ")"
-    | "(" ~ expression__in  ~ "," ~ "..." ~ binding_identifier ~ ")"
+    "(" ~s~ expression__in ~s~ ")"
+    | "(" ~s~ ")"
+    | "(" ~s~ "..." ~ binding_identifier ~s~ ")"
+    | "(" ~s~ expression__in  ~s~ "," ~s~ "..." ~ binding_identifier ~s~ ")"
 }
 cover_parenthesized_expression_and_arrow_parameter_list__yield = {
-    "(" ~ expression__in_yield ~ ")"
-    | "(" ~ ")"
-    | "(" ~ "..." ~ binding_identifier__yield ~ ")"
-    | "(" ~ expression__in_yield  ~ "," ~ "..." ~ binding_identifier__yield ~ ")"
+    "(" ~s~ expression__in_yield ~s~ ")"
+    | "(" ~s~ ")"
+    | "(" ~s~ "..." ~ binding_identifier__yield ~s~ ")"
+    | "(" ~s~ expression__in_yield  ~s~ "," ~s~ "..." ~ binding_identifier__yield ~s~ ")"
 }
 literal = {
     null_literal
@@ -185,22 +188,22 @@ literal = {
 }
 elision = _{ ","+ }
 array_literal = {
-    "[" ~ elision? ~ "]"
-    | "[" ~ element_list ~ "]"
-    | "[" ~ element_list ~ "," ~ elision? ~ "]"
+    "[" ~s~ elision? ~s~ "]"
+    | "[" ~s~ element_list ~s~ "]"
+    | "[" ~s~ element_list ~s~ "," ~s~ elision? ~s~ "]"
 }
 array_literal__yield = {
-    "[" ~ elision? ~ "]"
-    | "[" ~ element_list__yield ~ "]"
-    | "[" ~ element_list__yield ~ "," ~ elision? ~ "]"
+    "[" ~s~ elision? ~s~ "]"
+    | "[" ~s~ element_list__yield ~s~ "]"
+    | "[" ~s~ element_list__yield ~s~ "," ~s~ elision? ~s~ "]"
 }
 element_list = _{
-    (elision? ~ assignment_expression__in | elision? ~ spread_element)
-    ~ ("," ~ elision? ~ assignment_expression__in | "," ~ elision? ~ spread_element)*
+    (elision? ~s~ assignment_expression__in | elision? ~s~ spread_element)
+    ~ ("," ~s~ elision? ~s~ assignment_expression__in | "," ~s~ elision? ~s~ spread_element)*
 }
 element_list__yield = _{
-    (elision? ~ assignment_expression__in_yield | elision? ~ spread_element__yield)
-    ~ ("," ~ elision? ~ assignment_expression__in_yield |  "," ~ elision? ~ spread_element__yield)*
+    (elision? ~s~ assignment_expression__in_yield | elision? ~s~ spread_element__yield)
+    ~ ("," ~s~ elision? ~s~ assignment_expression__in_yield |  "," ~s~ elision? ~s~ spread_element__yield)*
 }
 spread_element = {
     "..." ~ assignment_expression__in
@@ -209,32 +212,32 @@ spread_element__yield = {
     "..." ~ assignment_expression__in_yield
 }
 object_literal = {
-    "{" ~ "}"
-    | "{" ~ property_definition_list ~ "}"
-    | "{" ~ property_definition_list ~ "," ~ "}"
+    "{" ~s~ "}"
+    | "{" ~s~ property_definition_list ~s~ "}"
+    | "{" ~s~ property_definition_list ~s~ "," ~s~ "}"
 }
 object_literal__yield = {
-    "{" ~ "}"
-    | "{" ~ property_definition_list__yield ~ "}"
-    | "{" ~ property_definition_list__yield ~ "," ~ "}"
+    "{" ~s~ "}"
+    | "{" ~s~ property_definition_list__yield ~s~ "}"
+    | "{" ~s~ property_definition_list__yield ~s~ "," ~s~ "}"
 }
 property_definition_list = {
-    property_definition ~ ("," ~ property_definition)*
+    property_definition ~ (s~ "," ~s~ property_definition)*
 }
 property_definition_list__yield = {
-    property_definition__yield ~ ("," ~ property_definition__yield)*
+    property_definition__yield ~ (s~ "," ~s~ property_definition__yield)*
 }
 property_definition = {
-    identifier_reference
-    | cover_initialized_name
-    | property_name ~ ":" ~ assignment_expression__in
+    cover_initialized_name
+    | property_name ~s~ ":" ~s~ assignment_expression__in
     | method_definition
+    | identifier_reference
 }
 property_definition__yield = {
-    identifier_reference__yield
-    | cover_initialized_name__yield
-    | property_name__yield ~ ":" ~ assignment_expression__in_yield
+    cover_initialized_name__yield
+    | property_name__yield ~s~ ":" ~s~ assignment_expression__in_yield
     | method_definition__yield
+    | identifier_reference__yield
 }
 property_name = { literal_property_name | computed_property_name }
 property_name__yield = { literal_property_name | computed_property_name__yield }
@@ -243,14 +246,14 @@ literal_property_name = {
     | string_literal
     | numeric_literal
 }
-computed_property_name = { "[" ~ assignment_expression__in ~ "]" }
-computed_property_name__yield = { "[" ~ assignment_expression__in_yield ~ "]" }
-cover_initialized_name = { identifier_reference ~ initializer__in }
-cover_initialized_name__yield = { identifier_reference__yield ~ initializer__in_yield }
-initializer = { "=" ~ assignment_expression }
-initializer__in = { "=" ~ assignment_expression__in }
-initializer__yield = { "=" ~ assignment_expression__yield }
-initializer__in_yield = { "=" ~ assignment_expression__in_yield }
+computed_property_name = { "[" ~s~ assignment_expression__in ~s~ "]" }
+computed_property_name__yield = { "[" ~s~ assignment_expression__in_yield ~s~ "]" }
+cover_initialized_name = { identifier_reference ~s~ initializer__in }
+cover_initialized_name__yield = { identifier_reference__yield ~s~ initializer__in_yield }
+initializer = { "=" ~s~ assignment_expression }
+initializer__in = { "=" ~s~ assignment_expression__in }
+initializer__yield = { "=" ~s~ assignment_expression__yield }
+initializer__in_yield = { "=" ~s~ assignment_expression__in_yield }
 template_literal = ${
     no_substitution_template
     | template_head ~ expression__in ~ template_spans
@@ -266,54 +269,54 @@ template_middle_list__yield = _{ (template_middle ~ expression__in_yield)+ }
 member_expression = {
     (
     (super_property | meta_property | primary_expression)
-    ~ ("[" ~ expression__in ~ "]" | "." ~ identifier_name | template_literal)*
+    ~ (s~ "[" ~s~ expression__in ~s~ "]" | "." ~s~ identifier_name | template_literal)*
     )
-    | "new" ~ member_expression ~ arguments
+    | "new" ~s~ member_expression ~s~ arguments
 }
 member_expression__yield = {
     (
     (super_property__yield | meta_property | primary_expression__yield)
-    ~ ("[" ~ expression__in_yield ~ "]" | "." ~ identifier_name | template_literal__yield)*
+    ~ (s~ "[" ~s~ expression__in_yield ~s~ "]" | "." ~s~ identifier_name | template_literal__yield)*
     )
-    | "new" ~ member_expression__yield ~ arguments__yield
+    | "new" ~s~ member_expression__yield ~s~ arguments__yield
 }
 super_property = {
-    "super" ~ "[" ~ expression__in ~ "]"
-    | "super" ~ "." ~ identifier_name
+    "super" ~s~ "[" ~s~ expression__in ~s~ "]"
+    | "super" ~s~ "." ~s~ identifier_name
 }
 super_property__yield = {
-    "super" ~ "[" ~ expression__in_yield ~ "]"
-    | "super" ~ "." ~ identifier_name
+    "super" ~s~ "[" ~s~ expression__in_yield ~s~ "]"
+    | "super" ~s~ "." ~s~ identifier_name
 }
 meta_property = { new_target }
-new_target = { "new" ~ "." ~ "target" }
-new_expression = { member_expression | "new" ~ new_expression }
+new_target = { "new" ~s~ "." ~s~ "target" }
+new_expression = { member_expression | "new" ~s~ new_expression }
 new_expression__yield = { member_expression__yield | "new" ~ new_expression__yield }
 call_expression = {
-    (member_expression ~ arguments | super_call)
-    ~ (arguments | "[" ~ expression__in ~ "]" | "." ~ identifier_name | template_literal)*
+    (member_expression ~s~ arguments | super_call)
+    ~ (s~ arguments | "[" ~s~ expression__in ~s~ "]" | "." ~s~ identifier_name | template_literal)*
 }
 call_expression__yield = {
-    (member_expression__yield ~ arguments__yield | super_call__yield)
-    ~ (arguments__yield | "[" ~ expression__in_yield ~ "]" | "." ~ identifier_name | template_literal__yield)*
+    (member_expression__yield ~s~ arguments__yield | super_call__yield)
+    ~ (s~ arguments__yield | "[" ~s~ expression__in_yield ~s~ "]" | "." ~s~ identifier_name | template_literal__yield)*
 }
-super_call = { "super" ~ arguments }
-super_call__yield = { "super" ~ arguments__yield }
+super_call = { "super" ~s~ arguments }
+super_call__yield = { "super" ~s~ arguments__yield }
 arguments = {
-    "(" ~ ")"
-    | "(" ~ argument_list ~ ")"
+    "(" ~s~ ")"
+    | "(" ~s~ argument_list ~s~ ")"
 }
 arguments__yield = {
-    "(" ~ ")"
-    | "(" ~ argument_list__yield ~ ")"
+    "(" ~s~ ")"
+    | "(" ~s~ argument_list__yield ~s~ ")"
 }
 argument_list = {
     (assignment_expression__in | "..." ~ assignment_expression__in)
-    ~ ("," ~ assignment_expression__in | "," ~ "..." ~ assignment_expression__in)*
+    ~ (s~ "," ~s~ assignment_expression__in | "," ~s~ "..." ~ assignment_expression__in)*
 }
 argument_list__yield = {
     (assignment_expression__in_yield | "..." ~ assignment_expression__in_yield)
-    ~ ("," ~ assignment_expression__in_yield | "," ~ "..." ~ assignment_expression__in_yield)*
+    ~ (s~ "," ~s~ assignment_expression__in_yield | "," ~s~ "..." ~ assignment_expression__in_yield)*
 }
 left_hand_side_expression = { call_expression | new_expression }
 left_hand_side_expression__yield = { call_expression__yield | new_expression__yield }
@@ -351,192 +354,192 @@ unary_expression__yield = {
     | "~" ~ unary_expression__yield
     | "!" ~ unary_expression__yield
 }
-multiplicative_expression = { unary_expression ~ (multiplicative_operator ~ unary_expression)* }
-multiplicative_expression__yield = { unary_expression__yield ~ (multiplicative_operator ~ unary_expression__yield)* }
+multiplicative_expression = { unary_expression ~ (s~ multiplicative_operator ~s~ unary_expression)* }
+multiplicative_expression__yield = { unary_expression__yield ~ (s~ multiplicative_operator ~s~ unary_expression__yield)* }
 multiplicative_operator = { "*" | "/" | "%" }
 additive_expression = {
-    multiplicative_expression ~ ("+" ~ multiplicative_expression | "-" ~ multiplicative_expression)*
+    multiplicative_expression ~ (s~ ("+" ~s~ multiplicative_expression | "-" ~s~ multiplicative_expression))*
 }
 additive_expression__yield = {
-    multiplicative_expression__yield ~ ("+" ~ multiplicative_expression__yield | "-" ~ multiplicative_expression__yield)*
+    multiplicative_expression__yield ~ (s~ ("+" ~s~ multiplicative_expression__yield | "-" ~s~ multiplicative_expression__yield))*
 }
 shift_expression = {
-    additive_expression ~ ("<<" ~ additive_expression | ">>" ~ additive_expression | ">>>" ~ additive_expression)*
+    additive_expression ~ (s~ ("<<" ~s~ additive_expression | ">>" ~s~ additive_expression | ">>>" ~s~ additive_expression))*
 }
 shift_expression__yield = {
-    additive_expression__yield ~ ("<<" ~ additive_expression__yield | ">>" ~ additive_expression__yield | ">>>" ~ additive_expression__yield)*
+    additive_expression__yield ~ (s~ ("<<" ~s~ additive_expression__yield | ">>" ~s~ additive_expression__yield | ">>>" ~s~ additive_expression__yield))*
 }
 relational_expression = {
-    shift_expression ~
-    ("<" ~ shift_expression
-    | ">" ~ shift_expression
-    | "<=" ~ shift_expression
-    | ">=" ~ shift_expression
-    | "instanceof" ~ shift_expression)*
+    shift_expression ~(s~
+        ("<" ~s~ shift_expression
+        | ">" ~s~ shift_expression
+        | "<=" ~s~ shift_expression
+        | ">=" ~s~ shift_expression
+        | "instanceof" ~s~ shift_expression))*
 }
 relational_expression__in = {
-    shift_expression ~
-    ("<" ~ shift_expression
-    | ">" ~ shift_expression
-    | "<=" ~ shift_expression
-    | ">=" ~ shift_expression
-    | "instanceof" ~ shift_expression
-    | "in" ~ shift_expression)*
+    shift_expression ~(s~
+        ("<" ~s~ shift_expression
+        | ">" ~s~ shift_expression
+        | "<=" ~s~ shift_expression
+        | ">=" ~s~ shift_expression
+        | "instanceof" ~s~ shift_expression
+        | "in" ~s~ shift_expression))*
 }
 relational_expression__yield = {
-    shift_expression__yield ~
-    ("<" ~ shift_expression__yield
-    | ">" ~ shift_expression__yield
-    | "<=" ~ shift_expression__yield
-    | ">=" ~ shift_expression__yield
-    | "instanceof" ~ shift_expression__yield)*
+    shift_expression__yield ~(s~
+        ("<" ~s~ shift_expression__yield
+        | ">" ~s~ shift_expression__yield
+        | "<=" ~s~ shift_expression__yield
+        | ">=" ~s~ shift_expression__yield
+        | "instanceof" ~s~ shift_expression__yield))*
 }
 relational_expression__in_yield = {
-    shift_expression__yield ~
-    ("<" ~ shift_expression__yield
-    | ">" ~ shift_expression__yield
-    | "<=" ~ shift_expression__yield
-    | ">=" ~ shift_expression__yield
-    | "instanceof" ~ shift_expression__yield
-    | "in" ~ shift_expression__yield)*
+    shift_expression__yield ~(s~
+        ("<" ~s~ shift_expression__yield
+        | ">" ~s~ shift_expression__yield
+        | "<=" ~s~ shift_expression__yield
+        | ">=" ~s~ shift_expression__yield
+        | "instanceof" ~s~ shift_expression__yield
+        | "in" ~s~ shift_expression__yield))*
 }
 equality_expression = {
-    relational_expression ~
-    ("==" ~ relational_expression
-    | "!=" ~ relational_expression
-    | "===" ~ relational_expression
-    | "!==" ~ relational_expression)*
+    relational_expression ~(s~
+        ("==" ~s~ relational_expression
+        | "!=" ~s~ relational_expression
+        | "===" ~s~ relational_expression
+        | "!==" ~s~ relational_expression))*
 }
 equality_expression__in = {
-    relational_expression__in ~
-    ("==" ~ relational_expression__in
-    | "!=" ~ relational_expression__in
-    | "===" ~ relational_expression__in
-    | "!==" ~ relational_expression__in)*
+    relational_expression__in ~(s~
+        ("==" ~s~ relational_expression__in
+        | "!=" ~s~ relational_expression__in
+        | "===" ~s~ relational_expression__in
+        | "!==" ~s~ relational_expression__in))*
 }
 equality_expression__yield = {
-    relational_expression__yield ~
-    ("==" ~ relational_expression__yield
-    | "!=" ~ relational_expression__yield
-    | "===" ~ relational_expression__yield
-    | "!==" ~ relational_expression__yield)*
+    relational_expression__yield ~(s~
+        ("==" ~s~ relational_expression__yield
+        | "!=" ~s~ relational_expression__yield
+        | "===" ~s~ relational_expression__yield
+        | "!==" ~s~ relational_expression__yield))*
 }
 equality_expression__in_yield = {
-    relational_expression__in_yield ~
-    ("==" ~ relational_expression__in_yield
-    | "!=" ~ relational_expression__in_yield
-    | "===" ~ relational_expression__in_yield
-    | "!==" ~ relational_expression__in_yield)*
+    relational_expression__in_yield ~(s~
+        ("==" ~s~ relational_expression__in_yield
+        | "!=" ~s~ relational_expression__in_yield
+        | "===" ~s~ relational_expression__in_yield
+        | "!==" ~s~ relational_expression__in_yield))*
 }
 bitwise_and_expression = {
-    equality_expression ~ ("&" ~ equality_expression)*
+    equality_expression ~ (s~ "&" ~s~ equality_expression)*
 }
 bitwise_and_expression__in = {
-    equality_expression__in ~ ( "&" ~ equality_expression__in)*
+    equality_expression__in ~ (s~ "&" ~s~ equality_expression__in)*
 }
 bitwise_and_expression__yield = {
-    equality_expression__yield ~ ("&" ~ equality_expression__yield)*
+    equality_expression__yield ~ (s~ "&" ~s~ equality_expression__yield)*
 }
 bitwise_and_expression__in_yield = {
-    equality_expression__in_yield ~ ("&" ~ equality_expression__in_yield)*
+    equality_expression__in_yield ~ (s~ "&" ~s~ equality_expression__in_yield)*
 }
 bitwise_xor_expression = {
-    bitwise_and_expression ~ ("^" ~ bitwise_and_expression)*
+    bitwise_and_expression ~ (s~ "^" ~s~ bitwise_and_expression)*
 }
 bitwise_xor_expression__in = {
-    bitwise_and_expression__in ~ ("^" ~ bitwise_and_expression__in)*
+    bitwise_and_expression__in ~ (s~ "^" ~s~ bitwise_and_expression__in)*
 }
 bitwise_xor_expression__yield = {
-    bitwise_and_expression__yield ~ ("^" ~ bitwise_and_expression__yield)*
+    bitwise_and_expression__yield ~ (s~ "^" ~s~ bitwise_and_expression__yield)*
 }
 bitwise_xor_expression__in_yield = {
-    bitwise_and_expression__in_yield ~ ("^" ~ bitwise_and_expression__in_yield)*
+    bitwise_and_expression__in_yield ~ (s~ "^" ~s~ bitwise_and_expression__in_yield)*
 }
 bitwise_or_expression = {
-    bitwise_xor_expression ~ ("|" ~ bitwise_xor_expression)*
+    bitwise_xor_expression ~ (s~ "|" ~s~ bitwise_xor_expression)*
 }
 bitwise_or_expression__in = {
-    bitwise_xor_expression__in ~ ("|" ~ bitwise_xor_expression__in)*
+    bitwise_xor_expression__in ~ (s~ "|" ~ s~bitwise_xor_expression__in)*
 }
 bitwise_or_expression__yield = {
-    bitwise_xor_expression__yield ~ ("|" ~ bitwise_xor_expression__yield)*
+    bitwise_xor_expression__yield ~ (s~ "|" ~s~ bitwise_xor_expression__yield)*
 }
 bitwise_or_expression__in_yield = {
-    bitwise_xor_expression__in_yield ~ ("|" ~ bitwise_xor_expression__in_yield)*
+    bitwise_xor_expression__in_yield ~ (s~ "|" ~s~ bitwise_xor_expression__in_yield)*
 }
 logical_and_expression = {
-    bitwise_or_expression ~ ("&&" ~ bitwise_or_expression)*
+    bitwise_or_expression ~ (s~ "&&" ~s~ bitwise_or_expression)*
 }
 logical_and_expression__in = {
-    bitwise_or_expression__in ~ ("&&" ~ bitwise_or_expression__in)*
+    bitwise_or_expression__in ~ (s~ "&&" ~s~s~ bitwise_or_expression__in)*
 }
 logical_and_expression__yield = {
-    bitwise_or_expression__yield ~ ("&&" ~ bitwise_or_expression__yield)*
+    bitwise_or_expression__yield ~ (s~ "&&" ~s~ bitwise_or_expression__yield)*
 }
 logical_and_expression__in_yield = {
-    bitwise_or_expression__in_yield ~ ("&&" ~ bitwise_or_expression__in_yield)*
+    bitwise_or_expression__in_yield ~ (s~ "&&" ~s~ bitwise_or_expression__in_yield)*
 }
 logical_or_expression = {
-    logical_and_expression ~ ("||" ~ logical_and_expression)*
+    logical_and_expression ~ (s~ "||" ~s~ logical_and_expression)*
 }
 logical_or_expression__in = {
-    logical_and_expression__in ~ ("||" ~ logical_and_expression__in)*
+    logical_and_expression__in ~ (s~ "||" ~s~ logical_and_expression__in)*
 }
 logical_or_expression__yield = {
-    logical_and_expression__yield ~ ("||" ~ logical_and_expression__yield)*
+    logical_and_expression__yield ~ (s~ "||" ~s~ logical_and_expression__yield)*
 }
 logical_or_expression__in_yield = {
-    logical_and_expression__in_yield ~ ("||" ~ logical_and_expression__in_yield)*
+    logical_and_expression__in_yield ~ (s~ "||" ~s~ logical_and_expression__in_yield)*
 }
 conditional_expression = {
-    logical_or_expression ~ "?" ~ assignment_expression__in ~ ":" ~ assignment_expression
+    logical_or_expression ~ "?" ~s~ assignment_expression__in ~s~ ":" ~s~ assignment_expression
     | logical_or_expression
 }
 conditional_expression__in = {
-    logical_or_expression__in ~ "?" ~ assignment_expression__in ~ ":" ~ assignment_expression__in
+    logical_or_expression__in ~s~ "?" ~s~ assignment_expression__in ~s~ ":" ~s~ assignment_expression__in
     | logical_or_expression__in
 }
 conditional_expression__yield = {
-    logical_or_expression__yield ~ "?" ~ assignment_expression__in_yield ~ ":" ~ assignment_expression__yield
+    logical_or_expression__yield ~s~ "?" ~s~ assignment_expression__in_yield ~s~ ":" ~s~ assignment_expression__yield
     | logical_or_expression__yield
 }
 conditional_expression__in_yield = {
-    logical_or_expression__in_yield ~ "?" ~ assignment_expression__in_yield ~ ":" ~ assignment_expression__in_yield
+    logical_or_expression__in_yield ~s~ "?" ~s~ assignment_expression__in_yield ~s~ ":" ~s~ assignment_expression__in_yield
     | logical_or_expression__in_yield
 }
 assignment_expression = {
     arrow_function
-    | left_hand_side_expression ~ "=" ~ assignment_expression
-    | left_hand_side_expression ~ assignment_operator ~ assignment_expression
+    | left_hand_side_expression ~s~ "=" ~s~ assignment_expression
+    | left_hand_side_expression ~s~ assignment_operator ~s~ assignment_expression
     | conditional_expression
 }
 assignment_expression__in = {
     arrow_function__in
-    | left_hand_side_expression ~ "=" ~ assignment_expression__in
-    | left_hand_side_expression ~ assignment_operator ~ assignment_expression__in
+    | left_hand_side_expression ~s~ "=" ~s~ assignment_expression__in
+    | left_hand_side_expression ~s~ assignment_operator ~s~ assignment_expression__in
     | conditional_expression__in
 }
 assignment_expression__yield = {
     arrow_function__yield
-    | left_hand_side_expression__yield ~ "=" ~ assignment_expression__yield
-    | left_hand_side_expression__yield ~ assignment_operator ~ assignment_expression__yield
+    | left_hand_side_expression__yield ~s~ "=" ~s~ assignment_expression__yield
+    | left_hand_side_expression__yield ~s~ assignment_operator ~s~ assignment_expression__yield
     | yield_expression
     | conditional_expression__yield
 }
 assignment_expression__in_yield = {
     arrow_function__in_yield
-    | left_hand_side_expression__yield ~ "=" ~ assignment_expression__in_yield
-    | left_hand_side_expression__yield ~ assignment_operator ~ assignment_expression__in_yield
+    | left_hand_side_expression__yield ~s~ "=" ~s~ assignment_expression__in_yield
+    | left_hand_side_expression__yield ~s~ assignment_operator ~s~ assignment_expression__in_yield
     | yield_expression__in
     | conditional_expression__in
 }
 assignment_operator = {
     "*=" | "/=" | "%=" | "+=" | "-=" | "<<=" | ">>=" | ">>>=" | "&=" | "^=" | "|="
 }
-expression = { assignment_expression ~ ("," ~ assignment_expression)* }
-expression__in = { assignment_expression__in ~ ("," ~ assignment_expression__in)* }
-expression__yield = { assignment_expression__yield ~ ("," ~ assignment_expression__yield)* }
-expression__in_yield = { assignment_expression__in_yield ~ ("," ~ assignment_expression__in_yield)* }
+expression = { assignment_expression ~ (s~ "," ~s~ assignment_expression)* }
+expression__in = { assignment_expression__in ~ (s~ "," ~s~ assignment_expression__in)* }
+expression__yield = { assignment_expression__yield ~ (s~ "," ~s~ assignment_expression__yield)* }
+expression__in_yield = { assignment_expression__in_yield ~ (s~ "," ~s~ assignment_expression__in_yield)* }
 statement = _{
     continue_statement
     | break_statement
@@ -622,51 +625,51 @@ block_statement = { block }
 block_statement__yield = { block__yield }
 block_statement__return = { block__return }
 block_statement__yield_return = { block__yield_return }
-block = { "{" ~ statement_list? ~ "}" }
-block__yield = { "{" ~ statement_list__yield? ~ "}" }
-block__return = { "{" ~ statement_list__return? ~ "}" }
-block__yield_return = { "{" ~ statement_list__yield_return? ~ "}" }
-statement_list = _{ statement_list_item+ }
-statement_list__yield = _{ statement_list_item__yield+ }
-statement_list__return = _{ statement_list_item__return+ }
-statement_list__yield_return = _{ statement_list_item__yield_return+ }
-statement_list_item = _{ statement | declaration }
-statement_list_item__yield = { statement__yield | declaration__yield }
-statement_list_item__return = { statement__return | declaration }
-statement_list_item__yield_return = { statement__yield_return | declaration__yield }
-smart_semicolon = { ";" | line_terminator }
+block = { "{" ~s~ statement_list? ~s~ "}" }
+block__yield = { "{" ~s~ statement_list__yield? ~s~ "}" }
+block__return = { "{" ~s~ statement_list__return? ~s~ "}" }
+block__yield_return = { "{" ~s~ statement_list__yield_return? ~s~ "}" }
+statement_list = _{ (s~ statement_list_item)+ }
+statement_list__yield = _{ (s~ statement_list_item__yield)+ }
+statement_list__return = _{ (s~ statement_list_item__return)+ }
+statement_list__yield_return = _{ (s~ statement_list_item__yield_return)+ }
+statement_list_item = _{ declaration | statement }
+statement_list_item__yield = _{ declaration__yield | statement__yield }
+statement_list_item__return = _{ declaration | statement__return }
+statement_list_item__yield_return = _{ declaration__yield | statement__yield_return }
+smart_semicolon = @{ ";" | &"}" | line_terminator | ";" ~ line_terminator | single_line_comment | &EOI }
 lexical_declaration = { let_or_const ~ binding_list ~ smart_semicolon}
 lexical_declaration__in = { let_or_const ~ binding_list__in ~ smart_semicolon}
 lexical_declaration__yield = { let_or_const ~ binding_list__yield ~ smart_semicolon}
 lexical_declaration__in_yield = { let_or_const ~ binding_list__in_yield ~ smart_semicolon}
 let_or_const = { "let" | "const" }
 binding_list = {
-    lexical_binding ~ ("," ~ lexical_binding)*
+    lexical_binding ~ (s~ "," ~s~ lexical_binding)*
 }
 binding_list__in = {
-    lexical_binding__in ~ ("," ~ lexical_binding__in)*
+    lexical_binding__in ~ (s~ "," ~s~ lexical_binding__in)*
 }
 binding_list__yield = {
-    lexical_binding__yield ~ ("," ~ lexical_binding__yield)*
+    lexical_binding__yield ~ (s~ "," ~s~ lexical_binding__yield)*
 }
 binding_list__in_yield = {
-    lexical_binding__in_yield ~ ("," ~ lexical_binding__in_yield)*
+    lexical_binding__in_yield ~ (s~ "," ~s~ lexical_binding__in_yield)*
 }
 lexical_binding = {
-    binding_identifier ~ initializer?
-    | binding_pattern ~ initializer
+    binding_identifier ~s~ initializer?
+    | binding_pattern ~s~ initializer
 }
 lexical_binding__in = {
-    binding_identifier ~ initializer__in?
-    | binding_pattern ~ initializer__in
+    binding_identifier ~s~ initializer__in?
+    | binding_pattern ~s~ initializer__in
 }
 lexical_binding__yield = {
-    binding_identifier__yield ~ initializer__yield?
-    | binding_pattern__yield ~ initializer__yield
+    binding_identifier__yield ~s~ initializer__yield?
+    | binding_pattern__yield ~s~ initializer__yield
 }
 lexical_binding__in_yield = {
-    binding_identifier__yield ~ initializer__in_yield?
-    | binding_pattern__yield ~ initializer__in_yield
+    binding_identifier__yield ~s~ initializer__in_yield?
+    | binding_pattern__yield ~s~ initializer__in_yield
 }
 variable_statement = {
     "var" ~ variable_declaration_list__in ~ smart_semicolon
@@ -675,147 +678,147 @@ variable_statement__yield = {
     "var" ~ variable_declaration_list__in_yield ~ smart_semicolon
 }
 variable_declaration_list = _{
-    variable_declaration ~ ("," ~ variable_declaration)*
+    variable_declaration ~ (s~ "," ~s~ variable_declaration)*
 }
 variable_declaration_list__in = _{
-    variable_declaration__in ~ ("," ~ variable_declaration__in)*
+    variable_declaration__in ~ (s~ "," ~s~ variable_declaration__in)*
 }
 variable_declaration_list__yield = _{
-    variable_declaration__yield ~ ("," ~ variable_declaration__yield)*
+    variable_declaration__yield ~ (s~ "," ~s~ variable_declaration__yield)*
 }
 variable_declaration_list__in_yield = _{
-    variable_declaration__in_yield ~ ("," ~ variable_declaration__in_yield)*
+    variable_declaration__in_yield ~ (s~ "," ~s~ variable_declaration__in_yield)*
 }
 variable_declaration = {
-    binding_identifier ~ initializer?
-    | binding_pattern ~ initializer
+    binding_identifier ~ (s~ initializer)?
+    | binding_pattern ~s~ initializer
 }
 variable_declaration__in = {
-    binding_identifier ~ initializer__in?
-    | binding_pattern ~ initializer__in
+    binding_identifier ~ (s~ initializer__in)?
+    | binding_pattern ~s~ initializer__in
 }
 variable_declaration__yield = {
-    binding_identifier__yield ~ initializer__yield?
-    | binding_pattern__yield ~ initializer__yield
+    binding_identifier__yield ~ (s~ initializer__yield)?
+    | binding_pattern__yield ~s~ initializer__yield
 }
 variable_declaration__in_yield = {
-    binding_identifier__yield ~ initializer__in_yield?
-    | binding_pattern__yield ~ initializer__in_yield
+    binding_identifier__yield ~ (s~ initializer__in_yield)?
+    | binding_pattern__yield ~s~ initializer__in_yield
 }
 binding_pattern = { object_binding_pattern | array_binding_pattern }
 binding_pattern__yield = { object_binding_pattern__yield | array_binding_pattern__yield }
 object_binding_pattern = {
-    "{" ~ "}"
-    | "{" ~ binding_property_list ~ "}"
-    | "{" ~ binding_property_list ~ "," ~ "}"
+    "{" ~s~ "}"
+    | "{" ~s~ binding_property_list ~s~ "}"
+    | "{" ~s~ binding_property_list ~s~ "," ~s~ "}"
 }
 object_binding_pattern__yield = {
-    "{" ~ "}"
-    | "{" ~ binding_property_list__yield ~ "}"
-    | "{" ~ binding_property_list__yield ~ "," ~ "}"
+    "{" ~s~ "}"
+    | "{" ~s~ binding_property_list__yield ~s~ "}"
+    | "{" ~s~ binding_property_list__yield ~s~ "," ~s~ "}"
 }
 array_binding_pattern = {
-    "[" ~ elision? ~ binding_rest_element? ~ "]"
-    | "[" ~ binding_element_list ~ "]"
-    | "[" ~ binding_element_list ~ "," ~ elision? ~ binding_rest_element? ~ "]"
+    "[" ~s~ elision? ~s~ binding_rest_element? ~s~ "]"
+    | "[" ~s~ binding_element_list ~s~ "]"
+    | "[" ~s~ binding_element_list ~s~ "," ~s~ elision? ~s~ binding_rest_element? ~s~ "]"
 }
 array_binding_pattern__yield = {
-    "[" ~ elision? ~ binding_rest_element__yield? ~ "]"
-    | "[" ~ binding_element_list__yield ~ "]"
-    | "[" ~ binding_element_list__yield ~ "," ~ elision? ~ binding_rest_element__yield? ~ "]"
+    "[" ~s~ elision? ~s~ binding_rest_element__yield? ~s~ "]"
+    | "[" ~s~ binding_element_list__yield ~s~ "]"
+    | "[" ~s~ binding_element_list__yield ~s~ "," ~s~ elision? ~s~ binding_rest_element__yield? ~s~ "]"
 }
 binding_property_list = {
-    binding_property ~ ("," ~ binding_property)*
+    binding_property ~ (s~ "," ~s~ binding_property)*
 }
 binding_property_list__yield = {
-    binding_property__yield ~ ("," ~ binding_property__yield)*
+    binding_property__yield ~ (s~ "," ~s~ binding_property__yield)*
 }
 binding_element_list = {
-    binding_elision_element ~ ("," ~ binding_elision_element)*
+    binding_elision_element ~ (s~ "," ~s~ binding_elision_element)*
 }
 binding_element_list__yield = {
-    binding_elision_element__yield ~ ("," ~ binding_elision_element__yield)*
+    binding_elision_element__yield ~ (s~ "," ~s~ binding_elision_element__yield)*
 }
-binding_elision_element = { elision? ~ binding_element }
-binding_elision_element__yield = { elision? ~ binding_element__yield }
-binding_property = { single_name_binding | property_name ~ ":" ~ binding_element }
-binding_property__yield = { single_name_binding__yield | property_name__yield ~ ":" ~ binding_element__yield }
+binding_elision_element = { elision? ~s~ binding_element }
+binding_elision_element__yield = { elision? ~s~ binding_element__yield }
+binding_property = { single_name_binding | property_name ~s~ ":" ~s~ binding_element }
+binding_property__yield = { single_name_binding__yield | property_name__yield ~s~ ":" ~s~ binding_element__yield }
 binding_element = { single_name_binding | binding_pattern ~ initializer__in? }
 binding_element__yield = { single_name_binding__yield | binding_pattern__yield ~ initializer__in_yield? }
 single_name_binding = { binding_identifier ~ initializer__in? }
 single_name_binding__yield = { binding_identifier__yield ~ initializer__in_yield? }
 binding_rest_element = { "..." ~ binding_identifier }
 binding_rest_element__yield = { "..." ~ binding_identifier__yield }
-empty_statement = { ";" }
+empty_statement = { ";" | line_terminator }
 expression_statement = { !("{" | "function" | "class" | "let"  ~ "[") ~ expression__in ~ smart_semicolon }
 expression_statement__yield = { !("{" | "function" | "class" | "let"  ~ "[") ~ expression__in_yield ~ smart_semicolon }
 if_statement = {
-    "if" ~ "(" ~ expression__in ~ ")" ~ statement ~ "else" ~ statement
-    | "if" ~ "(" ~ expression__in ~ ")" ~ statement
+    "if" ~s~ "(" ~s~ expression__in ~s~ ")" ~s~ statement ~s~ "else" ~s~ statement
+    | "if" ~s~ "(" ~s~ expression__in ~s~ ")" ~s~ statement
 }
 if_statement__yield = {
-    "if" ~ "(" ~ expression__in_yield ~ ")" ~ statement__yield ~ "else" ~ statement__yield
-    | "if" ~ "(" ~ expression__in_yield ~ ")" ~ statement__yield
+    "if" ~s~ "(" ~s~ expression__in_yield ~s~ ")" ~s~ statement__yield ~s~ "else" ~s~ statement__yield
+    | "if" ~s~ "(" ~s~ expression__in_yield ~s~ ")" ~s~ statement__yield
 }
 if_statement__return = {
-    "if" ~ "(" ~ expression__in ~ ")" ~ statement__return ~ "else" ~ statement__return
-    | "if" ~ "(" ~ expression__in ~ ")" ~ statement__return
+    "if" ~s~ "(" ~s~ expression__in ~s~ ")" ~s~ statement__return ~s~ "else" ~s~ statement__return
+    | "if" ~s~ "(" ~s~ expression__in ~s~ ")" ~s~ statement__return
 }
 if_statement__yield_return = {
-    "if" ~ "(" ~ expression__in_yield ~ ")" ~ statement__yield_return ~ "else" ~ statement__yield_return
-    | "if" ~ "(" ~ expression__in_yield ~ ")" ~ statement__yield_return
+    "if" ~s~ "(" ~s~ expression__in_yield ~s~ ")" ~s~ statement__yield_return ~s~ "else" ~s~ statement__yield_return
+    | "if" ~s~ "(" ~s~ expression__in_yield ~s~ ")" ~s~ statement__yield_return
 }
 iteration_statement = {
-    "do" ~ statement ~ "while" ~ "(" ~ expression__in ~ ")" ~ smart_semicolon
-    | "while" ~ "(" ~ expression__in ~ ")" ~ statement
-    | "for" ~ "(" ~ !("let" ~ "[") ~ expression? ~ ";" ~ expression__in? ~ ";" ~ expression__in? ~ ")" ~ statement
-    | "for" ~ "(" ~ "var" ~ variable_declaration_list ~ ";" ~ expression__in? ~ ";" ~ expression__in? ~ ")" ~ statement
-    | "for" ~ "(" ~ lexical_declaration ~ expression__in? ~ ";" ~ expression__in? ~ ")" ~ statement
-    | "for" ~ "(" ~ !("let" ~ "[") ~ left_hand_side_expression ~ "in" ~ expression__in ~ ")" ~ statement
-    | "for" ~ "(" ~ "var" ~ for_binding ~ "in" ~ expression__in ~ ")" ~ statement
-    | "for" ~ "(" ~ for_declaration ~ "in" ~ expression__in ~ ")" ~ statement
-    | "for" ~ "(" ~ !"let" ~ left_hand_side_expression ~ "of" ~ assignment_expression__in ~ ")" ~ statement
-    | "for" ~ "(" ~ "var" ~ for_binding ~ "of" ~ assignment_expression__in ~ ")" ~ statement
-    | "for" ~ "(" ~ for_declaration ~ "of" ~ assignment_expression__in ~ ")" ~ statement
+    "do" ~s~ statement ~s~ "while" ~s~ "(" ~s~ expression__in ~s~ ")" ~ smart_semicolon
+    | "while" ~s~ "(" ~s~ expression__in ~s~ ")" ~s~ statement
+    | "for" ~s~ "(" ~s~ !("let" ~ "[") ~s~ expression? ~s~ ";" ~s~ expression__in? ~s~ ";" ~s~ expression__in? ~s~ ")" ~s~ statement
+    | "for" ~s~ "(" ~s~ "var" ~s~ variable_declaration_list ~s~ ";" ~s~ expression__in? ~s~ ";" ~s~ expression__in? ~s~ ")" ~s~ statement
+    | "for" ~s~ "(" ~s~ lexical_declaration ~s~ expression__in? ~s~ ";" ~ expression__in? ~s~ ")" ~s~ statement
+    | "for" ~s~ "(" ~s~ !("let" ~ "[") ~ left_hand_side_expression ~ "in" ~s~ expression__in ~ ")" ~s~ statement
+    | "for" ~s~ "(" ~s~ "var" ~s~ for_binding ~s~ "in" ~s~ expression__in ~s~ ")" ~s~ statement
+    | "for" ~s~ "(" ~s~ for_declaration ~s~ "in" ~s~ expression__in ~s~ ")" ~s~ statement
+    | "for" ~s~ "(" ~s~ !"let" ~ left_hand_side_expression ~s~ "of" ~s~ assignment_expression__in ~s~ ")" ~s~ statement
+    | "for" ~s~ "(" ~s~ "var" ~s~ for_binding ~s~ "of" ~s~ assignment_expression__in ~s~ ")" ~s~ statement
+    | "for" ~s~ "(" ~s~ for_declaration ~s~ "of" ~s~ assignment_expression__in ~s~ ")" ~s~ statement
 }
 iteration_statement__yield = {
-    "do" ~ statement__yield ~ "while" ~ "(" ~ expression__in_yield ~ ")" ~ smart_semicolon
-    | "while" ~ "(" ~ expression__in_yield ~ ")" ~ statement__yield
-    | "for" ~ "(" ~ !("let" ~ "[") ~ expression__yield? ~ ";" ~ expression__in_yield? ~ ";" ~ expression__in_yield? ~ ")" ~ statement__yield
-    | "for" ~ "(" ~ "var" ~ variable_declaration_list__yield ~ ";" ~ expression__in_yield? ~ ";" ~ expression__in_yield? ~ ")" ~ statement__yield
-    | "for" ~ "(" ~ lexical_declaration__yield ~ expression__in_yield? ~ ";" ~ expression__in_yield? ~ ")" ~ statement__yield
-    | "for" ~ "(" ~ !("let" ~ "[") ~ left_hand_side_expression__yield ~ "in" ~ expression__in_yield ~ ")" ~ statement__yield
-    | "for" ~ "(" ~ "var" ~ for_binding__yield ~ "in" ~ expression__in_yield ~ ")" ~ statement__yield
-    | "for" ~ "(" ~ for_declaration__yield ~ "in" ~ expression__in_yield ~ ")" ~ statement__yield
-    | "for" ~ "(" ~ !"let" ~ left_hand_side_expression__yield ~ "of" ~ assignment_expression__in_yield ~ ")" ~ statement__yield
-    | "for" ~ "(" ~ "var" ~ for_binding__yield ~ "of" ~ assignment_expression__in_yield ~ ")" ~ statement__yield
-    | "for" ~ "(" ~ for_declaration__yield ~ "of" ~ assignment_expression__in_yield ~ ")" ~ statement__yield
+    "do" ~s~ statement__yield ~s~ "while" ~s~ "(" ~s~ expression__in_yield ~s~ ")" ~ smart_semicolon
+    | "while" ~s~ "(" ~s~ expression__in_yield ~s~ ")" ~s~ statement__yield
+    | "for" ~s~ "(" ~s~ !("let" ~ "[") ~s~ expression__yield? ~s~ ";" ~s~ expression__in_yield? ~s~ ";" ~s~ expression__in_yield? ~s~ ")" ~s~ statement__yield
+    | "for" ~s~ "(" ~s~ "var" ~s~ variable_declaration_list__yield ~s~ ";" ~s~ expression__in_yield? ~s~ ";" ~s~ expression__in_yield? ~s~ ")" ~s~ statement__yield
+    | "for" ~s~ "(" ~s~ lexical_declaration__yield ~s~ expression__in_yield? ~s~ ";" ~s~ expression__in_yield? ~s~ ")" ~s~ statement__yield
+    | "for" ~s~ "(" ~s~ !("let" ~ "[") ~ left_hand_side_expression__yield ~s~ "in" ~s~ expression__in_yield ~s~ ")" ~s~ statement__yield
+    | "for" ~s~ "(" ~s~ "var" ~s~ for_binding__yield ~s~ "in" ~s~ expression__in_yield ~s~ ")" ~s~ statement__yield
+    | "for" ~s~ "(" ~s~ for_declaration__yield ~s~ "in" ~s~ expression__in_yield ~s~ ")" ~s~ statement__yield
+    | "for" ~s~ "(" ~s~ !"let" ~ left_hand_side_expression__yield ~s~ "of" ~s~ assignment_expression__in_yield ~s~ ")" ~s~ statement__yield
+    | "for" ~s~ "(" ~s~ "var" ~s~ for_binding__yield ~s~ "of" ~s~ assignment_expression__in_yield ~s~ ")" ~s~ statement__yield
+    | "for" ~s~ "(" ~s~ for_declaration__yield ~s~ "of" ~s~ assignment_expression__in_yield ~s~ ")" ~s~ statement__yield
 }
 iteration_statement__return = {
-    "do" ~ statement__return ~ "while" ~ "(" ~ expression__in ~ ")" ~ smart_semicolon
-    | "while" ~ "(" ~ expression__in ~ ")" ~ statement__return
-    | "for" ~ "(" ~ !("let" ~ "[") ~ expression? ~ ";" ~ expression__in? ~ ";" ~ expression__in? ~ ")" ~ statement__return
-    | "for" ~ "(" ~ "var" ~ variable_declaration_list ~ ";" ~ expression__in? ~ ";" ~ expression__in? ~ ")" ~ statement__return
-    | "for" ~ "(" ~ lexical_declaration ~ expression__in? ~ ";" ~ expression__in? ~ ")" ~ statement__return
-    | "for" ~ "(" ~ !("let" ~ "[") ~ left_hand_side_expression ~ "in" ~ expression__in ~ ")" ~ statement__return
-    | "for" ~ "(" ~ "var" ~ for_binding ~ "in" ~ expression__in ~ ")" ~ statement__return
-    | "for" ~ "(" ~ for_declaration ~ "in" ~ expression__in ~ ")" ~ statement__return
-    | "for" ~ "(" ~ !"let" ~ left_hand_side_expression ~ "of" ~ assignment_expression__in ~ ")" ~ statement__return
-    | "for" ~ "(" ~ "var" ~ for_binding ~ "of" ~ assignment_expression__in ~ ")" ~ statement__return
-    | "for" ~ "(" ~ for_declaration ~ "of" ~ assignment_expression__in ~ ")" ~ statement__return
+    "do" ~s~ statement__return ~s~ "while" ~s~ "(" ~s~ expression__in ~s~ ")" ~ smart_semicolon
+    | "while" ~s~ "(" ~s~ expression__in ~s~ ")" ~s~ statement__return
+    | "for" ~s~ "(" ~s~ !("let" ~ "[") ~s~ expression? ~s~ ";" ~s~ expression__in? ~s~ ";" ~s~ expression__in? ~s~ ")" ~s~ statement__return
+    | "for" ~s~ "(" ~s~ "var" ~s~ variable_declaration_list ~s~ ";" ~s~ expression__in? ~s~ ";" ~s~ expression__in? ~s~ ")" ~s~ statement__return
+    | "for" ~s~ "(" ~s~ lexical_declaration ~s~ expression__in? ~s~ ";" ~ expression__in? ~s~ ")" ~s~ statement__return
+    | "for" ~s~ "(" ~s~ !("let" ~ "[") ~ left_hand_side_expression ~s~ "in" ~s~ expression__in ~s~ ")" ~s~ statement__return
+    | "for" ~s~ "(" ~s~ "var" ~s~ for_binding ~s~ "in" ~s~ expression__in ~s~ ")" ~s~ statement__return
+    | "for" ~s~ "(" ~s~ for_declaration ~s~ "in" ~s~ expression__in ~s~ ")" ~s~ statement__return
+    | "for" ~s~ "(" ~s~ !"let" ~ left_hand_side_expression ~s~ "of" ~s~ assignment_expression__in ~s~ ")" ~s~ statement__return
+    | "for" ~s~ "(" ~s~ "var" ~s~ for_binding ~s~ "of" ~s~ assignment_expression__in ~s~ ")" ~s~ statement__return
+    | "for" ~s~ "(" ~s~ for_declaration ~s~ "of" ~s~ assignment_expression__in ~s~ ")" ~s~ statement__return
 }
 iteration_statement__yield_return = {
-    "do" ~ statement__yield_return ~ "while" ~ "(" ~ expression__in_yield ~ ")" ~ smart_semicolon
-    | "while" ~ "(" ~ expression__in_yield ~ ")" ~ statement__yield_return
-    | "for" ~ "(" ~ !("let" ~ "[") ~ expression__yield? ~ ";" ~ expression__in_yield? ~ ";" ~ expression__in_yield? ~ ")" ~ statement__yield_return
-    | "for" ~ "(" ~ "var" ~ variable_declaration_list__yield ~ ";" ~ expression__in_yield? ~ ";" ~ expression__in_yield? ~ ")" ~ statement__yield_return
-    | "for" ~ "(" ~ lexical_declaration__yield ~ expression__in_yield? ~ ";" ~ expression__in_yield? ~ ")" ~ statement__yield_return
-    | "for" ~ "(" ~ !("let" ~ "[") ~ left_hand_side_expression__yield ~ "in" ~ expression__in_yield ~ ")" ~ statement__yield_return
-    | "for" ~ "(" ~ "var" ~ for_binding__yield ~ "in" ~ expression__in_yield ~ ")" ~ statement__yield_return
-    | "for" ~ "(" ~ for_declaration__yield ~ "in" ~ expression__in_yield ~ ")" ~ statement__yield_return
-    | "for" ~ "(" ~ !"let" ~ left_hand_side_expression__yield ~ "of" ~ assignment_expression__in_yield ~ ")" ~ statement__yield_return
-    | "for" ~ "(" ~ "var" ~ for_binding__yield ~ "of" ~ assignment_expression__in_yield ~ ")" ~ statement__yield_return
-    | "for" ~ "(" ~ for_declaration__yield ~ "of" ~ assignment_expression__in_yield ~ ")" ~ statement__yield_return
+    "do" ~s~ statement__yield_return ~s~ "while" ~s~ "(" ~s~ expression__in_yield ~s~ ")" ~ smart_semicolon
+    | "while" ~s~ "(" ~s~ expression__in_yield ~s~ ")" ~s~ statement__yield_return
+    | "for" ~s~ "(" ~s~ !("let" ~ "[") ~ expression__yield? ~s~ ";" ~s~ expression__in_yield? ~s~ ";" ~s~ expression__in_yield? ~s~ ")" ~s~ statement__yield_return
+    | "for" ~s~ "(" ~s~ "var" ~s~ variable_declaration_list__yield ~ ";" ~s~ expression__in_yield? ~s~ ";" ~s~ expression__in_yield? ~ ")" ~s~ statement__yield_return
+    | "for" ~s~ "(" ~s~ lexical_declaration__yield ~s~ expression__in_yield? ~s~ ";" ~s~ expression__in_yield? ~s~ ")" ~s~ statement__yield_return
+    | "for" ~s~ "(" ~s~ !("let" ~ "[") ~ left_hand_side_expression__yield ~s~ "in" ~s~ expression__in_yield ~ ")" ~s~ statement__yield_return
+    | "for" ~s~ "(" ~s~ "var" ~s~ for_binding__yield ~s~ "in" ~s~ expression__in_yield ~s~ ")" ~s~ statement__yield_return
+    | "for" ~s~ "(" ~s~ for_declaration__yield ~s~ "in" ~s~ expression__in_yield ~s~ ")" ~s~ statement__yield_return
+    | "for" ~s~ "(" ~s~ !"let" ~ left_hand_side_expression__yield ~s~ "of" ~s~ assignment_expression__in_yield ~s~ ")" ~s~ statement__yield_return
+    | "for" ~s~ "(" ~s~ "var" ~s~ for_binding__yield ~ "of" ~s~ assignment_expression__in_yield ~s~ ")" ~s~ statement__yield_return
+    | "for" ~s~ "(" ~s~ for_declaration__yield ~s~ "of" ~s~ assignment_expression__in_yield ~s~ ")" ~s~ statement__yield_return
 }
 for_declaration = { let_or_const ~ for_binding }
 for_declaration__yield = { let_or_const ~ for_binding__yield }
@@ -827,42 +830,42 @@ break_statement = { "break" ~ !line_terminator ~ label_identifier ~ smart_semico
 break_statement__yield = { "break" ~ !line_terminator ~ label_identifier__yield ~ smart_semicolon | "break" ~ smart_semicolon }
 return_statement = { "return" ~ !line_terminator ~ expression__in ~ smart_semicolon | "return" ~ smart_semicolon }
 return_statement__yield = { "return" ~ !line_terminator ~ expression__in ~ smart_semicolon | "return" ~ smart_semicolon }
-with_statement = { "with"  ~ "(" ~ expression__in ~ ")" ~ statement }
-with_statement__yield = { "with"  ~ "(" ~ expression__in_yield ~ ")" ~ statement__yield }
-with_statement__return = { "with"  ~ "(" ~ expression__in ~ ")" ~ statement__return }
-with_statement__yield_return = { "with"  ~ "(" ~ expression__in_yield ~ ")" ~ statement__yield_return }
-switch_statement = { "switch" ~ "(" ~ expression__in ~ ")" ~ case_block }
-switch_statement__yield = { "switch" ~ "(" ~ expression__in_yield ~ ")" ~ case_block__yield }
-switch_statement__return = { "switch" ~ "(" ~ expression__in ~ ")" ~ case_block__return }
-switch_statement__yield_return = { "switch" ~ "(" ~ expression__in_yield ~ ")" ~ case_block__yield_return }
+with_statement = { "with"  ~s~ "(" ~s~ expression__in ~s~ ")" ~s~ statement }
+with_statement__yield = { "with"  ~s~ "(" ~s~ expression__in_yield ~s~ ")" ~s~ statement__yield }
+with_statement__return = { "with"  ~s~ "(" ~s~ expression__in ~s~ ")" ~s~ statement__return }
+with_statement__yield_return = { "with"  ~s~ "(" ~s~ expression__in_yield ~s~ ")" ~s~ statement__yield_return }
+switch_statement = { "switch" ~s~ "(" ~s~ expression__in ~s~ ")" ~s~ case_block }
+switch_statement__yield = { "switch" ~s~ "(" ~s~ expression__in_yield ~s~ ")" ~s~ case_block__yield }
+switch_statement__return = { "switch" ~s~ "(" ~s~ expression__in ~s~ ")" ~s~ case_block__return }
+switch_statement__yield_return = { "switch" ~s~ "(" ~s~ expression__in_yield ~s~s~ ")" ~s~ case_block__yield_return }
 case_block = {
-    "{" ~ case_clauses? ~ "}"
-    | "{" ~ case_clauses? ~ default_clause ~ case_clauses? ~ "}"
+    "{" ~s~ case_clauses? ~s~ "}"
+    | "{" ~s~ case_clauses? ~s~ default_clause ~s~ case_clauses? ~s~ "}"
 }
 case_block__yield = {
-    "{" ~ case_clauses__yield? ~ "}"
-    | "{" ~ case_clauses__yield? ~ default_clause__yield ~ case_clauses__yield? ~ "}"
+    "{" ~s~ case_clauses__yield? ~s~ "}"
+    | "{" ~s~ case_clauses__yield? ~s~ default_clause__yield ~s~ case_clauses__yield? ~s~ "}"
 }
 case_block__return = {
-    "{" ~ case_clauses__return? ~ "}"
-    | "{" ~ case_clauses__return? ~ default_clause__return ~ case_clauses__return? ~ "}"
+    "{" ~s~ case_clauses__return? ~s~ "}"
+    | "{" ~s~ case_clauses__return? ~s~ default_clause__return ~s~ case_clauses__return? ~s~ "}"
 }
 case_block__yield_return = {
-    "{" ~ case_clauses__yield_return? ~ "}"
-    | "{" ~ case_clauses__yield_return? ~ default_clause__yield_return ~ case_clauses__yield_return? ~ "}"
+    "{" ~s~ case_clauses__yield_return? ~s~ "}"
+    | "{" ~s~ case_clauses__yield_return? ~s~ default_clause__yield_return ~s~ case_clauses__yield_return? ~s~ "}"
 }
 case_clauses = { case_clause+ }
 case_clauses__yield = { case_clause__yield+ }
 case_clauses__return = { case_clause__return+ }
 case_clauses__yield_return = { case_clause__yield_return+ }
-case_clause = { "case" ~ expression__in ~ ":" ~ statement_list? }
-case_clause__yield = { "case" ~ expression__in_yield ~ ":" ~ statement_list__yield? }
-case_clause__return = { "case" ~ expression__in ~ ":" ~ statement_list__return? }
-case_clause__yield_return = { "case" ~ expression__in_yield ~ ":" ~ statement_list__yield_return? }
-default_clause = { "default" ~ ":" ~ statement_list? }
-default_clause__yield = { "default" ~ ":" ~ statement_list__yield? }
-default_clause__return = { "default" ~ ":" ~ statement_list__return? }
-default_clause__yield_return = { "default" ~ ":" ~ statement_list__yield_return? }
+case_clause = { "case" ~s~ expression__in ~s~ ":" ~s~ statement_list? }
+case_clause__yield = { "case" ~s~ expression__in_yield ~s~ ":" ~s~ statement_list__yield? }
+case_clause__return = { "case" ~s~ expression__in ~s~ ":" ~s~ statement_list__return? }
+case_clause__yield_return = { "case" ~s~ expression__in_yield ~s~ ":" ~s~ statement_list__yield_return? }
+default_clause = { "default" ~s~ ":" ~s~ statement_list? }
+default_clause__yield = { "default" ~s~ ":" ~s~ statement_list__yield? }
+default_clause__return = { "default" ~s~ ":" ~s~ statement_list__return? }
+default_clause__yield_return = { "default" ~s~ ":" ~s~ statement_list__yield_return? }
 labelled_statement = { label_identifier ~ ":" ~ labelled_item }
 labelled_statement__yield = { label_identifier__yield ~ ":" ~ labelled_item__yield }
 labelled_statement__return = { label_identifier ~ ":" ~ labelled_item__return }
@@ -874,72 +877,72 @@ labelled_item__yield_return = { statement__yield_return | function_declaration__
 throw_statement = { "throw" ~ !line_terminator ~ expression__in ~ smart_semicolon }
 throw_statement__yield = { "throw" ~ !line_terminator ~ expression__in_yield ~ smart_semicolon }
 try_statement = {
-    "try" ~ block ~ catch ~ finally
-    | "try" ~ block ~ catch
-    | "try" ~ block ~ finally
+    "try" ~s~ block ~s~ catch ~s~ finally
+    | "try" ~s~ block ~s~ catch
+    | "try" ~s~ block ~s~ finally
 }
 try_statement__yield = {
-    "try" ~ block__yield ~ catch__yield ~ finally__yield
-    | "try" ~ block__yield ~ catch__yield
-    | "try" ~ block__yield ~ finally__yield
+    "try" ~s~ block__yield ~s~ catch__yield ~s~ finally__yield
+    | "try" ~s~ block__yield ~s~ catch__yield
+    | "try" ~s~ block__yield ~s~ finally__yield
 }
 try_statement__return = {
-    "try" ~ block__return ~ catch__return ~ finally__return
-    | "try" ~ block__return ~ catch__return
-    | "try" ~ block__return ~ finally__return
+    "try" ~s~ block__return ~s~ catch__return ~s~ finally__return
+    | "try" ~s~ block__return ~s~ catch__return
+    | "try" ~s~ block__return ~s~ finally__return
 }
 try_statement__yield_return = {
-    "try" ~ block__yield_return ~ catch__yield_return ~ finally__yield_return
-    | "try" ~ block__yield_return ~ catch__yield_return
-    | "try" ~ block__yield_return ~ finally__yield_return
+    "try" ~s~ block__yield_return ~s~ catch__yield_return ~s~ finally__yield_return
+    | "try" ~s~ block__yield_return ~s~ catch__yield_return
+    | "try" ~s~ block__yield_return ~s~ finally__yield_return
 }
-catch = { "catch" ~ "(" ~ catch_parameter ~ ")" ~ block }
-catch__yield = { "catch" ~ "(" ~ catch_parameter__yield ~ ")" ~ block__yield }
-catch__return = { "catch" ~ "(" ~ catch_parameter ~ ")" ~ block__return }
-catch__yield_return = { "catch" ~ "(" ~ catch_parameter__yield ~ ")" ~ block__yield_return }
-finally = { "finally" ~ block }
-finally__yield = { "finally" ~ block__yield }
-finally__return = { "finally" ~ block__return }
-finally__yield_return = { "finally" ~ block__yield_return }
+catch = { "catch" ~s~ "(" ~s~ catch_parameter ~s~ ")" ~s~ block }
+catch__yield = { "catch" ~s~ "(" ~s~ catch_parameter__yield ~s~ ")" ~s~ block__yield }
+catch__return = { "catch" ~s~ "(" ~s~ catch_parameter ~s~ ")" ~s~ block__return }
+catch__yield_return = { "catch" ~s~ "(" ~s~ catch_parameter__yield ~s~ ")" ~s~ block__yield_return }
+finally = { "finally" ~s~ block }
+finally__yield = { "finally" ~s~ block__yield }
+finally__return = { "finally" ~s~ block__return }
+finally__yield_return = { "finally" ~s~ block__yield_return }
 catch_parameter = { binding_identifier | binding_pattern }
 catch_parameter__yield = { binding_identifier__yield | binding_pattern__yield }
 debugger_statement = { "debugger" ~ smart_semicolon }
 function_declaration = {
-    "function" ~ binding_identifier ~ "(" ~ formal_parameters ~ ")" ~ "{" ~ function_body ~ "}"
+    "function" ~s~ binding_identifier ~s~ "(" ~s~ formal_parameters ~s~ ")" ~s~ "{" ~s~ function_body ~s~ "}"
 }
 function_declaration__yield = {
-    "function" ~ binding_identifier__yield ~ "(" ~ formal_parameters ~ ")" ~ "{" ~ function_body ~ "}"
+    "function" ~s~ binding_identifier__yield ~s~ "(" ~s~ formal_parameters ~s~ ")" ~s~ "{" ~s~ function_body ~s~ "}"
 }
 function_declaration__default = {
-    "function" ~ binding_identifier ~ "(" ~ formal_parameters ~ ")" ~ "{" ~ function_body ~ "}"
-    | "function" ~ "(" ~ formal_parameters ~ ")" ~ "{" ~ function_body ~ "}"
+    "function" ~s~ binding_identifier ~s~ "(" ~s~ formal_parameters ~s~ ")" ~s~ "{" ~s~ function_body ~s~ "}"
+    | "function" ~s~ "(" ~s~ formal_parameters ~s~ ")" ~s~ "{" ~s~ function_body ~s~ "}"
 }
 function_declaration__yield_default = {
-    "function" ~ binding_identifier__yield ~ "(" ~ formal_parameters ~ ")" ~ "{" ~ function_body ~ "}"
-    | "function" ~ "(" ~ formal_parameters ~ ")" ~ "{" ~ function_body ~ "}"
+    "function" ~s~ binding_identifier__yield ~s~ "(" ~s~ formal_parameters ~s~ ")" ~s~ "{" ~s~ function_body ~s~ "}"
+    | "function" ~s~ "(" ~s~ formal_parameters ~s~ ")" ~s~ "{" ~s~ function_body ~s~ "}"
 }
 function_expression = {
-    "function" ~ binding_identifier? ~ "(" ~ formal_parameters ~ ")" ~ "{" ~ function_body ~ "}"
+    "function" ~s~ binding_identifier? ~s~ "(" ~s~ formal_parameters ~s~ ")" ~s~ "{" ~s~ function_body ~s~ "}"
 }
-strict_formal_parameters = { formal_parameters }
-strict_formal_parameters__yield = { formal_parameters__yield }
+strict_formal_parameters = _{ formal_parameters }
+strict_formal_parameters__yield = _{ formal_parameters__yield }
 formal_parameters = { formal_parameter_list? }
 formal_parameters__yield = { formal_parameter_list__yield? }
-formal_parameter_list = {
+formal_parameter_list = _{
     function_rest_parameter
+    | formals_list ~s~ "," ~s~ function_rest_parameter
     | formals_list
-    | formals_list ~ "," ~ function_rest_parameter
 }
-formal_parameter_list__yield = {
+formal_parameter_list__yield = _{
     function_rest_parameter__yield
+    | formals_list__yield ~s~ "," ~s~ function_rest_parameter__yield
     | formals_list__yield
-    | formals_list__yield ~ "," ~ function_rest_parameter__yield
 }
-formals_list = {
-    formal_parameter ~ ("," ~ formal_parameter)*
+formals_list = _{
+    formal_parameter ~s~ ("," ~s~ formal_parameter)*
 }
-formals_list__yield = {
-    formal_parameter__yield ~ ("," ~ formal_parameter__yield)*
+formals_list__yield = _{
+    formal_parameter__yield ~s~ ("," ~s~ formal_parameter__yield)*
 }
 function_rest_parameter = { binding_rest_element }
 function_rest_parameter__yield = { binding_rest_element__yield }
@@ -947,19 +950,19 @@ formal_parameter = { binding_element }
 formal_parameter__yield = { binding_element__yield }
 function_body = { function_statement_list }
 function_body__yield = { function_statement_list__yield }
-function_statement_list = { statement_list__return? }
-function_statement_list__yield = { statement_list__yield_return? }
+function_statement_list = _{ statement_list__return? }
+function_statement_list__yield = _{ statement_list__yield_return? }
 arrow_function = {
-    arrow_parameters ~ !line_terminator ~ "=>" ~ concise_body
+    arrow_parameters ~ !line_terminator ~ "=>" ~s~ concise_body
 }
 arrow_function__in = {
-    arrow_parameters ~ !line_terminator ~ "=>" ~ concise_body__in
+    arrow_parameters ~ !line_terminator ~ "=>" ~s~ concise_body__in
 }
 arrow_function__yield = {
-    arrow_parameters__yield ~ !line_terminator ~ "=>" ~ concise_body
+    arrow_parameters__yield ~ !line_terminator ~ "=>" ~s~ concise_body
 }
 arrow_function__in_yield = {
-    arrow_parameters__yield ~ !line_terminator ~ "=>" ~ concise_body__in
+    arrow_parameters__yield ~ !line_terminator ~ "=>" ~s~ concise_body__in
 }
 arrow_parameters = {
     binding_identifier
@@ -978,42 +981,42 @@ concise_body__in = {
     | "{" ~ function_body ~ "}"
 }
 method_definition = {
-    property_name ~ "(" ~ strict_formal_parameters ~ ")" ~ "{" ~ function_body ~ "}"
-    | generator_method
-    | "get" ~ property_name ~ "(" ~ ")" ~ "{" ~ function_body ~ "}"
-    | "set" ~ property_name ~ "(" ~ property_set_parameter_list ~ ")" ~ "{" ~ function_body ~ "}"
+    generator_method
+    | "get" ~s~ property_name ~s~ "(" ~s~ ")" ~s~ "{" ~s~ function_body ~s~ "}"
+    | "set" ~s~ property_name ~s~ "(" ~s~ property_set_parameter_list ~s~ ")" ~s~ "{" ~s~ function_body ~s~ "}"
+    | property_name ~s~ "(" ~s~ strict_formal_parameters ~s~ ")" ~s~ "{" ~s~ function_body ~s~ "}"
 }
 method_definition__yield = {
-    property_name__yield ~ "(" ~ strict_formal_parameters ~ ")" ~ "{" ~ function_body ~ "}"
-    | generator_method__yield
-    | "get" ~ property_name__yield ~ "(" ~ ")" ~ "{" ~ function_body ~ "}"
-    | "set" ~ property_name__yield ~ "(" ~ property_set_parameter_list ~ ")" ~ "{" ~ function_body ~ "}"
+    generator_method__yield
+    | "get" ~s~ property_name__yield ~s~ "(" ~s~ ")" ~s~ "{" ~s~ function_body ~s~ "}"
+    | "set" ~s~ property_name__yield ~s~ "(" ~s~ property_set_parameter_list ~s~ ")" ~s~ "{" ~s~ function_body ~s~ "}"
+    | property_name__yield ~s~ "(" ~s~ strict_formal_parameters ~s~ ")" ~s~ "{" ~s~ function_body ~s~ "}"
 }
 property_set_parameter_list = { formal_parameter }
 generator_method = {
-    "*" ~ property_name ~ "(" ~ strict_formal_parameters__yield ~ ")" ~ "{" ~ generator_body ~ "}"
+    "*" ~s~ property_name ~s~ "(" ~s~ strict_formal_parameters__yield ~s~ ")" ~s~ "{" ~s~ generator_body ~s~ "}"
 }
 generator_method__yield = {
-    "*" ~ property_name__yield ~ "(" ~ strict_formal_parameters__yield ~ ")" ~ "{" ~ generator_body ~ "}"
+    "*" ~s~ property_name__yield ~s~ "(" ~s~ strict_formal_parameters__yield ~s~ ")" ~s~ "{" ~s~ generator_body ~s~ "}"
 }
 generator_declaration = {
-    "function" ~ "*" ~ binding_identifier ~ "(" ~ formal_parameters ~ ")" ~ "{" ~ generator_body ~ "}"
+    "function" ~s~ "*" ~s~ binding_identifier ~s~ "(" ~s~ formal_parameters ~s~ ")" ~s~ "{" ~s~ generator_body ~s~ "}"
 }
 generator_declaration__yield = {
-    "function" ~ "*" ~ binding_identifier__yield ~ "(" ~ formal_parameters__yield ~ ")" ~ "{" ~ generator_body ~ "}"
+    "function" ~s~ "*" ~s~ binding_identifier__yield ~s~ "(" ~s~ formal_parameters__yield ~s~ ")" ~s~ "{" ~s~ generator_body ~s~ "}"
 }
 generator_declaration__default = {
-    "function" ~ "*" ~ binding_identifier ~ "(" ~ formal_parameters ~ ")" ~ "{" ~ generator_body ~ "}"
-    | "function" ~ "*" ~ "(" ~ formal_parameters ~ ")" ~ "{" ~ generator_body ~ "}"
+    "function" ~s~ "*" ~s~ binding_identifier ~s~ "(" ~s~ formal_parameters ~s~ ")" ~s~ "{" ~s~ generator_body ~s~ "}"
+    | "function" ~s~ "*" ~s~ "(" ~s~ formal_parameters ~s~ ")" ~s~ "{" ~s~ generator_body ~s~ "}"
 }
 generator_declaration__yield_default = {
-    "function" ~ "*" ~ binding_identifier__yield ~ "(" ~ formal_parameters__yield ~ ")" ~ "{" ~ generator_body ~ "}"
-    | "function" ~ "*" ~ "(" ~ formal_parameters__yield ~ ")" ~ "{" ~ generator_body ~ "}"
+    "function" ~s~ "*" ~s~ binding_identifier__yield ~s~ "(" ~s~ formal_parameters__yield ~s~ ")" ~s~ "{" ~s~ generator_body ~s~ "}"
+    | "function" ~s~ "*" ~s~ "(" ~s~ formal_parameters__yield ~s~ ")" ~s~ "{" ~s~ generator_body ~s~ "}"
 }
 generator_expression = {
-    "function" ~ "*" ~ binding_identifier__yield? ~ "(" ~ formal_parameters__yield ~ ")" ~ "{" ~ generator_body ~ "}"
+    "function" ~s~ "*" ~s~ binding_identifier__yield? ~s~ "(" ~s~ formal_parameters__yield ~s~ ")" ~s~ "{" ~s~ generator_body ~s~ "}"
 }
-generator_body = { function_body }
+generator_body = { function_body__yield }
 yield_expression = {
     "yield" ~ !line_terminator ~ "*" ~ assignment_expression__yield
     | "yield" ~ !line_terminator ~ assignment_expression__yield
@@ -1025,50 +1028,50 @@ yield_expression__in = {
     | "yield"
 }
 class_declaration = {
-    "class" ~ binding_identifier ~ class_tail
+    "class" ~s~ binding_identifier ~s~ class_tail
 }
 class_declaration__yield = {
-    "class" ~ binding_identifier__yield ~ class_tail__yield
+    "class" ~s~ binding_identifier__yield ~s~ class_tail__yield
 }
 class_declaration__default = {
-    "class" ~ binding_identifier ~ class_tail
-    | "class" ~ class_tail
+    "class" ~s~ binding_identifier ~s~ class_tail
+    | "class" ~s~ class_tail
 }
 class_declaration__yield_default = {
-    "class" ~ binding_identifier__yield ~ class_tail__yield
-    | "class" ~ class_tail__yield
+    "class" ~s~ binding_identifier__yield ~s~ class_tail__yield
+    | "class" ~s~ class_tail__yield
 }
 class_expression = {
-    "class" ~ binding_identifier? ~ class_tail
+    "class" ~s~ binding_identifier? ~s~ class_tail
 }
 class_expression__yield = {
-    "class" ~ binding_identifier__yield? ~ class_tail__yield
+    "class" ~s~ binding_identifier__yield? ~s~ class_tail__yield
 }
 class_tail = {
-    class_heritage? ~ "{" ~ class_body? ~ "}"
+    class_heritage? ~s~ "{" ~s~ class_body? ~s~ "}"
 }
 class_tail__yield = {
-    class_heritage__yield? ~ "{" ~ class_body__yield? ~ "}"
+    class_heritage__yield? ~s~ "{" ~s~ class_body__yield? ~s~ "}"
 }
 class_heritage = {
-    "extends" ~ left_hand_side_expression
+    "extends" ~s~ left_hand_side_expression
 }
 class_heritage__yield = {
-    "extends" ~ left_hand_side_expression__yield
+    "extends" ~s~ left_hand_side_expression__yield
 }
 class_body = { class_element_list }
 class_body__yield = { class_element_list__yield }
-class_element_list =  { class_element+ }
-class_element_list__yield =  { class_element__yield+ }
+class_element_list =  _{ (class_element ~s)+ }
+class_element_list__yield =  _{ (class_element__yield ~s)+ }
 class_element = {
     method_definition
-    | "static"  ~ method_definition
+    | "static"  ~s~ method_definition
     | ";"
 }
 class_element__yield = {
     method_definition__yield
-    | "static"  ~ method_definition__yield
+    | "static"  ~s~ method_definition__yield
     | ";"
 }
 script_body = _{ statement_list }
-script = _{ SOI ~ script_body? ~ EOI }
+script = _{ SOI ~s~ script_body? ~s~ EOI }
