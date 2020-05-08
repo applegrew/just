@@ -541,67 +541,66 @@ expression__in = { assignment_expression__in ~ (s~ "," ~s~ assignment_expression
 expression__yield = { assignment_expression__yield ~ (s~ "," ~s~ assignment_expression__yield)* }
 expression__in_yield = { assignment_expression__in_yield ~ (s~ "," ~s~ assignment_expression__in_yield)* }
 statement = _{
-    continue_statement
+    debugger_statement
+    | continue_statement
     | break_statement
-    | with_statement
     | throw_statement
-    | try_statement
-    | debugger_statement
     | if_statement
+    | with_statement
+    | try_statement
     | variable_statement
+    | breakable_statement
     | block_statement
     | expression_statement
-    | breakable_statement
     | labelled_statement
     | empty_statement
 }
 statement__yield = _{
-    continue_statement__yield
+    debugger_statement
+    | continue_statement__yield
     | break_statement__yield
-    | with_statement__yield
     | throw_statement__yield
-    | try_statement__yield
-    | debugger_statement
     | if_statement__yield
+    | with_statement__yield
+    | try_statement__yield
     | variable_statement__yield
+    | breakable_statement__yield
     | block_statement__yield
     | expression_statement__yield
-    | breakable_statement__yield
     | labelled_statement__yield
     | empty_statement
 }
 statement__return = _{
-    continue_statement
+    debugger_statement
+    | continue_statement
     | break_statement
-    | with_statement__return
     | throw_statement
     | return_statement
-    | try_statement__return
-    | debugger_statement
     | if_statement__return
+    | with_statement__return
+    | try_statement__return
     | variable_statement
+    | breakable_statement__return
     | block_statement__return
     | expression_statement
-    | breakable_statement__return
     | labelled_statement__return
     | empty_statement
 }
 statement__yield_return = _{
-    continue_statement__yield
+    debugger_statement
+    | continue_statement__yield
     | break_statement__yield
-    | with_statement__yield_return
     | throw_statement__yield
     | return_statement__yield
-    | try_statement__yield_return
-    | debugger_statement
     | if_statement__yield_return
+    | with_statement__yield_return
+    | try_statement__yield_return
     | variable_statement__yield
+    | breakable_statement__yield_return
     | block_statement__yield_return
     | expression_statement__yield
-    | breakable_statement__yield_return
     | labelled_statement__yield_return
     | empty_statement
-    
 }
 declaration = {
     hoistable_declaration
@@ -637,7 +636,7 @@ statement_list_item = _{ declaration | statement }
 statement_list_item__yield = _{ declaration__yield | statement__yield }
 statement_list_item__return = _{ declaration | statement__return }
 statement_list_item__yield_return = _{ declaration__yield | statement__yield_return }
-smart_semicolon = @{ ";" | &"}" | line_terminator | ";" ~ line_terminator | single_line_comment | &EOI }
+smart_semicolon = @{ ";" ~ line_terminator | ";" | &"}" | line_terminator | single_line_comment | EOI }
 lexical_declaration = { let_or_const ~ binding_list ~ smart_semicolon}
 lexical_declaration__in = { let_or_const ~ binding_list__in ~ smart_semicolon}
 lexical_declaration__yield = { let_or_const ~ binding_list__yield ~ smart_semicolon}

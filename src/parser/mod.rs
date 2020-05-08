@@ -1,6 +1,7 @@
 use pest_derive::Parser;
 use pest::Parser;
 use pest::iterators::Pair;
+use std::time::Instant;
 
 #[derive(Parser)]
 #[grammar = "parser/js_grammar.pest"] // relative to src
@@ -10,7 +11,13 @@ const TAB_WIDTH:usize = 2;
 
 pub fn parse_to_token_tree(script:&str) -> Result<String, String> {
     let mut tree = vec![];
-    match JsParser::parse(Rule::script, script) {
+    let start = Instant::now();
+    let result = JsParser::parse(Rule::script, script);
+    let end = Instant::now();
+    let total_time = end.saturating_duration_since(start);
+    println!("Actual parse time is {}ms", total_time.as_millis());
+
+    match result {
         Ok(pairs) => {
             for pair in pairs {
                 tree.push(pair_to_string(pair, 0).join("\n"));
@@ -1250,7 +1257,7 @@ mod tests {
             input: "thisBinding.call({ string: \'bound\' })();\n",
             rule: Rule::script,
             tokens: [
-                expression_statement(0, 40, [
+                expression_statement(0, 41, [
                     expression__in(0, 39, [
                         assignment_expression__in(0, 39, [
                             conditional_expression__in(0, 39, [
@@ -1382,7 +1389,7 @@ mod tests {
                             ])
                         ])
                     ]),
-                    smart_semicolon(39, 40)
+                    smart_semicolon(39, 41)
                 ])
             ]
         }
@@ -1650,5 +1657,21 @@ mod tests {
                 ])
             ]
         }
+    }
+
+    #[test]
+    fn test_perf1() {
+        let start = Instant::now();
+        let result = parse_to_token_tree("[[[[]]]]");
+        let end = Instant::now();
+        match result {
+            Ok(_) => {
+                assert!(end.saturating_duration_since(start).as_millis() < 800, "Script taking too long to run.");
+            }
+            Err(e) => {
+                assert!(false, "There was an error {}", e);
+            }
+        }
+
     }
 }
