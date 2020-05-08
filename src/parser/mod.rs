@@ -1660,6 +1660,79 @@ mod tests {
     }
 
     #[test]
+    fn test_generator1() {
+        parses_to! {
+            parser: JsParser,
+            input: r#"function *g() {
+                yield 10;
+            }"#,
+            rule: Rule::generator_declaration,
+            tokens: [
+                generator_declaration(0, 55, [
+                    binding_identifier(10, 11),
+                    formal_parameters(12, 12),
+                    generator_body(32, 54, [
+                        function_body__yield(32, 54, [
+                            expression_statement__yield(32, 42, [
+                                expression__in_yield(32, 40, [
+                                    assignment_expression__in_yield(32, 40, [
+                                        yield_expression__in(32, 40, [
+                                            assignment_expression__in_yield(38, 40, [
+                                                conditional_expression__in_yield(38, 40, [
+                                                    logical_or_expression__in_yield(38, 40, [
+                                                        logical_and_expression__in_yield(38, 40, [
+                                                            bitwise_or_expression__in_yield(38, 40, [
+                                                                bitwise_xor_expression__in_yield(38, 40, [
+                                                                    bitwise_and_expression__in_yield(38, 40, [
+                                                                        equality_expression__in_yield(38, 40, [
+                                                                            relational_expression__in_yield(38, 40, [
+                                                                                shift_expression__yield(38, 40, [
+                                                                                    additive_expression__yield(38, 40, [
+                                                                                        multiplicative_expression__yield(38, 40, [
+                                                                                            unary_expression__yield(38, 40, [
+                                                                                                postfix_expression__yield(38, 40, [
+                                                                                                    left_hand_side_expression__yield(38, 40, [
+                                                                                                        new_expression__yield(38, 40, [
+                                                                                                            member_expression__yield(38, 40, [
+                                                                                                                primary_expression__yield(38, 40, [
+                                                                                                                    literal(38, 40, [
+                                                                                                                        numeric_literal(38, 40, [
+                                                                                                                            decimal_literal(38, 40, [
+                                                                                                                                decimal_integer_literal(38, 40)
+                                                                                                                            ])
+                                                                                                                        ])
+                                                                                                                    ])
+                                                                                                                ])
+                                                                                                            ])
+                                                                                                        ])
+                                                                                                    ])
+                                                                                                ])
+                                                                                            ])
+                                                                                        ])
+                                                                                    ])
+                                                                                ])
+                                                                            ])
+                                                                        ])
+                                                                    ])
+                                                                ])
+                                                            ])
+                                                        ])
+                                                    ])
+                                                ])
+                                            ])
+                                        ])
+                                    ])
+                                ]),
+                                smart_semicolon(40, 42)
+                            ])
+                        ])
+                    ])
+                ])
+            ]
+        };
+    }
+
+    #[test]
     fn test_perf1() {
         let start = Instant::now();
         let result = parse_to_token_tree("[[[[]]]]");

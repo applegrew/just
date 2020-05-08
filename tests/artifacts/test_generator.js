@@ -27,7 +27,7 @@ for (var n of fibonacci) {
 }
 
 function *generator() {
-    return (yield (yield 10) + 'world');
+    (yield (yield 10) + 'world');
 }
 
 var gen = generator();

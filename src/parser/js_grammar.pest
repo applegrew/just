@@ -148,9 +148,9 @@ primary_expression = {
     | "this"
     | array_literal
     | object_literal
+    | generator_expression
     | function_expression
     | class_expression
-    | generator_expression
     | regular_expression_literal
     | template_literal
     | cover_parenthesized_expression_and_arrow_parameter_list
@@ -161,9 +161,9 @@ primary_expression__yield = {
     | "this"
     | array_literal__yield
     | object_literal__yield
+    | generator_expression
     | function_expression
     | class_expression__yield
-    | generator_expression
     | regular_expression_literal
     | template_literal__yield
     | cover_parenthesized_expression_and_arrow_parameter_list__yield
@@ -531,7 +531,7 @@ assignment_expression__in_yield = {
     | left_hand_side_expression__yield ~s~ "=" ~s~ assignment_expression__in_yield
     | left_hand_side_expression__yield ~s~ assignment_operator ~s~ assignment_expression__in_yield
     | yield_expression__in
-    | conditional_expression__in
+    | conditional_expression__in_yield
 }
 assignment_operator = {
     "*=" | "/=" | "%=" | "+=" | "-=" | "<<=" | ">>=" | ">>>=" | "&=" | "^=" | "|="
@@ -612,10 +612,10 @@ declaration__yield = {
     | class_declaration__yield
     | lexical_declaration__in_yield
 }
-hoistable_declaration = { function_declaration | generator_declaration }
-hoistable_declaration__yield = { function_declaration__yield | generator_declaration__yield }
-hoistable_declaration__default = { function_declaration__default | generator_declaration__default }
-hoistable_declaration__yield_default = { function_declaration__yield_default | generator_declaration__yield_default }
+hoistable_declaration = { generator_declaration | function_declaration }
+hoistable_declaration__yield = { generator_declaration__yield | function_declaration__yield }
+hoistable_declaration__default = { generator_declaration__default | function_declaration__default }
+hoistable_declaration__yield_default = { generator_declaration__yield_default | function_declaration__yield_default }
 breakable_statement = { iteration_statement | switch_statement }
 breakable_statement__yield = { iteration_statement__yield | switch_statement__yield }
 breakable_statement__return = { iteration_statement__return | switch_statement__return }
