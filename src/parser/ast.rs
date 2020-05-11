@@ -51,7 +51,7 @@ enum TemplateContent {
 }
 
 enum ObjectItem {
-    FixedNameValuePair,
+    FixedNameValuePair(),
     ComputedNameValuePair,
     MethodDefinition,
     IdentifierRefOrAssignmentExpression(Expression),
