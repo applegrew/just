@@ -35,7 +35,7 @@ decimal_digits = @{ decimal_digit+ }
 decimal_digit = _{ ASCII_DIGIT }
 exponent_part = ${ exponent_indicator ~ signed_integer }
 exponent_indicator = _{ "e" | "E" }
-signed_integer = { decimal_digits | "+" ~ decimal_digits | "-" ~ decimal_digits }
+signed_integer = { ("+" | "-")? ~ decimal_digits }
 source_character = { ANY }
 //input_element_div = ${ whitespace | line_terminator | comment | common_token | div_punctuator | right_brace_punctuator }
 //input_element_regexp = ${ whitespace | line_terminator | comment | common_token | right_brace_punctuator | regular_expression_literal }
@@ -189,13 +189,11 @@ literal = {
 elision = _{ ","+ }
 array_literal = {
     "[" ~s~ elision? ~s~ "]"
-    | "[" ~s~ element_list ~s~ "]"
-    | "[" ~s~ element_list ~s~ "," ~s~ elision? ~s~ "]"
+    | "[" ~s~ element_list ~s~ ("," ~s~ elision? ~s)? ~ "]"
 }
 array_literal__yield = {
     "[" ~s~ elision? ~s~ "]"
-    | "[" ~s~ element_list__yield ~s~ "]"
-    | "[" ~s~ element_list__yield ~s~ "," ~s~ elision? ~s~ "]"
+    | "[" ~s~ element_list__yield ~s~ ("," ~s~ elision? ~s)? ~ "]"
 }
 element_list = _{
     (elision? ~s~ assignment_expression__in | elision? ~s~ spread_element)
@@ -213,13 +211,11 @@ spread_element__yield = {
 }
 object_literal = {
     "{" ~s~ "}"
-    | "{" ~s~ property_definition_list ~s~ "}"
-    | "{" ~s~ property_definition_list ~s~ "," ~s~ "}"
+    | "{" ~s~ property_definition_list ~s~ ("," ~s)? ~ "}"
 }
 object_literal__yield = {
     "{" ~s~ "}"
-    | "{" ~s~ property_definition_list__yield ~s~ "}"
-    | "{" ~s~ property_definition_list__yield ~s~ "," ~s~ "}"
+    | "{" ~s~ property_definition_list__yield ~s~ ("," ~s)? ~ "}"
 }
 property_definition_list = {
     property_definition ~ (s~ "," ~s~ property_definition)*
@@ -328,104 +324,50 @@ postfix_expression__yield = {
 }
 unary_expression = {
     postfix_expression
-    | "delete" ~ unary_expression
-    | "void" ~ unary_expression
-    | "typeof" ~ unary_expression
-    | "++" ~ unary_expression
-    | "--" ~ unary_expression
-    | "+" ~ unary_expression
-    | "-" ~ unary_expression
-    | "~" ~ unary_expression
-    | "!" ~ unary_expression
+    | ("delete" | "void" | "typeof" | "++" | "--" | "+" | "-" | "~" | "!") ~ unary_expression
 }
 unary_expression__yield = {
     postfix_expression__yield
-    | "delete" ~ unary_expression__yield
-    | "void" ~ unary_expression__yield
-    | "typeof" ~ unary_expression__yield
-    | "++" ~ unary_expression__yield
-    | "--" ~ unary_expression__yield
-    | "+" ~ unary_expression__yield
-    | "-" ~ unary_expression__yield
-    | "~" ~ unary_expression__yield
-    | "!" ~ unary_expression__yield
+    | ("delete" | "void" | "typeof" | "++" | "--" | "+" | "-" | "~" | "!") ~ unary_expression__yield
 }
 multiplicative_expression = { unary_expression ~ (s~ multiplicative_operator ~s~ unary_expression)* }
 multiplicative_expression__yield = { unary_expression__yield ~ (s~ multiplicative_operator ~s~ unary_expression__yield)* }
 multiplicative_operator = { "*" | "/" | "%" }
 additive_expression = {
-    multiplicative_expression ~ (s~ ("+" ~s~ multiplicative_expression | "-" ~s~ multiplicative_expression))*
+    multiplicative_expression ~ (s~ ("+" | "-") ~s~ multiplicative_expression)*
 }
 additive_expression__yield = {
-    multiplicative_expression__yield ~ (s~ ("+" ~s~ multiplicative_expression__yield | "-" ~s~ multiplicative_expression__yield))*
+    multiplicative_expression__yield ~ (s~ ("+" | "-") ~s~ multiplicative_expression__yield)*
 }
 shift_expression = {
-    additive_expression ~ (s~ ("<<" ~s~ additive_expression | ">>" ~s~ additive_expression | ">>>" ~s~ additive_expression))*
+    additive_expression ~ (s~ ("<<" | ">>>" | ">>") ~s~ additive_expression)*
 }
 shift_expression__yield = {
-    additive_expression__yield ~ (s~ ("<<" ~s~ additive_expression__yield | ">>" ~s~ additive_expression__yield | ">>>" ~s~ additive_expression__yield))*
+    additive_expression__yield ~ (s~ ("<<" | ">>>" | ">>") ~s~ additive_expression__yield)*
 }
 relational_expression = {
-    shift_expression ~(s~
-        ("<" ~s~ shift_expression
-        | ">" ~s~ shift_expression
-        | "<=" ~s~ shift_expression
-        | ">=" ~s~ shift_expression
-        | "instanceof" ~s~ shift_expression))*
+    shift_expression ~(s~ ("<=" | ">=" | "<" | ">" | "instanceof") ~s~ shift_expression)*
 }
 relational_expression__in = {
-    shift_expression ~(s~
-        ("<" ~s~ shift_expression
-        | ">" ~s~ shift_expression
-        | "<=" ~s~ shift_expression
-        | ">=" ~s~ shift_expression
-        | "instanceof" ~s~ shift_expression
-        | "in" ~s~ shift_expression))*
+    shift_expression ~(s~ ("<=" | ">=" | "<" | ">" | "instanceof" | "in") ~s~ shift_expression)*
 }
 relational_expression__yield = {
-    shift_expression__yield ~(s~
-        ("<" ~s~ shift_expression__yield
-        | ">" ~s~ shift_expression__yield
-        | "<=" ~s~ shift_expression__yield
-        | ">=" ~s~ shift_expression__yield
-        | "instanceof" ~s~ shift_expression__yield))*
+    shift_expression__yield ~(s~ ("<=" | ">=" | "<" | ">" | "instanceof") ~s~ shift_expression__yield)*
 }
 relational_expression__in_yield = {
-    shift_expression__yield ~(s~
-        ("<" ~s~ shift_expression__yield
-        | ">" ~s~ shift_expression__yield
-        | "<=" ~s~ shift_expression__yield
-        | ">=" ~s~ shift_expression__yield
-        | "instanceof" ~s~ shift_expression__yield
-        | "in" ~s~ shift_expression__yield))*
+    shift_expression__yield ~(s~ ("<=" | ">=" | "<" | ">" | "instanceof" | "in") ~s~ shift_expression__yield)*
 }
 equality_expression = {
-    relational_expression ~(s~
-        ("==" ~s~ relational_expression
-        | "!=" ~s~ relational_expression
-        | "===" ~s~ relational_expression
-        | "!==" ~s~ relational_expression))*
+    relational_expression ~(s~ ("===" | "!==" | "==" | "!=") ~s~ relational_expression)*
 }
 equality_expression__in = {
-    relational_expression__in ~(s~
-        ("==" ~s~ relational_expression__in
-        | "!=" ~s~ relational_expression__in
-        | "===" ~s~ relational_expression__in
-        | "!==" ~s~ relational_expression__in))*
+    relational_expression__in ~(s~ ("===" | "!==" | "==" | "!=") ~s~ relational_expression__in)*
 }
 equality_expression__yield = {
-    relational_expression__yield ~(s~
-        ("==" ~s~ relational_expression__yield
-        | "!=" ~s~ relational_expression__yield
-        | "===" ~s~ relational_expression__yield
-        | "!==" ~s~ relational_expression__yield))*
+    relational_expression__yield ~(s~ ("===" | "!==" | "==" | "!=") ~s~ relational_expression__yield)*
 }
 equality_expression__in_yield = {
-    relational_expression__in_yield ~(s~
-        ("==" ~s~ relational_expression__in_yield
-        | "!=" ~s~ relational_expression__in_yield
-        | "===" ~s~ relational_expression__in_yield
-        | "!==" ~s~ relational_expression__in_yield))*
+    relational_expression__in_yield ~(s~ ("===" | "!==" | "==" | "!=") ~s~ relational_expression__in_yield)*
 }
 bitwise_and_expression = {
     equality_expression ~ (s~ "&" ~s~ equality_expression)*
@@ -501,27 +443,23 @@ conditional_expression__in_yield = {
 }
 assignment_expression = {
     arrow_function
-    | left_hand_side_expression ~s~ "=" ~s~ assignment_expression
-    | left_hand_side_expression ~s~ assignment_operator ~s~ assignment_expression
+    | left_hand_side_expression ~s~ ("=" | assignment_operator) ~s~ assignment_expression
     | conditional_expression
 }
 assignment_expression__in = {
     arrow_function__in
-    | left_hand_side_expression ~s~ "=" ~s~ assignment_expression__in
-    | left_hand_side_expression ~s~ assignment_operator ~s~ assignment_expression__in
+    | left_hand_side_expression ~s~ ("=" | assignment_operator) ~s~ assignment_expression__in
     | conditional_expression__in
 }
 assignment_expression__yield = {
     arrow_function__yield
-    | left_hand_side_expression__yield ~s~ "=" ~s~ assignment_expression__yield
-    | left_hand_side_expression__yield ~s~ assignment_operator ~s~ assignment_expression__yield
+    | left_hand_side_expression__yield ~s~ ("=" | assignment_operator) ~s~ assignment_expression__yield
     | yield_expression
     | conditional_expression__yield
 }
 assignment_expression__in_yield = {
     arrow_function__in_yield
-    | left_hand_side_expression__yield ~s~ "=" ~s~ assignment_expression__in_yield
-    | left_hand_side_expression__yield ~s~ assignment_operator ~s~ assignment_expression__in_yield
+    | left_hand_side_expression__yield ~s~ ("=" | assignment_operator) ~s~ assignment_expression__in_yield
     | yield_expression__in
     | conditional_expression__in_yield
 }
