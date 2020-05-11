@@ -2,10 +2,15 @@ use pest::iterators::Pair;
 use pest::Parser;
 use pest_derive::Parser;
 use std::time::Instant;
+use crate::parser::ast::Script;
 
 #[derive(Parser)]
 #[grammar = "parser/js_grammar.pest"] // relative to src
 pub struct JsParser;
+
+pub struct JsParseError {
+
+}
 
 const TAB_WIDTH: usize = 2;
 
@@ -49,4 +54,8 @@ fn pair_to_string(pair: Pair<Rule>, level: usize) -> Vec<String> {
         tree.append(pair_to_string(child_pair, level + 1).as_mut());
     }
     tree
+}
+
+pub fn parse_to_ast(script: &str) -> Result<Script, JsParseError> {
+
 }

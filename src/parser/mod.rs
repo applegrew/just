@@ -1,4 +1,5 @@
 mod api;
+mod ast;
 #[cfg(test)]
 mod unit_tests;
 
