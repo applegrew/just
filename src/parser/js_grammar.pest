@@ -321,14 +321,10 @@ argument_list__yield = {
 left_hand_side_expression = { call_expression | new_expression }
 left_hand_side_expression__yield = { call_expression__yield | new_expression__yield }
 postfix_expression = {
-    left_hand_side_expression ~ !line_terminator ~ "++"
-    | left_hand_side_expression ~ !line_terminator ~ "--"
-    | left_hand_side_expression
+    left_hand_side_expression ~ (!line_terminator ~ ("++" | "--"))?
 }
 postfix_expression__yield = {
-    left_hand_side_expression__yield ~ !line_terminator ~ "++"
-    | left_hand_side_expression__yield ~ !line_terminator ~ "--"
-    | left_hand_side_expression__yield
+    left_hand_side_expression__yield ~ (!line_terminator ~ ("++" | "--"))?
 }
 unary_expression = {
     postfix_expression
@@ -492,20 +488,16 @@ logical_or_expression__in_yield = {
     logical_and_expression__in_yield ~ (s~ "||" ~s~ logical_and_expression__in_yield)*
 }
 conditional_expression = {
-    logical_or_expression ~ "?" ~s~ assignment_expression__in ~s~ ":" ~s~ assignment_expression
-    | logical_or_expression
+    logical_or_expression ~ (s~ "?" ~s~ assignment_expression__in ~s~ ":" ~s~ assignment_expression)?
 }
 conditional_expression__in = {
-    logical_or_expression__in ~s~ "?" ~s~ assignment_expression__in ~s~ ":" ~s~ assignment_expression__in
-    | logical_or_expression__in
+    logical_or_expression__in ~ (s~ "?" ~s~ assignment_expression__in ~s~ ":" ~s~ assignment_expression__in)?
 }
 conditional_expression__yield = {
-    logical_or_expression__yield ~s~ "?" ~s~ assignment_expression__in_yield ~s~ ":" ~s~ assignment_expression__yield
-    | logical_or_expression__yield
+    logical_or_expression__yield ~ (s~ "?" ~s~ assignment_expression__in_yield ~s~ ":" ~s~ assignment_expression__yield)?
 }
 conditional_expression__in_yield = {
-    logical_or_expression__in_yield ~s~ "?" ~s~ assignment_expression__in_yield ~s~ ":" ~s~ assignment_expression__in_yield
-    | logical_or_expression__in_yield
+    logical_or_expression__in_yield ~ (s~ "?" ~s~ assignment_expression__in_yield ~s~ ":" ~s~ assignment_expression__in_yield)?
 }
 assignment_expression = {
     arrow_function
