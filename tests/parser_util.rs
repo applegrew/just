@@ -1,13 +1,13 @@
 extern crate just;
 
-use std::fs;
-use std::cmp;
-use std::time::Instant;
 use just::parser::parse_to_token_tree;
+use std::cmp;
+use std::fs;
+use std::time::Instant;
 
-fn diff_parse_tree(expected_tree:&str, actual_tree:&str) {
-    let expected_lines:Vec<&str> = expected_tree.split("\n").collect();
-    let actual_lines:Vec<&str> = actual_tree.split("\n").collect();
+fn diff_parse_tree(expected_tree: &str, actual_tree: &str) {
+    let expected_lines: Vec<&str> = expected_tree.split("\n").collect();
+    let actual_lines: Vec<&str> = actual_tree.split("\n").collect();
     let expected_total_lines = expected_lines.len();
     let actual_total_lines = actual_lines.len();
     let max_len = cmp::max(expected_total_lines, actual_total_lines);
@@ -20,14 +20,19 @@ fn diff_parse_tree(expected_tree:&str, actual_tree:&str) {
         let mut expected_line = "";
         let mut actual_line = "";
         if line_num <= expected_total_lines {
-            expected_line = expected_lines[line_num-1];
+            expected_line = expected_lines[line_num - 1];
         }
         if line_num <= actual_total_lines {
-            actual_line = actual_lines[line_num-1];
+            actual_line = actual_lines[line_num - 1];
         }
         if actual_line != expected_line {
-            if line_num-1 != last_diff_line {
-                print_diff(&diff_in_expected, &diff_in_actual, diff_start, last_diff_line);
+            if line_num - 1 != last_diff_line {
+                print_diff(
+                    &diff_in_expected,
+                    &diff_in_actual,
+                    diff_start,
+                    last_diff_line,
+                );
                 diff_in_expected.clear();
                 diff_in_actual.clear();
                 diff_start = line_num;
@@ -38,11 +43,21 @@ fn diff_parse_tree(expected_tree:&str, actual_tree:&str) {
             has_diffs = true;
         }
     }
-    print_diff(&diff_in_expected, &diff_in_actual, diff_start, last_diff_line);
+    print_diff(
+        &diff_in_expected,
+        &diff_in_actual,
+        diff_start,
+        last_diff_line,
+    );
     assert!(!has_diffs, "Test failed");
 }
 
-fn print_diff(diff_in_expected:&Vec<&str>, diff_in_actual:&Vec<&str>, diff_start:usize, diff_line:usize) {
+fn print_diff(
+    diff_in_expected: &Vec<&str>,
+    diff_in_actual: &Vec<&str>,
+    diff_start: usize,
+    diff_line: usize,
+) {
     if diff_in_expected.len() != 0 || diff_in_actual.len() != 0 {
         let mut check = true;
         println!("\n====Expected lines====Line#{}-{}", diff_start, diff_line);
@@ -71,9 +86,11 @@ fn print_diff(diff_in_expected:&Vec<&str>, diff_in_actual:&Vec<&str>, diff_start
     }
 }
 
-pub fn assert_parse(test_name:&str) {
-    let unparsed_file = fs::read_to_string(format!("tests/artifacts/test_{}.js", test_name)).expect("Cannot read test file");
-    let expected_tree= fs::read_to_string(format!("tests/artifacts/assertpt_{}.txt", test_name)).expect("Cannot read assertpt file");
+pub fn assert_parse(test_name: &str) {
+    let unparsed_file = fs::read_to_string(format!("tests/artifacts/test_{}.js", test_name))
+        .expect("Cannot read test file");
+    let expected_tree = fs::read_to_string(format!("tests/artifacts/assertpt_{}.txt", test_name))
+        .expect("Cannot read assertpt file");
     let start = Instant::now();
     let result = parse_to_token_tree(unparsed_file.as_str()).unwrap();
     let end = Instant::now();
