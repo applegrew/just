@@ -287,8 +287,8 @@ super_property__yield = {
 }
 meta_property = { new_target }
 new_target = { "new" ~s~ "." ~s~ "target" }
-new_expression = { ("new" ~s)* ~ member_expression }
-new_expression__yield = { ("new" ~s)* ~ member_expression__yield }
+new_expression = { member_expression | "new" ~s~ new_expression }
+new_expression__yield = { member_expression__yield | "new" ~ new_expression__yield }
 call_expression = {
     (member_expression ~s~ arguments | super_call)
     ~ (s~ arguments | "[" ~s~ expression__in ~s~ "]" | "." ~s~ identifier_name | template_literal)*
