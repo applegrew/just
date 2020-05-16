@@ -57,28 +57,161 @@ pub fn parse_to_pairs(script: &str) -> Result<Pairs<Rule>, Error<Rule>> {
     JsParser::parse(Rule::script, script)
 }
 
-pub fn parse_to_ast(script: &str) /*-> Result<Node, Error<Rule>>*/
-{
+pub fn parse_to_ast(script: &str) -> Result<Node, Error<Rule>> {
     let pairs = JsParser::parse(Rule::script, script)?;
-    let mut stack = Vec::with_capacity(100);
-    stack.push(pairs);
-    while !stack.is_empty() {
-        let pairs = stack.pop().unwrap();
-        let mut node_children = vec![];
-        for pair in pairs {
-            let n = match pair.as_rule() {
-                Rule::numeric_literal => build_ast_from_numeric_literal(pair)?,
-                Rule::string_literal => build_ast_from_string_literal(pair)?,
-                Rule::boolean_literal => {
-                    let bool = pair.as_str();
-                    Node::Terminal(Data::BooleanLiteral(bool == "true"))
+    build_ast_from_statement_list_pairs(pairs)
+}
+
+fn build_ast_from_statement_list_pairs(pairs: Pairs<Rule>) -> Result<Node, Error<Rule>> {
+    let mut s = vec![];
+    for pair in pairs {
+        s.push(Box::new(match pair.as_rule() {
+            Rule::declaration | Rule::declaration__yield => build_ast_from_declaration(pair)?,
+            Rule::statement
+            | Rule::statement__yield
+            | Rule::statement__return
+            | Rule::statement__yield_return => build_ast_from_statement(pair)?,
+            _ => return Err(get_unexpected_error(18, pair)),
+        }));
+    }
+    Ok(Node::Statements(s))
+}
+
+fn build_ast_from_statement(pair: Pair<Rule>) -> Result<Node, Error<Rule>> {
+    //TODO
+    panic!("Not yet implemented!");
+}
+
+fn build_ast_from_lexical_declaration(pair: Pair<Rule>) -> Result<Node, Error<Rule>> {
+    let mut pair_iter = pair.into_inner();
+    let inner_pair = pair_iter.next().unwrap();
+    let is_let = inner_pair.into_inner().next().unwrap().as_str() == "let";
+    let mut declarations = vec![];
+    let binding_list_pair = pair_iter.next().unwrap();
+    for lexical_binding in binding_list_pair.into_inner() {
+        let mut lexical_binding_inner_iter = lexical_binding.into_inner();
+        let lexical_binding_inner = lexical_binding_inner_iter.next().unwrap();
+        declarations.push(
+            if lexical_binding_inner.as_rule() == Rule::binding_identifier
+                || lexical_binding_inner.as_rule() == Rule::binding_identifier__yield
+            {
+                let id = Data::IdentifierName(lexical_binding_inner.as_str().to_string());
+                if let Some(initializer) = lexical_binding_inner_iter.next() {
+                    BindingType::SimpleBinding {
+                        identifier: id,
+                        initializer: Some(Box::new(build_ast_from_assignment_expression(
+                            initializer.into_inner().next().unwrap(),
+                        )?)),
+                    }
+                } else {
+                    BindingType::SimpleBinding {
+                        identifier: id,
+                        initializer: None,
+                    }
                 }
-                Rule::null_literal => Node::Terminal(Data::NullLiteral),
-                Rule::template_literal => build_ast_from_template_literal(pair)?,
-            };
-            node_children.push(Box::new(n));
+            } else {
+                // binding pattern
+                //TODO
+                panic!("Not implemented yet!");
+            },
+        );
+    }
+    Ok(Node::Declaration(if is_let {
+        DeclarationType::LetDeclaration(declarations)
+    } else {
+        DeclarationType::ConstDeclaration(declarations)
+    }))
+}
+
+fn build_ast_from_generator_declaration(pair: Pair<Rule>) -> Result<Node, Error<Rule>> {
+    //TODO
+    panic!("Not yet implemented!");
+}
+
+fn build_ast_from_function_declaration(pair: Pair<Rule>) -> Result<Node, Error<Rule>> {
+    let mut pair_iter = pair.into_inner();
+    let f_name = pair_iter.next().unwrap().as_str().to_string();
+    let formal_parameters = pair_iter.next().unwrap();
+    let mut args = vec![];
+    for param in formal_parameters.into_inner() {
+        args.push(match param.as_rule() {
+            Rule::function_rest_parameter | Rule::function_rest_parameter__yield => {
+                let binding_rest_element = param.into_inner().next().unwrap();
+                let binding_identifier = binding_rest_element.into_inner().next().unwrap();
+                FunctionArgumentType::Rest(Data::IdentifierName(
+                    binding_identifier.as_str().to_string(),
+                ))
+            }
+            Rule::formal_parameter | Rule::formal_parameter__yield => {
+                let binding_element = param.into_inner().next().unwrap();
+                let mut binding_element_inner_iter = binding_element.into_inner();
+                let binding_element_inner = binding_element_inner_iter.next().unwrap();
+                if binding_element_inner.as_rule() == Rule::single_name_binding {
+                    let mut single_name_binding_iter = binding_element_inner.into_inner();
+                    let binding_identifier = Data::IdentifierName(
+                        single_name_binding_iter
+                            .next()
+                            .unwrap()
+                            .as_str()
+                            .to_string(),
+                    );
+                    if let Some(initializer) = single_name_binding_iter.next() {
+                        FunctionArgumentType::Regular {
+                            identifier: binding_identifier,
+                            default: Some(Box::new(build_ast_from_assignment_expression(
+                                initializer.into_inner().next().unwrap(),
+                            )?)),
+                        }
+                    } else {
+                        FunctionArgumentType::Regular {
+                            identifier: binding_identifier,
+                            default: None,
+                        }
+                    }
+                } else if binding_element_inner.as_rule() == Rule::binding_pattern {
+                    //TODO
+                    panic!("Not yet implemented!");
+                } else {
+                    return Err(get_unexpected_error(17, binding_element_inner));
+                }
+            }
+            _ => return Err(get_unexpected_error(16, param)),
+        });
+    }
+    let function_body = pair_iter.next().unwrap();
+    let body = Box::new(build_ast_from_statement_list_pairs(
+        function_body.into_inner(),
+    )?);
+    Ok(Node::Declaration(DeclarationType::FunctionDeclaration {
+        name: f_name,
+        arguments: args,
+        body,
+    }))
+}
+
+fn build_ast_from_hoistable_declaration(pair: Pair<Rule>) -> Result<Node, Error<Rule>> {
+    let inner_pair = pair.into_inner().next().unwrap();
+    if inner_pair.as_rule() == Rule::function_declaration {
+        build_ast_from_function_declaration(inner_pair)
+    } else {
+        build_ast_from_generator_declaration(inner_pair)
+    }
+}
+
+fn build_ast_from_declaration(pair: Pair<Rule>) -> Result<Node, Error<Rule>> {
+    let inner_pair = pair.into_inner().next().unwrap();
+    match inner_pair.as_rule() {
+        Rule::hoistable_declaration | Rule::hoistable_declaration__yield => {
+            build_ast_from_hoistable_declaration(inner_pair)
         }
-        //let parent_node = Node::Group(node_children);
+        Rule::class_declaration | Rule::class_declaration__yield => {
+            //TODO
+            panic!("Not implemented yet!");
+        }
+        Rule::lexical_declaration__in | Rule::lexical_declaration__in_yield => {
+            build_ast_from_lexical_declaration(inner_pair)
+        }
+        _ => return Err(get_unexpected_error(15, inner_pair)),
     }
 }
 
@@ -92,47 +225,41 @@ fn build_ast_from_expression(pair: Pair<Rule>) -> Result<Node, Error<Rule>> {
     for inner_pair in pair.into_inner() {
         node_children.push(Box::new(build_ast_from_assignment_expression(inner_pair)?));
     }
-    Ok(Node::Group(NodeType::Expression(node_children)))
+    Ok(Node::Expression(node_children))
 }
 
 fn build_ast_from_call_expression(pair: Pair<Rule>) -> Result<Node, Error<Rule>> {
     let mut pair_iter = pair.into_inner();
     let pair = pair_iter.next().unwrap();
     let mut obj = if pair.as_rule() == Rule::super_call {
-        Node::Group(NodeType::CallExpression {
+        Node::CallExpression {
             f: Box::new(Node::Terminal(Data::Super)),
             arguments: get_arguments(pair.into_inner().next().unwrap())?,
-        })
+        }
     } else {
-        Node::Group(NodeType::CallExpression {
+        Node::CallExpression {
             f: Box::new(build_ast_from_member_expression(pair)?),
             arguments: get_arguments(pair_iter.next().unwrap())?,
-        })
+        }
     };
     for pair in pair_iter {
         obj = match pair.as_rule() {
-            Rule::expression__in_yield | Rule::expression__in => {
-                Node::Group(NodeType::MemberAccessBracket {
-                    object: Box::new(obj),
-                    member: Box::new(build_ast_from_expression(pair)?),
-                })
-            }
-            Rule::identifier_name => Node::Group(NodeType::MemberAccessDot {
+            Rule::expression__in_yield | Rule::expression__in => Node::MemberAccessBracket {
+                object: Box::new(obj),
+                member: Box::new(build_ast_from_expression(pair)?),
+            },
+            Rule::identifier_name => Node::MemberAccessDot {
                 object: Box::new(obj),
                 member: get_identifier_name(pair),
-            }),
-            Rule::template_literal | Rule::template_literal__yield => {
-                Node::Group(NodeType::TaggedLiteral {
-                    f: Box::new(obj),
-                    template: Box::new(build_ast_from_template_literal(pair)?),
-                })
-            }
-            Rule::arguments | Rule::arguments__yield => {
-                Node::Group(NodeType::CallExpression {
-                    f: Box::new(obj),
-                    arguments: get_arguments(pair)?,
-                })
-            }
+            },
+            Rule::template_literal | Rule::template_literal__yield => Node::TaggedLiteral {
+                f: Box::new(obj),
+                template: Box::new(build_ast_from_template_literal(pair)?),
+            },
+            Rule::arguments | Rule::arguments__yield => Node::CallExpression {
+                f: Box::new(obj),
+                arguments: get_arguments(pair)?,
+            },
             _ => return Err(get_unexpected_error(14, pair)),
         };
     }
@@ -143,10 +270,10 @@ fn build_ast_from_literal(pair: Pair<Rule>) -> Result<Node, Error<Rule>> {
     let inner_pair = pair.into_inner().next().unwrap();
     Ok(match inner_pair.as_rule() {
         Rule::null_literal => Node::Terminal(Data::NullLiteral),
-        Rule::numeric_literal => build_ast_from_numeric_literal(pair)?,
-        Rule::string_literal => build_ast_from_string_literal(pair)?,
+        Rule::numeric_literal => build_ast_from_numeric_literal(inner_pair)?,
+        Rule::string_literal => build_ast_from_string_literal(inner_pair)?,
         Rule::boolean_literal => {
-            let bool = pair.as_str();
+            let bool = inner_pair.as_str();
             Node::Terminal(Data::BooleanLiteral(bool == "true"))
         }
         _ => return Err(get_unexpected_error(14, inner_pair)),
@@ -163,7 +290,7 @@ fn build_ast_from_array_literal(pair: Pair<Rule>) -> Result<Node, Error<Rule>> {
             ArrayArgumentType::Regular(Box::new(build_ast_from_assignment_expression(inner_pair)?))
         });
     }
-    Ok(Node::Group(NodeType::ArrayLiteral(arguments)))
+    Ok(Node::ArrayLiteral(arguments))
 }
 
 // fn build_ast_from_object_literal(pair: Pair<Rule>) -> Result<Node, Error<Rule>> {
@@ -173,7 +300,7 @@ fn build_ast_from_array_literal(pair: Pair<Rule>) -> Result<Node, Error<Rule>> {
 //             p.push(build_ast_from_property_definition(pair)?);
 //         }
 //     }
-//     Ok(Node::Group(NodeType::ObjectLiteral(p)))
+//     Ok(Node::ObjectLiteral(p))
 // }
 //
 // fn get_property_definition(pair: Pair<Rule>) -> Result<PropertyType, Error<Rule>> {
@@ -181,7 +308,10 @@ fn build_ast_from_array_literal(pair: Pair<Rule>) -> Result<Node, Error<Rule>> {
 //
 // }
 
-fn build_ast_from_function_expression(pair: Pair<Rule>) -> Result<Node, Error<Rule>> {}
+fn build_ast_from_function_expression(pair: Pair<Rule>) -> Result<Node, Error<Rule>> {
+    //TODO
+    Ok(Node::Terminal(Data::NullLiteral))
+}
 
 fn build_ast_from_primary_expression(pair: Pair<Rule>) -> Result<Node, Error<Rule>> {
     let inner_pair = pair.into_inner().next().unwrap();
@@ -189,7 +319,7 @@ fn build_ast_from_primary_expression(pair: Pair<Rule>) -> Result<Node, Error<Rul
         Rule::identifier_reference | Rule::identifier_reference__yield => {
             build_ast_from_identifier_reference(inner_pair)?
         }
-        Rule::literal => build_ast_from_literal(inner_pair),
+        Rule::literal => build_ast_from_literal(inner_pair)?,
         Rule::this_exp => Node::Terminal(Data::This),
         Rule::array_literal | Rule::array_literal__yield => {
             build_ast_from_array_literal(inner_pair)?
@@ -229,20 +359,21 @@ fn build_ast_from_cover_parenthesized_expression_and_arrow_parameter_list(
     //         }
     //     }
     // }
+    Ok(Node::Terminal(Data::NullLiteral))
 }
 
 fn build_ast_from_super_property(pair: Pair<Rule>) -> Result<Node, Error<Rule>> {
     let inner_pair = pair.into_inner().next().unwrap();
-    Ok(Node::Group(match inner_pair.as_rule() {
-        Rule::identifier_name => NodeType::MemberAccessDot {
+    Ok(match inner_pair.as_rule() {
+        Rule::identifier_name => Node::MemberAccessDot {
             object: Box::new(Node::Terminal(Data::Super)),
             member: get_identifier_name(inner_pair),
         },
-        _ => NodeType::MemberAccessBracket {
+        _ => Node::MemberAccessBracket {
             object: Box::new(Node::Terminal(Data::Super)),
             member: Box::new(build_ast_from_expression(inner_pair)?),
         },
-    }))
+    })
 }
 
 fn build_ast_from_identifier_reference(pair: Pair<Rule>) -> Result<Node, Error<Rule>> {
@@ -262,42 +393,39 @@ fn build_ast_from_member_expression(pair: Pair<Rule>) -> Result<Node, Error<Rule
     let mut pair_iter = pair.into_inner();
     let pair_1 = pair_iter.next().unwrap();
     Ok(match pair_1.as_rule() {
-        Rule::member_expression | Rule::member_expression__yield => {
-            Node::Group(NodeType::InstantiateObject {
-                constructor: Box::new(build_ast_from_member_expression(pair_1)?),
-                arguments: get_arguments(pair_iter.next().unwrap())?,
-            })
-        }
+        Rule::member_expression | Rule::member_expression__yield => Node::InstantiateObject {
+            constructor: Box::new(build_ast_from_member_expression(pair_1)?),
+            arguments: get_arguments(pair_iter.next().unwrap())?,
+        },
         _ => {
-            let mut obj = Box::new(match pair_1.as_rule() {
+            let mut obj = match pair_1.as_rule() {
                 Rule::super_property | Rule::super_property__yield => {
                     build_ast_from_super_property(pair_1)?
                 }
-                Rule::meta_property => Node::Terminal(Data::New_Dot_Target),
+                Rule::meta_property => Node::Terminal(Data::NewDotTarget),
                 Rule::primary_expression | Rule::primary_expression__yield => {
                     build_ast_from_primary_expression(pair_1)?
                 }
-            });
+                _ => return Err(get_unexpected_error(19, pair_1)),
+            };
             for pair in pair_iter {
-                obj = Box::new(match pair.as_rule() {
+                obj = match pair.as_rule() {
                     Rule::expression__in_yield | Rule::expression__in => {
-                        Node::Group(NodeType::MemberAccessBracket {
-                            object: obj,
+                        Node::MemberAccessBracket {
+                            object: Box::new(obj),
                             member: Box::new(build_ast_from_expression(pair)?),
-                        })
+                        }
                     }
-                    Rule::identifier_name => Node::Group(NodeType::MemberAccessDot {
-                        object: obj,
+                    Rule::identifier_name => Node::MemberAccessDot {
+                        object: Box::new(obj),
                         member: get_identifier_name(pair),
-                    }),
-                    Rule::template_literal | Rule::template_literal__yield => {
-                        Node::Group(NodeType::TaggedLiteral {
-                            f: obj,
-                            template: Box::new(build_ast_from_template_literal(pair)?),
-                        })
-                    }
+                    },
+                    Rule::template_literal | Rule::template_literal__yield => Node::TaggedLiteral {
+                        f: Box::new(obj),
+                        template: Box::new(build_ast_from_template_literal(pair)?),
+                    },
                     _ => return Err(get_unexpected_error(12, pair)),
-                });
+                };
             }
             obj
         }
@@ -332,12 +460,12 @@ fn get_arguments(pair: Pair<Rule>) -> Result<Vec<ArgumentType>, Error<Rule>> {
 }
 
 fn build_ast_from_new_expression(pair: Pair<Rule>) -> Result<Node, Error<Rule>> {
-    let inner_pairs = pair.into_inner().collect();
-    let member_node = build_ast_from_member_expression(inner_pairs.last().unwrap())?;
-    if inner_pairs.len() > 1 {
-        let mut n = Node::Group(NodeType::NewExpression(Box::new(member_node)));
-        for _ in [1..inner_pairs.len() - 1] {
-            n = Node::Group(NodeType::NewExpression(Box::new(n)));
+    let mut inner_pairs: Vec<Pair<Rule>> = pair.into_inner().collect();
+    let member_node = build_ast_from_member_expression(inner_pairs.pop().unwrap())?;
+    if inner_pairs.len() > 0 {
+        let mut n = Node::NewExpression(Box::new(member_node));
+        for _ in inner_pairs {
+            n = Node::NewExpression(Box::new(n));
         }
         Ok(n)
     } else {
@@ -349,14 +477,14 @@ fn build_ast_from_postfix_expression(pair: Pair<Rule>) -> Result<Node, Error<Rul
     let mut pair_iter = pair.into_inner();
     let lhs = build_ast_from_left_hand_side_expression(pair_iter.next().unwrap())?;
     if let Some(op_pair) = pair_iter.next() {
-        Ok(Node::Group(NodeType::PostfixExpression(
+        Ok(Node::PostfixExpression(
             Box::new(lhs),
             match op_pair.as_str() {
                 "++" => PostfixOp::PlusPlus,
                 "--" => PostfixOp::MinusMinus,
                 _ => return Err(get_unexpected_error(11, op_pair)),
             },
-        )))
+        ))
     } else {
         Ok(lhs)
     }
@@ -364,9 +492,10 @@ fn build_ast_from_postfix_expression(pair: Pair<Rule>) -> Result<Node, Error<Rul
 
 fn build_ast_from_unary_expression(pair: Pair<Rule>) -> Result<Node, Error<Rule>> {
     let mut operators = vec![];
-    let inner_pairs = pair.into_inner().collect();
-    if inner_pairs.len() > 1 {
-        for inner_pair in &inner_pairs[..inner_pairs.len() - 1] {
+    let mut inner_pairs: Vec<Pair<Rule>> = pair.into_inner().collect();
+    let postfix_node = build_ast_from_postfix_expression(inner_pairs.pop().unwrap())?;
+    if inner_pairs.len() > 0 {
+        for inner_pair in inner_pairs {
             operators.push(match inner_pair.as_str() {
                 "delete" => UnaryOp::Delete,
                 "void" => UnaryOp::Void,
@@ -381,12 +510,8 @@ fn build_ast_from_unary_expression(pair: Pair<Rule>) -> Result<Node, Error<Rule>
             });
         }
     }
-    let postfix_node = build_ast_from_postfix_expression(inner_pairs.last().unwrap())?;
     if operators.len() > 0 {
-        Ok(Node::Group(NodeType::UnaryExpression(
-            operators,
-            Box::new(postfix_node),
-        )))
+        Ok(Node::UnaryExpression(operators, Box::new(postfix_node)))
     } else {
         Ok(postfix_node)
     }
@@ -396,25 +521,29 @@ fn build_ast_from_multiplicative_expression(pair: Pair<Rule>) -> Result<Node, Er
     let mut operands = vec![];
     let mut pair_iter = pair.into_inner();
     let first_one = build_ast_from_unary_expression(pair_iter.next().unwrap())?;
-    for inner_pair in pair_iter {
-        operands.push(match inner_pair.as_str() {
-            "*" => MultiplicativeOp::Multiply(Box::new(build_ast_from_unary_expression(
-                pair_iter.next().unwrap(),
-            )?)),
-            "/" => MultiplicativeOp::Divide(Box::new(build_ast_from_unary_expression(
-                pair_iter.next().unwrap(),
-            )?)),
-            "%" => MultiplicativeOp::Modulo(Box::new(build_ast_from_unary_expression(
-                pair_iter.next().unwrap(),
-            )?)),
-            _ => return Err(get_unexpected_error(9, inner_pair)),
-        });
+    loop {
+        if let Some(inner_pair) = pair_iter.next() {
+            operands.push(match inner_pair.as_str() {
+                "*" => MultiplicativeOp::Multiply(Box::new(build_ast_from_unary_expression(
+                    pair_iter.next().unwrap(),
+                )?)),
+                "/" => MultiplicativeOp::Divide(Box::new(build_ast_from_unary_expression(
+                    pair_iter.next().unwrap(),
+                )?)),
+                "%" => MultiplicativeOp::Modulo(Box::new(build_ast_from_unary_expression(
+                    pair_iter.next().unwrap(),
+                )?)),
+                _ => return Err(get_unexpected_error(9, inner_pair)),
+            });
+        } else {
+            break;
+        }
     }
     if operands.len() > 0 {
-        Ok(Node::Group(NodeType::MultiplicativeExpression(
+        Ok(Node::MultiplicativeExpression(
             Box::new(first_one),
             operands,
-        )))
+        ))
     } else {
         Ok(first_one)
     }
@@ -424,22 +553,23 @@ fn build_ast_from_additive_expression(pair: Pair<Rule>) -> Result<Node, Error<Ru
     let mut operands = vec![];
     let mut pair_iter = pair.into_inner();
     let first_one = build_ast_from_multiplicative_expression(pair_iter.next().unwrap())?;
-    for inner_pair in pair_iter {
-        operands.push(match inner_pair.as_str() {
-            "+" => AdditiveOp::Add(Box::new(build_ast_from_multiplicative_expression(
-                pair_iter.next().unwrap(),
-            )?)),
-            "-" => AdditiveOp::Subtract(Box::new(build_ast_from_multiplicative_expression(
-                pair_iter.next().unwrap(),
-            )?)),
-            _ => return Err(get_unexpected_error(8, inner_pair)),
-        });
+    loop {
+        if let Some(inner_pair) = pair_iter.next() {
+            operands.push(match inner_pair.as_str() {
+                "+" => AdditiveOp::Add(Box::new(build_ast_from_multiplicative_expression(
+                    pair_iter.next().unwrap(),
+                )?)),
+                "-" => AdditiveOp::Subtract(Box::new(build_ast_from_multiplicative_expression(
+                    pair_iter.next().unwrap(),
+                )?)),
+                _ => return Err(get_unexpected_error(8, inner_pair)),
+            });
+        } else {
+            break;
+        }
     }
     if operands.len() > 0 {
-        Ok(Node::Group(NodeType::AdditiveExpression(
-            Box::new(first_one),
-            operands,
-        )))
+        Ok(Node::AdditiveExpression(Box::new(first_one), operands))
     } else {
         Ok(first_one)
     }
@@ -449,25 +579,26 @@ fn build_ast_from_shift_expression(pair: Pair<Rule>) -> Result<Node, Error<Rule>
     let mut operands = vec![];
     let mut pair_iter = pair.into_inner();
     let first_one = build_ast_from_additive_expression(pair_iter.next().unwrap())?;
-    for inner_pair in pair_iter {
-        operands.push(match inner_pair.as_str() {
-            "<<" => ShiftOp::LeftShift(Box::new(build_ast_from_additive_expression(
-                pair_iter.next().unwrap(),
-            )?)),
-            ">>" => ShiftOp::RightShift(Box::new(build_ast_from_additive_expression(
-                pair_iter.next().unwrap(),
-            )?)),
-            ">>>" => ShiftOp::UnsignedRightShift(Box::new(build_ast_from_additive_expression(
-                pair_iter.next().unwrap(),
-            )?)),
-            _ => return Err(get_unexpected_error(7, inner_pair)),
-        });
+    loop {
+        if let Some(inner_pair) = pair_iter.next() {
+            operands.push(match inner_pair.as_str() {
+                "<<" => ShiftOp::LeftShift(Box::new(build_ast_from_additive_expression(
+                    pair_iter.next().unwrap(),
+                )?)),
+                ">>" => ShiftOp::RightShift(Box::new(build_ast_from_additive_expression(
+                    pair_iter.next().unwrap(),
+                )?)),
+                ">>>" => ShiftOp::UnsignedRightShift(Box::new(build_ast_from_additive_expression(
+                    pair_iter.next().unwrap(),
+                )?)),
+                _ => return Err(get_unexpected_error(7, inner_pair)),
+            });
+        } else {
+            break;
+        }
     }
     if operands.len() > 0 {
-        Ok(Node::Group(NodeType::ShiftExpression(
-            Box::new(first_one),
-            operands,
-        )))
+        Ok(Node::ShiftExpression(Box::new(first_one), operands))
     } else {
         Ok(first_one)
     }
@@ -477,34 +608,35 @@ fn build_ast_from_relational_expression(pair: Pair<Rule>) -> Result<Node, Error<
     let mut operands = vec![];
     let mut pair_iter = pair.into_inner();
     let first_one = build_ast_from_shift_expression(pair_iter.next().unwrap())?;
-    for inner_pair in pair_iter {
-        operands.push(match inner_pair.as_str() {
-            "<" => RelationalOp::LessThan(Box::new(build_ast_from_shift_expression(
-                pair_iter.next().unwrap(),
-            )?)),
-            "<=" => RelationalOp::LessThanOrEqual(Box::new(build_ast_from_shift_expression(
-                pair_iter.next().unwrap(),
-            )?)),
-            ">" => RelationalOp::GreaterThan(Box::new(build_ast_from_shift_expression(
-                pair_iter.next().unwrap(),
-            )?)),
-            ">=" => RelationalOp::GreaterThanOrEqual(Box::new(build_ast_from_shift_expression(
-                pair_iter.next().unwrap(),
-            )?)),
-            "instanceof" => RelationalOp::InstanceOf(Box::new(build_ast_from_shift_expression(
-                pair_iter.next().unwrap(),
-            )?)),
-            "in" => RelationalOp::In(Box::new(build_ast_from_shift_expression(
-                pair_iter.next().unwrap(),
-            )?)),
-            _ => return Err(get_unexpected_error(6, inner_pair)),
-        });
+    loop {
+        if let Some(inner_pair) = pair_iter.next() {
+            operands.push(match inner_pair.as_str() {
+                "<" => RelationalOp::LessThan(Box::new(build_ast_from_shift_expression(
+                    pair_iter.next().unwrap(),
+                )?)),
+                "<=" => RelationalOp::LessThanOrEqual(Box::new(build_ast_from_shift_expression(
+                    pair_iter.next().unwrap(),
+                )?)),
+                ">" => RelationalOp::GreaterThan(Box::new(build_ast_from_shift_expression(
+                    pair_iter.next().unwrap(),
+                )?)),
+                ">=" => RelationalOp::GreaterThanOrEqual(Box::new(
+                    build_ast_from_shift_expression(pair_iter.next().unwrap())?,
+                )),
+                "instanceof" => RelationalOp::InstanceOf(Box::new(
+                    build_ast_from_shift_expression(pair_iter.next().unwrap())?,
+                )),
+                "in" => RelationalOp::In(Box::new(build_ast_from_shift_expression(
+                    pair_iter.next().unwrap(),
+                )?)),
+                _ => return Err(get_unexpected_error(6, inner_pair)),
+            });
+        } else {
+            break;
+        }
     }
     if operands.len() > 0 {
-        Ok(Node::Group(NodeType::RelationalExpression(
-            Box::new(first_one),
-            operands,
-        )))
+        Ok(Node::RelationalExpression(Box::new(first_one), operands))
     } else {
         Ok(first_one)
     }
@@ -514,28 +646,29 @@ fn build_ast_from_equality_expression(pair: Pair<Rule>) -> Result<Node, Error<Ru
     let mut operands = vec![];
     let mut pair_iter = pair.into_inner();
     let first_one = build_ast_from_relational_expression(pair_iter.next().unwrap())?;
-    for inner_pair in pair_iter {
-        operands.push(match inner_pair.as_str() {
-            "===" => EqualityOp::StrictEqual(Box::new(build_ast_from_relational_expression(
-                pair_iter.next().unwrap(),
-            )?)),
-            "!==" => EqualityOp::StrictUnequal(Box::new(build_ast_from_relational_expression(
-                pair_iter.next().unwrap(),
-            )?)),
-            "==" => EqualityOp::SoftEqual(Box::new(build_ast_from_relational_expression(
-                pair_iter.next().unwrap(),
-            )?)),
-            "!=" => EqualityOp::StrictUnequal(Box::new(build_ast_from_relational_expression(
-                pair_iter.next().unwrap(),
-            )?)),
-            _ => return Err(get_unexpected_error(5, inner_pair)),
-        });
+    loop {
+        if let Some(inner_pair) = pair_iter.next() {
+            operands.push(match inner_pair.as_str() {
+                "===" => EqualityOp::StrictEqual(Box::new(build_ast_from_relational_expression(
+                    pair_iter.next().unwrap(),
+                )?)),
+                "!==" => EqualityOp::StrictUnequal(Box::new(build_ast_from_relational_expression(
+                    pair_iter.next().unwrap(),
+                )?)),
+                "==" => EqualityOp::SoftEqual(Box::new(build_ast_from_relational_expression(
+                    pair_iter.next().unwrap(),
+                )?)),
+                "!=" => EqualityOp::StrictUnequal(Box::new(build_ast_from_relational_expression(
+                    pair_iter.next().unwrap(),
+                )?)),
+                _ => return Err(get_unexpected_error(5, inner_pair)),
+            });
+        } else {
+            break;
+        }
     }
     if operands.len() > 0 {
-        Ok(Node::Group(NodeType::EqualityExpression(
-            Box::new(first_one),
-            operands,
-        )))
+        Ok(Node::EqualityExpression(Box::new(first_one), operands))
     } else {
         Ok(first_one)
     }
@@ -547,9 +680,9 @@ fn build_ast_from_bitwise_and_expression(pair: Pair<Rule>) -> Result<Node, Error
         operands.push(Box::new(build_ast_from_equality_expression(inner_pair)?));
     }
     if operands.len() == 1 {
-        Ok(*operands[0])
+        Ok(*operands.pop().unwrap())
     } else {
-        Ok(Node::Group(NodeType::BitwiseAndExpression(operands)))
+        Ok(Node::BitwiseAndExpression(operands))
     }
 }
 
@@ -559,9 +692,9 @@ fn build_ast_from_bitwise_xor_expression(pair: Pair<Rule>) -> Result<Node, Error
         operands.push(Box::new(build_ast_from_bitwise_and_expression(inner_pair)?));
     }
     if operands.len() == 1 {
-        Ok(*operands[0])
+        Ok(*operands.pop().unwrap())
     } else {
-        Ok(Node::Group(NodeType::BitwiseXorExpression(operands)))
+        Ok(Node::BitwiseXorExpression(operands))
     }
 }
 
@@ -571,9 +704,9 @@ fn build_ast_from_bitwise_or_expression(pair: Pair<Rule>) -> Result<Node, Error<
         operands.push(Box::new(build_ast_from_bitwise_xor_expression(inner_pair)?));
     }
     if operands.len() == 1 {
-        Ok(*operands[0])
+        Ok(*operands.pop().unwrap())
     } else {
-        Ok(Node::Group(NodeType::BitwiseOrExpression(operands)))
+        Ok(Node::BitwiseOrExpression(operands))
     }
 }
 
@@ -583,9 +716,9 @@ fn build_ast_from_logical_and_expression(pair: Pair<Rule>) -> Result<Node, Error
         operands.push(Box::new(build_ast_from_bitwise_or_expression(inner_pair)?));
     }
     if operands.len() == 1 {
-        Ok(*operands[0])
+        Ok(*operands.pop().unwrap())
     } else {
-        Ok(Node::Group(NodeType::LogicalAndExpression(operands)))
+        Ok(Node::LogicalAndExpression(operands))
     }
 }
 
@@ -595,9 +728,9 @@ fn build_ast_from_logical_or_expression(pair: Pair<Rule>) -> Result<Node, Error<
         operands.push(Box::new(build_ast_from_logical_and_expression(inner_pair)?));
     }
     if operands.len() == 1 {
-        Ok(*operands[0])
+        Ok(*operands.pop().unwrap())
     } else {
-        Ok(Node::Group(NodeType::LogicalOrExpression(operands)))
+        Ok(Node::LogicalOrExpression(operands))
     }
 }
 
@@ -608,11 +741,11 @@ fn build_ast_from_conditional_expression(pair: Pair<Rule>) -> Result<Node, Error
     if let Some(inner_pair) = pair_iter.next() {
         let truthy = build_ast_from_assignment_expression(inner_pair)?;
         let falsy = build_ast_from_assignment_expression(pair_iter.next().unwrap())?;
-        Ok(Node::Group(NodeType::ConditionalExpression {
+        Ok(Node::ConditionalExpression {
             condition: Box::new(or_node),
             if_true: Box::new(truthy),
             if_false: Box::new(falsy),
-        }))
+        })
     } else {
         Ok(or_node)
     }
@@ -631,10 +764,12 @@ fn build_ast_from_left_hand_side_expression(pair: Pair<Rule>) -> Result<Node, Er
     }
 }
 
-fn build_ast_from_arrow_function(pair: Pair<Rule>) -> Result<Node, Error<Rule>> {}
+fn build_ast_from_arrow_function(pair: Pair<Rule>) -> Result<Node, Error<Rule>> {
+    //TODO
+    Ok(Node::Terminal(Data::NullLiteral))
+}
 
 fn build_ast_from_assignment_expression(pair: Pair<Rule>) -> Result<Node, Error<Rule>> {
-    let mut node_children: Vec<Box<Node>> = vec![];
     let inner_pair = pair.into_inner().next().unwrap();
     Ok(match inner_pair.as_rule() {
         Rule::arrow_function
@@ -648,9 +783,9 @@ fn build_ast_from_assignment_expression(pair: Pair<Rule>) -> Result<Node, Error<
             match inner_pair.into_inner().next() {
                 Some(inner_pair) => {
                     let n = build_ast_from_assignment_expression(inner_pair)?;
-                    Node::Group(NodeType::YieldExpression(Some(Box::new(n))))
+                    Node::YieldExpression(Some(Box::new(n)))
                 }
-                None => Node::Group(NodeType::YieldExpression(None)),
+                None => Node::YieldExpression(None),
             }
         }
         Rule::conditional_expression
@@ -659,6 +794,7 @@ fn build_ast_from_assignment_expression(pair: Pair<Rule>) -> Result<Node, Error<
         | Rule::conditional_expression__in_yield => {
             build_ast_from_conditional_expression(inner_pair)?
         }
+        _ => return Err(get_unexpected_error(20, inner_pair)),
     })
 }
 
@@ -691,7 +827,7 @@ fn build_ast_from_template_literal(pair: Pair<Rule>) -> Result<Node, Error<Rule>
                     }
                 }));
             }
-            Node::Group(NodeType::TemplateLiteral(node_children))
+            Node::TemplateLiteral(node_children)
         }
         _ => {
             return Err(get_unexpected_error(2, inner_pair));
@@ -721,7 +857,7 @@ fn build_ast_from_numeric_literal(pair: Pair<Rule>) -> Result<Node, Error<Rule>>
         Rule::decimal_literal => {
             let mut num: f64 = 0.0;
             let mut is_float = false;
-            for decimal_pair in pair.into_inner() {
+            for decimal_pair in inner_pair.into_inner() {
                 num = match decimal_pair.as_rule() {
                     Rule::decimal_integer_literal => {
                         isize::from_str_radix(decimal_pair.as_str(), 10).unwrap() as f64
@@ -737,6 +873,7 @@ fn build_ast_from_numeric_literal(pair: Pair<Rule>) -> Result<Node, Error<Rule>>
                             isize::from_str_radix(&decimal_pair.as_str()[1..], 10).unwrap() as f64,
                         )
                     }
+                    _ => return Err(get_unexpected_error(19, decimal_pair)),
                 }
             }
             if !is_float {

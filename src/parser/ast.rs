@@ -97,6 +97,14 @@ pub enum ArgumentType {
     Rest(Box<Node>),
 }
 
+pub enum FunctionArgumentType {
+    Regular {
+        identifier: Data,
+        default: Option<Box<Node>>,
+    },
+    Rest(Data),
+}
+
 pub enum ArrayArgumentType {
     Regular(Box<Node>),
     Spread(Box<Node>),
@@ -118,7 +126,50 @@ pub enum PropertyType {
     },
 }
 
-pub enum NodeType {
+pub struct ArrayBindingIdentifier {
+    pub identifier: Data,
+    pub index: u32,
+    pub is_rest: bool,
+}
+
+pub struct ObjectBindingIdentifier {
+    pub identifier: Data,
+    pub path: String,
+}
+
+pub enum BindingType {
+    SimpleBinding {
+        identifier: Data,
+        initializer: Option<Box<Node>>,
+    },
+    ArrayBinding {
+        identifiers: Vec<ArrayBindingIdentifier>,
+        initialize: Box<Node>,
+    },
+    ObjectBinding {
+        identifiers: Vec<ObjectBindingIdentifier>,
+        initialize: Box<Node>,
+    },
+}
+
+pub enum DeclarationType {
+    ClassDeclaration,
+    LetDeclaration(Vec<BindingType>),
+    ConstDeclaration(Vec<BindingType>),
+    GeneratorDeclaration {
+        name: String,
+        arguments: Vec<FunctionArgumentType>,
+        body: Box<Node>,
+    },
+    FunctionDeclaration {
+        name: String,
+        arguments: Vec<FunctionArgumentType>,
+        body: Box<Node>,
+    },
+}
+
+pub enum Node {
+    Terminal(Data),
     TemplateLiteral(Vec<Box<Node>>),
     Expression(Vec<Box<Node>>),
     YieldExpression(Option<Box<Node>>),
@@ -162,11 +213,8 @@ pub enum NodeType {
         f: Box<Node>,
         arguments: Vec<ArgumentType>,
     },
-}
-
-pub enum Node {
-    Group(NodeType),
-    Terminal(Data),
+    Statements(Vec<Box<Node>>),
+    Declaration(DeclarationType),
 }
 
 pub enum Data {
@@ -176,7 +224,7 @@ pub enum Data {
     BooleanLiteral(bool),
     NullLiteral,
     IdentifierName(String),
-    New_Dot_Target,
+    NewDotTarget,
     Super,
     This,
     Yield,
