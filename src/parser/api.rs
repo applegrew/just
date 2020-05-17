@@ -1,11 +1,12 @@
-use super::ast::*;
+use std::rc::Rc;
+use std::time::Instant;
+
 use pest::error::{Error, ErrorVariant};
 use pest::iterators::{Pair, Pairs};
 use pest::Parser;
 use pest_derive::Parser;
-use std::borrow::Borrow;
-use std::rc::{Rc, Weak};
-use std::time::Instant;
+
+use super::ast::*;
 
 #[derive(Parser)]
 #[grammar = "parser/js_grammar.pest"] // relative to src
@@ -46,7 +47,7 @@ fn pair_to_string(pair: Pair<Rule>, level: usize) -> Vec<String> {
     );
     let mut string_pads = String::with_capacity(level * TAB_WIDTH);
     for _ in 1..level * TAB_WIDTH + 1 {
-        string_pads.push('_');
+        string_pads.push(' ');
     }
     tree.push(format!("{}{}", string_pads, rule_name));
     for child_pair in pair.into_inner() {

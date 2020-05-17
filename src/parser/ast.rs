@@ -1,4 +1,4 @@
-use std::rc::{Weak, Rc};
+use std::rc::{Rc, Weak};
 
 #[derive(Debug)]
 pub enum EqualityOp {
