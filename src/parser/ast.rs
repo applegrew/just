@@ -1,47 +1,6 @@
-// use std::iter::Map;
-//
-// pub struct AssignmentVariables {
-//     ids: Vec<String>,
-//     value: Box<OpInstruction>,
-//     capture: AssignmentCapture,
-// }
-//
-// pub struct AssignmentIdx {
-//     index: u32,
-//     default: VariableData,
-// }
-//
-// pub struct RestAssignmentIdx {
-//     start_index: u32,
-//     default: VariableData,
-// }
-//
-// pub struct AssignmentPath {
-//     path: Vec<String>,
-//     default: VariableData,
-// }
-//
-// pub enum AssignmentCapture {
-//     OneToOneCapture, // It is an error if ids has more than one element for this case
-//     ArrayDestructCapture {
-//         params: Vec<AssignmentIdx>,
-//         rest_param: Option<RestAssignmentIdx>,
-//     },
-//     ObjectDestructCapture(Vec<AssignmentPath>),
-// }
-//
-// pub enum OpInstruction {
-//     ReturnOp(Box<OpInstruction>),
-//     VarOp(AssignmentVariables),
-//     LetOp(AssignmentVariables),
-//     ConstOp(AssignmentVariables),
-//     DefineFunction {
-//         id: String,
-//         arguments: Vec<AssignmentVariables>,
-//         instructions: Vec<Box<OpInstruction>>,
-//     },
-// }
+use std::rc::{Weak, Rc};
 
+#[derive(Debug)]
 pub enum EqualityOp {
     StrictEqual(Box<Node>),
     StrictUnequal(Box<Node>),
@@ -49,6 +8,7 @@ pub enum EqualityOp {
     SoftUnequal(Box<Node>),
 }
 
+#[derive(Debug)]
 pub enum RelationalOp {
     LessThan(Box<Node>),
     LessThanOrEqual(Box<Node>),
@@ -58,23 +18,27 @@ pub enum RelationalOp {
     In(Box<Node>),
 }
 
+#[derive(Debug)]
 pub enum ShiftOp {
     LeftShift(Box<Node>),
     RightShift(Box<Node>),
     UnsignedRightShift(Box<Node>),
 }
 
+#[derive(Debug)]
 pub enum AdditiveOp {
     Add(Box<Node>),
     Subtract(Box<Node>),
 }
 
+#[derive(Debug)]
 pub enum MultiplicativeOp {
     Multiply(Box<Node>),
     Divide(Box<Node>),
     Modulo(Box<Node>),
 }
 
+#[derive(Debug)]
 pub enum UnaryOp {
     Delete,
     Void,
@@ -87,16 +51,19 @@ pub enum UnaryOp {
     LogicalNot,
 }
 
+#[derive(Debug)]
 pub enum PostfixOp {
     PlusPlus,
     MinusMinus,
 }
 
+#[derive(Debug)]
 pub enum ArgumentType {
     Regular(Box<Node>),
     Rest(Box<Node>),
 }
 
+#[derive(Debug)]
 pub enum FunctionArgumentType {
     Regular {
         identifier: Data,
@@ -105,11 +72,13 @@ pub enum FunctionArgumentType {
     Rest(Data),
 }
 
+#[derive(Debug)]
 pub enum ArrayArgumentType {
     Regular(Box<Node>),
     Spread(Box<Node>),
 }
 
+#[derive(Debug)]
 pub enum PropertyType {
     ComputedNameValuePair {
         name: Box<Node>,
@@ -126,17 +95,20 @@ pub enum PropertyType {
     },
 }
 
+#[derive(Debug)]
 pub struct ArrayBindingIdentifier {
     pub identifier: Data,
     pub index: u32,
     pub is_rest: bool,
 }
 
+#[derive(Debug)]
 pub struct ObjectBindingIdentifier {
     pub identifier: Data,
     pub path: String,
 }
 
+#[derive(Debug)]
 pub enum BindingType {
     SimpleBinding {
         identifier: Data,
@@ -152,8 +124,10 @@ pub enum BindingType {
     },
 }
 
+#[derive(Debug)]
 pub enum DeclarationType {
     ClassDeclaration,
+    VarDeclaration(Vec<BindingType>),
     LetDeclaration(Vec<BindingType>),
     ConstDeclaration(Vec<BindingType>),
     GeneratorDeclaration {
@@ -168,6 +142,7 @@ pub enum DeclarationType {
     },
 }
 
+#[derive(Debug)]
 pub enum Node {
     Terminal(Data),
     TemplateLiteral(Vec<Box<Node>>),
@@ -213,10 +188,14 @@ pub enum Node {
         f: Box<Node>,
         arguments: Vec<ArgumentType>,
     },
-    Statements(Vec<Box<Node>>),
+    Statements {
+        all_hoisted_declarations: Vec<Weak<Node>>,
+        statements: Vec<Rc<Node>>,
+    },
     Declaration(DeclarationType),
 }
 
+#[derive(Debug)]
 pub enum Data {
     IntegerLiteral(i32),
     FloatLiteral(f64),

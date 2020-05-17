@@ -3,6 +3,8 @@ use pest::error::{Error, ErrorVariant};
 use pest::iterators::{Pair, Pairs};
 use pest::Parser;
 use pest_derive::Parser;
+use std::borrow::Borrow;
+use std::rc::{Rc, Weak};
 use std::time::Instant;
 
 #[derive(Parser)]
@@ -64,22 +66,143 @@ pub fn parse_to_ast(script: &str) -> Result<Node, Error<Rule>> {
 
 fn build_ast_from_statement_list_pairs(pairs: Pairs<Rule>) -> Result<Node, Error<Rule>> {
     let mut s = vec![];
+    let mut all_hoisted_declarations = vec![];
     for pair in pairs {
-        s.push(Box::new(match pair.as_rule() {
-            Rule::declaration | Rule::declaration__yield => build_ast_from_declaration(pair)?,
+        match pair.as_rule() {
+            Rule::declaration | Rule::declaration__yield => {
+                let err = Err(get_unexpected_error(24, &pair));
+                let n = Rc::new(build_ast_from_declaration(pair)?);
+                match &*n {
+                    Node::Declaration(declaration_type) => {
+                        match declaration_type {
+                            DeclarationType::FunctionDeclaration { .. }
+                            | DeclarationType::GeneratorDeclaration { .. }
+                            | DeclarationType::VarDeclaration(_) => {
+                                all_hoisted_declarations.push(Rc::downgrade(&n));
+                            }
+                            _ => { /* Do nothing as others are not hoistable */ }
+                        }
+                    }
+                    _ => return err,
+                };
+                s.push(n);
+            }
             Rule::statement
             | Rule::statement__yield
             | Rule::statement__return
-            | Rule::statement__yield_return => build_ast_from_statement(pair)?,
-            _ => return Err(get_unexpected_error(18, pair)),
-        }));
+            | Rule::statement__yield_return => {
+                let n = Rc::new(build_ast_from_statement(pair)?);
+                match &*n {
+                    Node::Declaration(declaration_type) => {
+                        match declaration_type {
+                            DeclarationType::VarDeclaration(_) => {
+                                all_hoisted_declarations.push(Rc::downgrade(&n));
+                            }
+                            _ => { /* Do nothing as others are not hoistable */ }
+                        }
+                    }
+                    _ => { /* Do nothing*/ }
+                };
+                s.push(n);
+            }
+            Rule::EOI => { /* Do nothing */ }
+            _ => return Err(get_unexpected_error(18, &pair)),
+        };
     }
-    Ok(Node::Statements(s))
+    Ok(Node::Statements {
+        all_hoisted_declarations,
+        statements: s,
+    })
 }
 
 fn build_ast_from_statement(pair: Pair<Rule>) -> Result<Node, Error<Rule>> {
-    //TODO
-    panic!("Not yet implemented!");
+    let inner_pair = pair.into_inner().next().unwrap();
+    Ok(match inner_pair.as_rule() {
+        Rule::debugger_statement => panic!("Not yet implemented!"),
+        Rule::continue_statement | Rule::continue_statement__yield => {
+            panic!("Not yet implemented!")
+        }
+        Rule::break_statement | Rule::break_statement__yield => panic!("Not yet implemented!"),
+        Rule::throw_statement | Rule::break_statement__yield => panic!("Not yet implemented!"),
+        Rule::if_statement
+        | Rule::if_statement__yield
+        | Rule::if_statement__return
+        | Rule::if_statement__yield_return => panic!("Not yet implemented!"),
+        Rule::with_statement
+        | Rule::with_statement__yield
+        | Rule::with_statement__return
+        | Rule::with_statement__yield_return => panic!("Not yet implemented!"),
+        Rule::try_statement
+        | Rule::try_statement__yield
+        | Rule::try_statement__return
+        | Rule::try_statement__yield_return => panic!("Not yet implemented!"),
+        Rule::variable_statement | Rule::variable_statement__yield => {
+            let mut declarations = vec![];
+            for var_pair in inner_pair.into_inner() {
+                if var_pair.as_rule() == Rule::variable_declaration
+                    || var_pair.as_rule() == Rule::variable_declaration__in
+                {
+                    declarations.push(get_lexical_binding_or_variable_declaration(var_pair)?)
+                } else if var_pair.as_rule() != Rule::smart_semicolon {
+                    // smart_semicolon at the end is expected but nothing else.
+                    return Err(get_unexpected_error(23, &var_pair));
+                }
+            }
+            Node::Declaration(DeclarationType::VarDeclaration(declarations))
+        }
+        Rule::breakable_statement
+        | Rule::breakable_statement__yield
+        | Rule::breakable_statement__return
+        | Rule::breakable_statement__yield_return => panic!("Not yet implemented!"),
+        Rule::block_statement
+        | Rule::block_statement__yield
+        | Rule::block_statement__return
+        | Rule::block_statement__yield_return => panic!("Not yet implemented!"),
+        Rule::expression_statement | Rule::expression_statement__yield => {
+            panic!("Not yet implemented!")
+        }
+        Rule::labelled_statement
+        | Rule::labelled_statement__yield
+        | Rule::labelled_statement__return
+        | Rule::labelled_statement__yield_return => panic!("Not yet implemented!"),
+        Rule::empty_statement => panic!("Not yet implemented!"),
+        Rule::return_statement | Rule::return_statement__yield => panic!("Not yet implemented!"),
+        _ => return Err(get_unexpected_error(22, &inner_pair)),
+    })
+}
+
+fn get_lexical_binding_or_variable_declaration(
+    pair: Pair<Rule>,
+) -> Result<BindingType, Error<Rule>> {
+    let mut lexical_binding_inner_iter = pair.into_inner();
+    let lexical_binding_inner = lexical_binding_inner_iter.next().unwrap();
+    Ok(
+        if lexical_binding_inner.as_rule() == Rule::binding_identifier
+            || lexical_binding_inner.as_rule() == Rule::binding_identifier__yield
+        {
+            let id = Data::IdentifierName(lexical_binding_inner.as_str().to_string());
+            if let Some(initializer) = lexical_binding_inner_iter.next() {
+                BindingType::SimpleBinding {
+                    identifier: id,
+                    initializer: Some(Box::new(build_ast_from_assignment_expression(
+                        initializer.into_inner().next().unwrap(),
+                    )?)),
+                }
+            } else {
+                BindingType::SimpleBinding {
+                    identifier: id,
+                    initializer: None,
+                }
+            }
+        } else if lexical_binding_inner.as_rule() == Rule::binding_pattern
+            || lexical_binding_inner.as_rule() == Rule::binding_pattern__yield
+        {
+            //TODO
+            panic!("Not implemented yet!");
+        } else {
+            return Err(get_unexpected_error(23, &lexical_binding_inner));
+        },
+    )
 }
 
 fn build_ast_from_lexical_declaration(pair: Pair<Rule>) -> Result<Node, Error<Rule>> {
@@ -89,32 +212,9 @@ fn build_ast_from_lexical_declaration(pair: Pair<Rule>) -> Result<Node, Error<Ru
     let mut declarations = vec![];
     let binding_list_pair = pair_iter.next().unwrap();
     for lexical_binding in binding_list_pair.into_inner() {
-        let mut lexical_binding_inner_iter = lexical_binding.into_inner();
-        let lexical_binding_inner = lexical_binding_inner_iter.next().unwrap();
-        declarations.push(
-            if lexical_binding_inner.as_rule() == Rule::binding_identifier
-                || lexical_binding_inner.as_rule() == Rule::binding_identifier__yield
-            {
-                let id = Data::IdentifierName(lexical_binding_inner.as_str().to_string());
-                if let Some(initializer) = lexical_binding_inner_iter.next() {
-                    BindingType::SimpleBinding {
-                        identifier: id,
-                        initializer: Some(Box::new(build_ast_from_assignment_expression(
-                            initializer.into_inner().next().unwrap(),
-                        )?)),
-                    }
-                } else {
-                    BindingType::SimpleBinding {
-                        identifier: id,
-                        initializer: None,
-                    }
-                }
-            } else {
-                // binding pattern
-                //TODO
-                panic!("Not implemented yet!");
-            },
-        );
+        declarations.push(get_lexical_binding_or_variable_declaration(
+            lexical_binding,
+        )?);
     }
     Ok(Node::Declaration(if is_let {
         DeclarationType::LetDeclaration(declarations)
@@ -172,10 +272,10 @@ fn build_ast_from_function_declaration(pair: Pair<Rule>) -> Result<Node, Error<R
                     //TODO
                     panic!("Not yet implemented!");
                 } else {
-                    return Err(get_unexpected_error(17, binding_element_inner));
+                    return Err(get_unexpected_error(17, &binding_element_inner));
                 }
             }
-            _ => return Err(get_unexpected_error(16, param)),
+            _ => return Err(get_unexpected_error(16, &param)),
         });
     }
     let function_body = pair_iter.next().unwrap();
@@ -211,11 +311,11 @@ fn build_ast_from_declaration(pair: Pair<Rule>) -> Result<Node, Error<Rule>> {
         Rule::lexical_declaration__in | Rule::lexical_declaration__in_yield => {
             build_ast_from_lexical_declaration(inner_pair)
         }
-        _ => return Err(get_unexpected_error(15, inner_pair)),
+        _ => return Err(get_unexpected_error(15, &inner_pair)),
     }
 }
 
-fn get_unexpected_error(id: i32, pair: Pair<Rule>) -> Error<Rule> {
+fn get_unexpected_error(id: i32, pair: &Pair<Rule>) -> Error<Rule> {
     let message = format!("Unexpected state reached [{:?}] - {}", pair.as_rule(), id);
     Error::new_from_span(ErrorVariant::CustomError { message }, pair.as_span())
 }
@@ -260,7 +360,7 @@ fn build_ast_from_call_expression(pair: Pair<Rule>) -> Result<Node, Error<Rule>>
                 f: Box::new(obj),
                 arguments: get_arguments(pair)?,
             },
-            _ => return Err(get_unexpected_error(14, pair)),
+            _ => return Err(get_unexpected_error(14, &pair)),
         };
     }
     Ok(obj)
@@ -276,7 +376,7 @@ fn build_ast_from_literal(pair: Pair<Rule>) -> Result<Node, Error<Rule>> {
             let bool = inner_pair.as_str();
             Node::Terminal(Data::BooleanLiteral(bool == "true"))
         }
-        _ => return Err(get_unexpected_error(14, inner_pair)),
+        _ => return Err(get_unexpected_error(14, &inner_pair)),
     })
 }
 
@@ -345,7 +445,7 @@ fn build_ast_from_primary_expression(pair: Pair<Rule>) -> Result<Node, Error<Rul
         | Rule::cover_parenthesized_expression_and_arrow_parameter_list__yield => {
             panic!("Use-case not clear. Not implemented right now!");
         }
-        _ => return Err(get_unexpected_error(13, inner_pair)),
+        _ => return Err(get_unexpected_error(13, &inner_pair)),
     })
 }
 
@@ -406,7 +506,7 @@ fn build_ast_from_member_expression(pair: Pair<Rule>) -> Result<Node, Error<Rule
                 Rule::primary_expression | Rule::primary_expression__yield => {
                     build_ast_from_primary_expression(pair_1)?
                 }
-                _ => return Err(get_unexpected_error(19, pair_1)),
+                _ => return Err(get_unexpected_error(21, &pair_1)),
             };
             for pair in pair_iter {
                 obj = match pair.as_rule() {
@@ -424,7 +524,7 @@ fn build_ast_from_member_expression(pair: Pair<Rule>) -> Result<Node, Error<Rule
                         f: Box::new(obj),
                         template: Box::new(build_ast_from_template_literal(pair)?),
                     },
-                    _ => return Err(get_unexpected_error(12, pair)),
+                    _ => return Err(get_unexpected_error(12, &pair)),
                 };
             }
             obj
@@ -481,7 +581,7 @@ fn build_ast_from_postfix_expression(pair: Pair<Rule>) -> Result<Node, Error<Rul
             match op_pair.as_str() {
                 "++" => PostfixOp::PlusPlus,
                 "--" => PostfixOp::MinusMinus,
-                _ => return Err(get_unexpected_error(11, op_pair)),
+                _ => return Err(get_unexpected_error(11, &op_pair)),
             },
         ))
     } else {
@@ -505,7 +605,7 @@ fn build_ast_from_unary_expression(pair: Pair<Rule>) -> Result<Node, Error<Rule>
                 "-" => UnaryOp::Minus,
                 "~" => UnaryOp::BitwiseNot,
                 "!" => UnaryOp::LogicalNot,
-                _ => return Err(get_unexpected_error(10, inner_pair)),
+                _ => return Err(get_unexpected_error(10, &inner_pair)),
             });
         }
     }
@@ -532,7 +632,7 @@ fn build_ast_from_multiplicative_expression(pair: Pair<Rule>) -> Result<Node, Er
                 "%" => MultiplicativeOp::Modulo(Box::new(build_ast_from_unary_expression(
                     pair_iter.next().unwrap(),
                 )?)),
-                _ => return Err(get_unexpected_error(9, inner_pair)),
+                _ => return Err(get_unexpected_error(9, &inner_pair)),
             });
         } else {
             break;
@@ -561,7 +661,7 @@ fn build_ast_from_additive_expression(pair: Pair<Rule>) -> Result<Node, Error<Ru
                 "-" => AdditiveOp::Subtract(Box::new(build_ast_from_multiplicative_expression(
                     pair_iter.next().unwrap(),
                 )?)),
-                _ => return Err(get_unexpected_error(8, inner_pair)),
+                _ => return Err(get_unexpected_error(8, &inner_pair)),
             });
         } else {
             break;
@@ -590,7 +690,7 @@ fn build_ast_from_shift_expression(pair: Pair<Rule>) -> Result<Node, Error<Rule>
                 ">>>" => ShiftOp::UnsignedRightShift(Box::new(build_ast_from_additive_expression(
                     pair_iter.next().unwrap(),
                 )?)),
-                _ => return Err(get_unexpected_error(7, inner_pair)),
+                _ => return Err(get_unexpected_error(7, &inner_pair)),
             });
         } else {
             break;
@@ -628,7 +728,7 @@ fn build_ast_from_relational_expression(pair: Pair<Rule>) -> Result<Node, Error<
                 "in" => RelationalOp::In(Box::new(build_ast_from_shift_expression(
                     pair_iter.next().unwrap(),
                 )?)),
-                _ => return Err(get_unexpected_error(6, inner_pair)),
+                _ => return Err(get_unexpected_error(6, &inner_pair)),
             });
         } else {
             break;
@@ -660,7 +760,7 @@ fn build_ast_from_equality_expression(pair: Pair<Rule>) -> Result<Node, Error<Ru
                 "!=" => EqualityOp::StrictUnequal(Box::new(build_ast_from_relational_expression(
                     pair_iter.next().unwrap(),
                 )?)),
-                _ => return Err(get_unexpected_error(5, inner_pair)),
+                _ => return Err(get_unexpected_error(5, &inner_pair)),
             });
         } else {
             break;
@@ -759,7 +859,7 @@ fn build_ast_from_left_hand_side_expression(pair: Pair<Rule>) -> Result<Node, Er
         Rule::new_expression | Rule::new_expression__yield => {
             build_ast_from_new_expression(inner_pair)
         }
-        _ => Err(get_unexpected_error(4, inner_pair)),
+        _ => Err(get_unexpected_error(4, &inner_pair)),
     }
 }
 
@@ -793,7 +893,7 @@ fn build_ast_from_assignment_expression(pair: Pair<Rule>) -> Result<Node, Error<
         | Rule::conditional_expression__in_yield => {
             build_ast_from_conditional_expression(inner_pair)?
         }
-        _ => return Err(get_unexpected_error(20, inner_pair)),
+        _ => return Err(get_unexpected_error(20, &inner_pair)),
     })
 }
 
@@ -822,14 +922,14 @@ fn build_ast_from_template_literal(pair: Pair<Rule>) -> Result<Node, Error<Rule>
                         Node::Terminal(Data::StringLiteral(String::from(&s[1..s.len() - 1])))
                     }
                     _ => {
-                        return Err(get_unexpected_error(3, template_pair));
+                        return Err(get_unexpected_error(3, &template_pair));
                     }
                 }));
             }
             Node::TemplateLiteral(node_children)
         }
         _ => {
-            return Err(get_unexpected_error(2, inner_pair));
+            return Err(get_unexpected_error(2, &inner_pair));
         }
     })
 }
@@ -872,7 +972,7 @@ fn build_ast_from_numeric_literal(pair: Pair<Rule>) -> Result<Node, Error<Rule>>
                             isize::from_str_radix(&decimal_pair.as_str()[1..], 10).unwrap() as f64,
                         )
                     }
-                    _ => return Err(get_unexpected_error(19, decimal_pair)),
+                    _ => return Err(get_unexpected_error(19, &decimal_pair)),
                 }
             }
             if !is_float {
@@ -882,7 +982,7 @@ fn build_ast_from_numeric_literal(pair: Pair<Rule>) -> Result<Node, Error<Rule>>
             }
         }
         _ => {
-            return Err(get_unexpected_error(1, inner_pair));
+            return Err(get_unexpected_error(1, &inner_pair));
         }
     }))
 }
