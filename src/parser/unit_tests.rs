@@ -845,27 +845,29 @@ fn test_function1() {
                 binding_identifier(9, 14),
                 formal_parameters(15, 15),
                 function_body(35, 49, [
-                    expression_statement(35, 37, [
-                        expression__in(35, 36, [
-                            assignment_expression__in(35, 36, [
-                                conditional_expression__in(35, 36, [
-                                    logical_or_expression__in(35, 36, [
-                                        logical_and_expression__in(35, 36, [
-                                            bitwise_or_expression__in(35, 36, [
-                                                bitwise_xor_expression__in(35, 36, [
-                                                    bitwise_and_expression__in(35, 36, [
-                                                        equality_expression__in(35, 36, [
-                                                            relational_expression__in(35, 36, [
-                                                                shift_expression(35, 36, [
-                                                                    additive_expression(35, 36, [
-                                                                        multiplicative_expression(35, 36, [
-                                                                            unary_expression(35, 36, [
-                                                                                postfix_expression(35, 36, [
-                                                                                    left_hand_side_expression(35, 36, [
-                                                                                        new_expression(35, 36, [
-                                                                                            member_expression(35, 36, [
-                                                                                                primary_expression(35, 36, [
-                                                                                                    identifier_reference(35, 36)
+                    statement__return(35, 37, [
+                        expression_statement(35, 37, [
+                            expression__in(35, 36, [
+                                assignment_expression__in(35, 36, [
+                                    conditional_expression__in(35, 36, [
+                                        logical_or_expression__in(35, 36, [
+                                            logical_and_expression__in(35, 36, [
+                                                bitwise_or_expression__in(35, 36, [
+                                                    bitwise_xor_expression__in(35, 36, [
+                                                        bitwise_and_expression__in(35, 36, [
+                                                            equality_expression__in(35, 36, [
+                                                                relational_expression__in(35, 36, [
+                                                                    shift_expression(35, 36, [
+                                                                        additive_expression(35, 36, [
+                                                                            multiplicative_expression(35, 36, [
+                                                                                unary_expression(35, 36, [
+                                                                                    postfix_expression(35, 36, [
+                                                                                        left_hand_side_expression(35, 36, [
+                                                                                            new_expression(35, 36, [
+                                                                                                member_expression(35, 36, [
+                                                                                                    primary_expression(35, 36, [
+                                                                                                        identifier_reference(35, 36)
+                                                                                                    ])
                                                                                                 ])
                                                                                             ])
                                                                                         ])
@@ -883,9 +885,9 @@ fn test_function1() {
                                         ])
                                     ])
                                 ])
-                            ])
-                        ]),
-                        smart_semicolon(36, 37)
+                            ]),
+                            smart_semicolon(36, 37)
+                        ])
                     ])
                 ])
             ])
@@ -906,27 +908,29 @@ fn test_function2() {
                 binding_identifier(9, 14),
                 formal_parameters(15, 15),
                 function_body(35, 56, [
-                    return_statement(35, 44, [
-                        expression__in(42, 43, [
-                            assignment_expression__in(42, 43, [
-                                conditional_expression__in(42, 43, [
-                                    logical_or_expression__in(42, 43, [
-                                        logical_and_expression__in(42, 43, [
-                                            bitwise_or_expression__in(42, 43, [
-                                                bitwise_xor_expression__in(42, 43, [
-                                                    bitwise_and_expression__in(42, 43, [
-                                                        equality_expression__in(42, 43, [
-                                                            relational_expression__in(42, 43, [
-                                                                shift_expression(42, 43, [
-                                                                    additive_expression(42, 43, [
-                                                                        multiplicative_expression(42, 43, [
-                                                                            unary_expression(42, 43, [
-                                                                                postfix_expression(42, 43, [
-                                                                                    left_hand_side_expression(42, 43, [
-                                                                                        new_expression(42, 43, [
-                                                                                            member_expression(42, 43, [
-                                                                                                primary_expression(42, 43, [
-                                                                                                    identifier_reference(42, 43)
+                    statement__return(35, 44, [
+                        return_statement(35, 44, [
+                            expression__in(42, 43, [
+                                assignment_expression__in(42, 43, [
+                                    conditional_expression__in(42, 43, [
+                                        logical_or_expression__in(42, 43, [
+                                            logical_and_expression__in(42, 43, [
+                                                bitwise_or_expression__in(42, 43, [
+                                                    bitwise_xor_expression__in(42, 43, [
+                                                        bitwise_and_expression__in(42, 43, [
+                                                            equality_expression__in(42, 43, [
+                                                                relational_expression__in(42, 43, [
+                                                                    shift_expression(42, 43, [
+                                                                        additive_expression(42, 43, [
+                                                                            multiplicative_expression(42, 43, [
+                                                                                unary_expression(42, 43, [
+                                                                                    postfix_expression(42, 43, [
+                                                                                        left_hand_side_expression(42, 43, [
+                                                                                            new_expression(42, 43, [
+                                                                                                member_expression(42, 43, [
+                                                                                                    primary_expression(42, 43, [
+                                                                                                        identifier_reference(42, 43)
+                                                                                                    ])
                                                                                                 ])
                                                                                             ])
                                                                                         ])
@@ -944,9 +948,9 @@ fn test_function2() {
                                         ])
                                     ])
                                 ])
-                            ])
-                        ]),
-                        smart_semicolon(43, 44)
+                            ]),
+                            smart_semicolon(43, 44)
+                        ])
                     ])
                 ])
             ])
@@ -1211,78 +1215,80 @@ fn test_script1() {
         input: "thisBinding.call({ string: \'bound\' })();\n",
         rule: Rule::script,
         tokens: [
-            expression_statement(0, 41, [
-                expression__in(0, 39, [
-                    assignment_expression__in(0, 39, [
-                        conditional_expression__in(0, 39, [
-                            logical_or_expression__in(0, 39, [
-                                logical_and_expression__in(0, 39, [
-                                    bitwise_or_expression__in(0, 39, [
-                                        bitwise_xor_expression__in(0, 39, [
-                                            bitwise_and_expression__in(0, 39, [
-                                                equality_expression__in(0, 39, [
-                                                    relational_expression__in(0, 39, [
-                                                        shift_expression(0, 39, [
-                                                            additive_expression(0, 39, [
-                                                                multiplicative_expression(0, 39, [
-                                                                    unary_expression(0, 39, [
-                                                                        postfix_expression(0, 39, [
-                                                                            left_hand_side_expression(0, 39, [
-                                                                                call_expression(0, 39, [
-                                                                                    member_expression(0, 16, [
-                                                                                        primary_expression(0, 11, [
-                                                                                            identifier_reference(0, 11)
+            statement(0, 41, [
+                expression_statement(0, 41, [
+                    expression__in(0, 39, [
+                        assignment_expression__in(0, 39, [
+                            conditional_expression__in(0, 39, [
+                                logical_or_expression__in(0, 39, [
+                                    logical_and_expression__in(0, 39, [
+                                        bitwise_or_expression__in(0, 39, [
+                                            bitwise_xor_expression__in(0, 39, [
+                                                bitwise_and_expression__in(0, 39, [
+                                                    equality_expression__in(0, 39, [
+                                                        relational_expression__in(0, 39, [
+                                                            shift_expression(0, 39, [
+                                                                additive_expression(0, 39, [
+                                                                    multiplicative_expression(0, 39, [
+                                                                        unary_expression(0, 39, [
+                                                                            postfix_expression(0, 39, [
+                                                                                left_hand_side_expression(0, 39, [
+                                                                                    call_expression(0, 39, [
+                                                                                        member_expression(0, 16, [
+                                                                                            primary_expression(0, 11, [
+                                                                                                identifier_reference(0, 11)
+                                                                                            ]),
+                                                                                            identifier_name(12, 16)
                                                                                         ]),
-                                                                                        identifier_name(12, 16)
-                                                                                    ]),
-                                                                                    arguments(16, 37, [
-                                                                                        argument_list(17, 36, [
-                                                                                            assignment_expression__in(17, 36, [
-                                                                                                conditional_expression__in(17, 36, [
-                                                                                                    logical_or_expression__in(17, 36, [
-                                                                                                        logical_and_expression__in(17, 36, [
-                                                                                                            bitwise_or_expression__in(17, 36, [
-                                                                                                                bitwise_xor_expression__in(17, 36, [
-                                                                                                                    bitwise_and_expression__in(17, 36, [
-                                                                                                                        equality_expression__in(17, 36, [
-                                                                                                                            relational_expression__in(17, 36, [
-                                                                                                                                shift_expression(17, 36, [
-                                                                                                                                    additive_expression(17, 36, [
-                                                                                                                                        multiplicative_expression(17, 36, [
-                                                                                                                                            unary_expression(17, 36, [
-                                                                                                                                                postfix_expression(17, 36, [
-                                                                                                                                                    left_hand_side_expression(17, 36, [
-                                                                                                                                                        new_expression(17, 36, [
-                                                                                                                                                            member_expression(17, 36, [
-                                                                                                                                                                primary_expression(17, 36, [
-                                                                                                                                                                    object_literal(17, 36, [
-                                                                                                                                                                        property_definition_list(19, 35, [
-                                                                                                                                                                            property_definition(19, 35, [
-                                                                                                                                                                                property_name(19, 25, [
-                                                                                                                                                                                    literal_property_name(19, 25, [
-                                                                                                                                                                                        identifier_name(19, 25)
-                                                                                                                                                                                    ])
-                                                                                                                                                                                ]),
-                                                                                                                                                                                assignment_expression__in(27, 35, [
-                                                                                                                                                                                    conditional_expression__in(27, 35, [
-                                                                                                                                                                                        logical_or_expression__in(27, 35, [
-                                                                                                                                                                                            logical_and_expression__in(27, 35, [
-                                                                                                                                                                                                bitwise_or_expression__in(27, 35, [
-                                                                                                                                                                                                    bitwise_xor_expression__in(27, 35, [
-                                                                                                                                                                                                        bitwise_and_expression__in(27, 35, [
-                                                                                                                                                                                                            equality_expression__in(27, 35, [
-                                                                                                                                                                                                                relational_expression__in(27, 35, [
-                                                                                                                                                                                                                    shift_expression(27, 35, [
-                                                                                                                                                                                                                        additive_expression(27, 35, [
-                                                                                                                                                                                                                            multiplicative_expression(27, 35, [
-                                                                                                                                                                                                                                unary_expression(27, 35, [
-                                                                                                                                                                                                                                    postfix_expression(27, 35, [
-                                                                                                                                                                                                                                        left_hand_side_expression(27, 35, [
-                                                                                                                                                                                                                                            new_expression(27, 35, [
-                                                                                                                                                                                                                                                member_expression(27, 35, [
-                                                                                                                                                                                                                                                    primary_expression(27, 34, [
-                                                                                                                                                                                                                                                        literal(27, 34, [
-                                                                                                                                                                                                                                                            string_literal(27, 34)
+                                                                                        arguments(16, 37, [
+                                                                                            argument_list(17, 36, [
+                                                                                                assignment_expression__in(17, 36, [
+                                                                                                    conditional_expression__in(17, 36, [
+                                                                                                        logical_or_expression__in(17, 36, [
+                                                                                                            logical_and_expression__in(17, 36, [
+                                                                                                                bitwise_or_expression__in(17, 36, [
+                                                                                                                    bitwise_xor_expression__in(17, 36, [
+                                                                                                                        bitwise_and_expression__in(17, 36, [
+                                                                                                                            equality_expression__in(17, 36, [
+                                                                                                                                relational_expression__in(17, 36, [
+                                                                                                                                    shift_expression(17, 36, [
+                                                                                                                                        additive_expression(17, 36, [
+                                                                                                                                            multiplicative_expression(17, 36, [
+                                                                                                                                                unary_expression(17, 36, [
+                                                                                                                                                    postfix_expression(17, 36, [
+                                                                                                                                                        left_hand_side_expression(17, 36, [
+                                                                                                                                                            new_expression(17, 36, [
+                                                                                                                                                                member_expression(17, 36, [
+                                                                                                                                                                    primary_expression(17, 36, [
+                                                                                                                                                                        object_literal(17, 36, [
+                                                                                                                                                                            property_definition_list(19, 35, [
+                                                                                                                                                                                property_definition(19, 35, [
+                                                                                                                                                                                    property_name(19, 25, [
+                                                                                                                                                                                        literal_property_name(19, 25, [
+                                                                                                                                                                                            identifier_name(19, 25)
+                                                                                                                                                                                        ])
+                                                                                                                                                                                    ]),
+                                                                                                                                                                                    assignment_expression__in(27, 35, [
+                                                                                                                                                                                        conditional_expression__in(27, 35, [
+                                                                                                                                                                                            logical_or_expression__in(27, 35, [
+                                                                                                                                                                                                logical_and_expression__in(27, 35, [
+                                                                                                                                                                                                    bitwise_or_expression__in(27, 35, [
+                                                                                                                                                                                                        bitwise_xor_expression__in(27, 35, [
+                                                                                                                                                                                                            bitwise_and_expression__in(27, 35, [
+                                                                                                                                                                                                                equality_expression__in(27, 35, [
+                                                                                                                                                                                                                    relational_expression__in(27, 35, [
+                                                                                                                                                                                                                        shift_expression(27, 35, [
+                                                                                                                                                                                                                            additive_expression(27, 35, [
+                                                                                                                                                                                                                                multiplicative_expression(27, 35, [
+                                                                                                                                                                                                                                    unary_expression(27, 35, [
+                                                                                                                                                                                                                                        postfix_expression(27, 35, [
+                                                                                                                                                                                                                                            left_hand_side_expression(27, 35, [
+                                                                                                                                                                                                                                                new_expression(27, 35, [
+                                                                                                                                                                                                                                                    member_expression(27, 35, [
+                                                                                                                                                                                                                                                        primary_expression(27, 34, [
+                                                                                                                                                                                                                                                            literal(27, 34, [
+                                                                                                                                                                                                                                                                string_literal(27, 34)
+                                                                                                                                                                                                                                                            ])
                                                                                                                                                                                                                                                         ])
                                                                                                                                                                                                                                                     ])
                                                                                                                                                                                                                                                 ])
@@ -1323,9 +1329,9 @@ fn test_script1() {
                                                                                                     ])
                                                                                                 ])
                                                                                             ])
-                                                                                        ])
-                                                                                    ]),
-                                                                                    arguments(37, 39)
+                                                                                        ]),
+                                                                                        arguments(37, 39)
+                                                                                    ])
                                                                                 ])
                                                                             ])
                                                                         ])
@@ -1341,9 +1347,9 @@ fn test_script1() {
                                 ])
                             ])
                         ])
-                    ])
-                ]),
-                smart_semicolon(39, 41)
+                    ]),
+                    smart_semicolon(39, 41)
+                ])
             ])
         ]
     }
@@ -1358,56 +1364,58 @@ fn test_script2_var_object() {
             }"#,
         rule: Rule::script,
         tokens: [
-            variable_statement(0, 39, [
-                variable_declaration__in(4, 39, [
-                    binding_identifier(4, 5),
-                    initializer__in(5, 39, [
-                        assignment_expression__in(6, 39, [
-                            conditional_expression__in(6, 39, [
-                                logical_or_expression__in(6, 39, [
-                                    logical_and_expression__in(6, 39, [
-                                        bitwise_or_expression__in(6, 39, [
-                                            bitwise_xor_expression__in(6, 39, [
-                                                bitwise_and_expression__in(6, 39, [
-                                                    equality_expression__in(6, 39, [
-                                                        relational_expression__in(6, 39, [
-                                                            shift_expression(6, 39, [
-                                                                additive_expression(6, 39, [
-                                                                    multiplicative_expression(6, 39, [
-                                                                        unary_expression(6, 39, [
-                                                                            postfix_expression(6, 39, [
-                                                                                left_hand_side_expression(6, 39, [
-                                                                                    new_expression(6, 39, [
-                                                                                        member_expression(6, 39, [
-                                                                                            primary_expression(6, 39, [
-                                                                                                object_literal(6, 39, [
-                                                                                                    property_definition_list(20, 25, [
-                                                                                                        property_definition(20, 25, [
-                                                                                                            property_name(20, 21, [
-                                                                                                                literal_property_name(20, 21, [
-                                                                                                                    identifier_name(20, 21)
-                                                                                                                ])
-                                                                                                            ]),
-                                                                                                            assignment_expression__in(22, 25, [
-                                                                                                                conditional_expression__in(22, 25, [
-                                                                                                                    logical_or_expression__in(22, 25, [
-                                                                                                                        logical_and_expression__in(22, 25, [
-                                                                                                                            bitwise_or_expression__in(22, 25, [
-                                                                                                                                bitwise_xor_expression__in(22, 25, [
-                                                                                                                                    bitwise_and_expression__in(22, 25, [
-                                                                                                                                        equality_expression__in(22, 25, [
-                                                                                                                                            relational_expression__in(22, 25, [
-                                                                                                                                                shift_expression(22, 25, [
-                                                                                                                                                    additive_expression(22, 25, [
-                                                                                                                                                        multiplicative_expression(22, 25, [
-                                                                                                                                                            unary_expression(22, 25, [
-                                                                                                                                                                postfix_expression(22, 25, [
-                                                                                                                                                                    left_hand_side_expression(22, 25, [
-                                                                                                                                                                        new_expression(22, 25, [
-                                                                                                                                                                            member_expression(22, 25, [
-                                                                                                                                                                                primary_expression(22, 25, [
-                                                                                                                                                                                    literal(22, 25, [
-                                                                                                                                                                                        string_literal(22, 25)
+            statement(0, 39, [
+                variable_statement(0, 39, [
+                    variable_declaration__in(4, 39, [
+                        binding_identifier(4, 5),
+                        initializer__in(5, 39, [
+                            assignment_expression__in(6, 39, [
+                                conditional_expression__in(6, 39, [
+                                    logical_or_expression__in(6, 39, [
+                                        logical_and_expression__in(6, 39, [
+                                            bitwise_or_expression__in(6, 39, [
+                                                bitwise_xor_expression__in(6, 39, [
+                                                    bitwise_and_expression__in(6, 39, [
+                                                        equality_expression__in(6, 39, [
+                                                            relational_expression__in(6, 39, [
+                                                                shift_expression(6, 39, [
+                                                                    additive_expression(6, 39, [
+                                                                        multiplicative_expression(6, 39, [
+                                                                            unary_expression(6, 39, [
+                                                                                postfix_expression(6, 39, [
+                                                                                    left_hand_side_expression(6, 39, [
+                                                                                        new_expression(6, 39, [
+                                                                                            member_expression(6, 39, [
+                                                                                                primary_expression(6, 39, [
+                                                                                                    object_literal(6, 39, [
+                                                                                                        property_definition_list(20, 25, [
+                                                                                                            property_definition(20, 25, [
+                                                                                                                property_name(20, 21, [
+                                                                                                                    literal_property_name(20, 21, [
+                                                                                                                        identifier_name(20, 21)
+                                                                                                                    ])
+                                                                                                                ]),
+                                                                                                                assignment_expression__in(22, 25, [
+                                                                                                                    conditional_expression__in(22, 25, [
+                                                                                                                        logical_or_expression__in(22, 25, [
+                                                                                                                            logical_and_expression__in(22, 25, [
+                                                                                                                                bitwise_or_expression__in(22, 25, [
+                                                                                                                                    bitwise_xor_expression__in(22, 25, [
+                                                                                                                                        bitwise_and_expression__in(22, 25, [
+                                                                                                                                            equality_expression__in(22, 25, [
+                                                                                                                                                relational_expression__in(22, 25, [
+                                                                                                                                                    shift_expression(22, 25, [
+                                                                                                                                                        additive_expression(22, 25, [
+                                                                                                                                                            multiplicative_expression(22, 25, [
+                                                                                                                                                                unary_expression(22, 25, [
+                                                                                                                                                                    postfix_expression(22, 25, [
+                                                                                                                                                                        left_hand_side_expression(22, 25, [
+                                                                                                                                                                            new_expression(22, 25, [
+                                                                                                                                                                                member_expression(22, 25, [
+                                                                                                                                                                                    primary_expression(22, 25, [
+                                                                                                                                                                                        literal(22, 25, [
+                                                                                                                                                                                            string_literal(22, 25)
+                                                                                                                                                                                        ])
                                                                                                                                                                                     ])
                                                                                                                                                                                 ])
                                                                                                                                                                             ])
@@ -1448,9 +1456,9 @@ fn test_script2_var_object() {
                                 ])
                             ])
                         ])
-                    ])
-                ]),
-                smart_semicolon(39, 39)
+                    ]),
+                    smart_semicolon(39, 39)
+                ])
             ])
         ]
     }
@@ -1464,29 +1472,31 @@ fn test_script3_for() {
         for (var x of f) {}"#,
         rule: Rule::script,
         tokens: [
-            variable_statement(0, 8, [
-                variable_declaration__in(4, 7, [
-                    binding_identifier(4, 5),
-                    initializer__in(5, 7, [
-                        assignment_expression__in(6, 7, [
-                            conditional_expression__in(6, 7, [
-                                logical_or_expression__in(6, 7, [
-                                    logical_and_expression__in(6, 7, [
-                                        bitwise_or_expression__in(6, 7, [
-                                            bitwise_xor_expression__in(6, 7, [
-                                                bitwise_and_expression__in(6, 7, [
-                                                    equality_expression__in(6, 7, [
-                                                        relational_expression__in(6, 7, [
-                                                            shift_expression(6, 7, [
-                                                                additive_expression(6, 7, [
-                                                                    multiplicative_expression(6, 7, [
-                                                                        unary_expression(6, 7, [
-                                                                            postfix_expression(6, 7, [
-                                                                                left_hand_side_expression(6, 7, [
-                                                                                    new_expression(6, 7, [
-                                                                                        member_expression(6, 7, [
-                                                                                            primary_expression(6, 7, [
-                                                                                                identifier_reference(6, 7)
+            statement(0, 8, [
+                variable_statement(0, 8, [
+                    variable_declaration__in(4, 7, [
+                        binding_identifier(4, 5),
+                        initializer__in(5, 7, [
+                            assignment_expression__in(6, 7, [
+                                conditional_expression__in(6, 7, [
+                                    logical_or_expression__in(6, 7, [
+                                        logical_and_expression__in(6, 7, [
+                                            bitwise_or_expression__in(6, 7, [
+                                                bitwise_xor_expression__in(6, 7, [
+                                                    bitwise_and_expression__in(6, 7, [
+                                                        equality_expression__in(6, 7, [
+                                                            relational_expression__in(6, 7, [
+                                                                shift_expression(6, 7, [
+                                                                    additive_expression(6, 7, [
+                                                                        multiplicative_expression(6, 7, [
+                                                                            unary_expression(6, 7, [
+                                                                                postfix_expression(6, 7, [
+                                                                                    left_hand_side_expression(6, 7, [
+                                                                                        new_expression(6, 7, [
+                                                                                            member_expression(6, 7, [
+                                                                                                primary_expression(6, 7, [
+                                                                                                    identifier_reference(6, 7)
+                                                                                                ])
                                                                                             ])
                                                                                         ])
                                                                                     ])
@@ -1505,34 +1515,36 @@ fn test_script3_for() {
                                 ])
                             ])
                         ])
-                    ])
-                ]),
-                smart_semicolon(7, 8)
-            ]),
-            breakable_statement(16, 35, [
-                iteration_statement(16, 35, [
-                    for_binding(25, 26, [
-                        binding_identifier(25, 26)
                     ]),
-                    assignment_expression__in(30, 31, [
-                        conditional_expression__in(30, 31, [
-                            logical_or_expression__in(30, 31, [
-                                logical_and_expression__in(30, 31, [
-                                    bitwise_or_expression__in(30, 31, [
-                                        bitwise_xor_expression__in(30, 31, [
-                                            bitwise_and_expression__in(30, 31, [
-                                                equality_expression__in(30, 31, [
-                                                    relational_expression__in(30, 31, [
-                                                        shift_expression(30, 31, [
-                                                            additive_expression(30, 31, [
-                                                                multiplicative_expression(30, 31, [
-                                                                    unary_expression(30, 31, [
-                                                                        postfix_expression(30, 31, [
-                                                                            left_hand_side_expression(30, 31, [
-                                                                                new_expression(30, 31, [
-                                                                                    member_expression(30, 31, [
-                                                                                        primary_expression(30, 31, [
-                                                                                            identifier_reference(30, 31)
+                    smart_semicolon(7, 8)
+                ])
+            ]),
+            statement(16, 35, [
+                breakable_statement(16, 35, [
+                    iteration_statement(16, 35, [
+                        for_binding(25, 26, [
+                            binding_identifier(25, 26)
+                        ]),
+                        assignment_expression__in(30, 31, [
+                            conditional_expression__in(30, 31, [
+                                logical_or_expression__in(30, 31, [
+                                    logical_and_expression__in(30, 31, [
+                                        bitwise_or_expression__in(30, 31, [
+                                            bitwise_xor_expression__in(30, 31, [
+                                                bitwise_and_expression__in(30, 31, [
+                                                    equality_expression__in(30, 31, [
+                                                        relational_expression__in(30, 31, [
+                                                            shift_expression(30, 31, [
+                                                                additive_expression(30, 31, [
+                                                                    multiplicative_expression(30, 31, [
+                                                                        unary_expression(30, 31, [
+                                                                            postfix_expression(30, 31, [
+                                                                                left_hand_side_expression(30, 31, [
+                                                                                    new_expression(30, 31, [
+                                                                                        member_expression(30, 31, [
+                                                                                            primary_expression(30, 31, [
+                                                                                                identifier_reference(30, 31)
+                                                                                            ])
                                                                                         ])
                                                                                     ])
                                                                                 ])
@@ -1549,10 +1561,12 @@ fn test_script3_for() {
                                     ])
                                 ])
                             ])
+                        ]),
+                        statement(33, 35, [
+                            block_statement(33, 35, [
+                                block(33, 35)
+                            ])
                         ])
-                    ]),
-                    block_statement(33, 35, [
-                        block(33, 35)
                     ])
                 ])
             ])
@@ -1627,32 +1641,34 @@ fn test_generator1() {
                 formal_parameters(12, 12),
                 generator_body(32, 54, [
                     function_body__yield(32, 54, [
-                        expression_statement__yield(32, 42, [
-                            expression__in_yield(32, 40, [
-                                assignment_expression__in_yield(32, 40, [
-                                    yield_expression__in(32, 40, [
-                                        assignment_expression__in_yield(38, 40, [
-                                            conditional_expression__in_yield(38, 40, [
-                                                logical_or_expression__in_yield(38, 40, [
-                                                    logical_and_expression__in_yield(38, 40, [
-                                                        bitwise_or_expression__in_yield(38, 40, [
-                                                            bitwise_xor_expression__in_yield(38, 40, [
-                                                                bitwise_and_expression__in_yield(38, 40, [
-                                                                    equality_expression__in_yield(38, 40, [
-                                                                        relational_expression__in_yield(38, 40, [
-                                                                            shift_expression__yield(38, 40, [
-                                                                                additive_expression__yield(38, 40, [
-                                                                                    multiplicative_expression__yield(38, 40, [
-                                                                                        unary_expression__yield(38, 40, [
-                                                                                            postfix_expression__yield(38, 40, [
-                                                                                                left_hand_side_expression__yield(38, 40, [
-                                                                                                    new_expression__yield(38, 40, [
-                                                                                                        member_expression__yield(38, 40, [
-                                                                                                            primary_expression__yield(38, 40, [
-                                                                                                                literal(38, 40, [
-                                                                                                                    numeric_literal(38, 40, [
-                                                                                                                        decimal_literal(38, 40, [
-                                                                                                                            decimal_integer_literal(38, 40)
+                        statement__yield_return(32, 42, [
+                            expression_statement__yield(32, 42, [
+                                expression__in_yield(32, 40, [
+                                    assignment_expression__in_yield(32, 40, [
+                                        yield_expression__in(32, 40, [
+                                            assignment_expression__in_yield(38, 40, [
+                                                conditional_expression__in_yield(38, 40, [
+                                                    logical_or_expression__in_yield(38, 40, [
+                                                        logical_and_expression__in_yield(38, 40, [
+                                                            bitwise_or_expression__in_yield(38, 40, [
+                                                                bitwise_xor_expression__in_yield(38, 40, [
+                                                                    bitwise_and_expression__in_yield(38, 40, [
+                                                                        equality_expression__in_yield(38, 40, [
+                                                                            relational_expression__in_yield(38, 40, [
+                                                                                shift_expression__yield(38, 40, [
+                                                                                    additive_expression__yield(38, 40, [
+                                                                                        multiplicative_expression__yield(38, 40, [
+                                                                                            unary_expression__yield(38, 40, [
+                                                                                                postfix_expression__yield(38, 40, [
+                                                                                                    left_hand_side_expression__yield(38, 40, [
+                                                                                                        new_expression__yield(38, 40, [
+                                                                                                            member_expression__yield(38, 40, [
+                                                                                                                primary_expression__yield(38, 40, [
+                                                                                                                    literal(38, 40, [
+                                                                                                                        numeric_literal(38, 40, [
+                                                                                                                            decimal_literal(38, 40, [
+                                                                                                                                decimal_integer_literal(38, 40)
+                                                                                                                            ])
                                                                                                                         ])
                                                                                                                     ])
                                                                                                                 ])
@@ -1675,9 +1691,9 @@ fn test_generator1() {
                                             ])
                                         ])
                                     ])
-                                ])
-                            ]),
-                            smart_semicolon(40, 42)
+                                ]),
+                                smart_semicolon(40, 42)
+                            ])
                         ])
                     ])
                 ])
@@ -1711,30 +1727,32 @@ fn test_script4() {
         input: "new THREE.Matrix4",
         rule: Rule::script,
         tokens: [
-            expression_statement(0, 17, [
-                expression__in(0, 17, [
-                    assignment_expression__in(0, 17, [
-                        conditional_expression__in(0, 17, [
-                            logical_or_expression__in(0, 17, [
-                                logical_and_expression__in(0, 17, [
-                                    bitwise_or_expression__in(0, 17, [
-                                        bitwise_xor_expression__in(0, 17, [
-                                            bitwise_and_expression__in(0, 17, [
-                                                equality_expression__in(0, 17, [
-                                                    relational_expression__in(0, 17, [
-                                                        shift_expression(0, 17, [
-                                                            additive_expression(0, 17, [
-                                                                multiplicative_expression(0, 17, [
-                                                                    unary_expression(0, 17, [
-                                                                        postfix_expression(0, 17, [
-                                                                            left_hand_side_expression(0, 17, [
-                                                                                new_expression(0, 17, [
-                                                                                    new_expression(4, 17, [
-                                                                                        member_expression(4, 17, [
-                                                                                            primary_expression(4, 9, [
-                                                                                                identifier_reference(4, 9)
-                                                                                            ]),
-                                                                                            identifier_name(10, 17)
+            statement(0, 17, [
+                expression_statement(0, 17, [
+                    expression__in(0, 17, [
+                        assignment_expression__in(0, 17, [
+                            conditional_expression__in(0, 17, [
+                                logical_or_expression__in(0, 17, [
+                                    logical_and_expression__in(0, 17, [
+                                        bitwise_or_expression__in(0, 17, [
+                                            bitwise_xor_expression__in(0, 17, [
+                                                bitwise_and_expression__in(0, 17, [
+                                                    equality_expression__in(0, 17, [
+                                                        relational_expression__in(0, 17, [
+                                                            shift_expression(0, 17, [
+                                                                additive_expression(0, 17, [
+                                                                    multiplicative_expression(0, 17, [
+                                                                        unary_expression(0, 17, [
+                                                                            postfix_expression(0, 17, [
+                                                                                left_hand_side_expression(0, 17, [
+                                                                                    new_expression(0, 17, [
+                                                                                        new_expression(4, 17, [
+                                                                                            member_expression(4, 17, [
+                                                                                                primary_expression(4, 9, [
+                                                                                                    identifier_reference(4, 9)
+                                                                                                ]),
+                                                                                                identifier_name(10, 17)
+                                                                                            ])
                                                                                         ])
                                                                                     ])
                                                                                 ])
@@ -1752,9 +1770,9 @@ fn test_script4() {
                                 ])
                             ])
                         ])
-                    ])
-                ]),
-                smart_semicolon(17, 17)
+                    ]),
+                    smart_semicolon(17, 17)
+                ])
             ])
         ]
     };
@@ -1767,32 +1785,34 @@ fn test_script5() {
         input: "new THREE.Matrix4();",
         rule: Rule::script,
         tokens: [
-            expression_statement(0, 20, [
-                expression__in(0, 19, [
-                    assignment_expression__in(0, 19, [
-                        conditional_expression__in(0, 19, [
-                            logical_or_expression__in(0, 19, [
-                                logical_and_expression__in(0, 19, [
-                                    bitwise_or_expression__in(0, 19, [
-                                        bitwise_xor_expression__in(0, 19, [
-                                            bitwise_and_expression__in(0, 19, [
-                                                equality_expression__in(0, 19, [
-                                                    relational_expression__in(0, 19, [
-                                                        shift_expression(0, 19, [
-                                                            additive_expression(0, 19, [
-                                                                multiplicative_expression(0, 19, [
-                                                                    unary_expression(0, 19, [
-                                                                        postfix_expression(0, 19, [
-                                                                            left_hand_side_expression(0, 19, [
-                                                                                new_expression(0, 19, [
-                                                                                    member_expression(0, 19, [
-                                                                                        member_expression(4, 17, [
-                                                                                            primary_expression(4, 9, [
-                                                                                                identifier_reference(4, 9)
+            statement(0, 20, [
+                expression_statement(0, 20, [
+                    expression__in(0, 19, [
+                        assignment_expression__in(0, 19, [
+                            conditional_expression__in(0, 19, [
+                                logical_or_expression__in(0, 19, [
+                                    logical_and_expression__in(0, 19, [
+                                        bitwise_or_expression__in(0, 19, [
+                                            bitwise_xor_expression__in(0, 19, [
+                                                bitwise_and_expression__in(0, 19, [
+                                                    equality_expression__in(0, 19, [
+                                                        relational_expression__in(0, 19, [
+                                                            shift_expression(0, 19, [
+                                                                additive_expression(0, 19, [
+                                                                    multiplicative_expression(0, 19, [
+                                                                        unary_expression(0, 19, [
+                                                                            postfix_expression(0, 19, [
+                                                                                left_hand_side_expression(0, 19, [
+                                                                                    new_expression(0, 19, [
+                                                                                        member_expression(0, 19, [
+                                                                                            member_expression(4, 17, [
+                                                                                                primary_expression(4, 9, [
+                                                                                                    identifier_reference(4, 9)
+                                                                                                ]),
+                                                                                                identifier_name(10, 17)
                                                                                             ]),
-                                                                                            identifier_name(10, 17)
-                                                                                        ]),
-                                                                                        arguments(17, 19)
+                                                                                            arguments(17, 19)
+                                                                                        ])
                                                                                     ])
                                                                                 ])
                                                                             ])
@@ -1809,9 +1829,9 @@ fn test_script5() {
                                 ])
                             ])
                         ])
-                    ])
-                ]),
-                smart_semicolon(19, 20)
+                    ]),
+                    smart_semicolon(19, 20)
+                ])
             ])
         ]
     };

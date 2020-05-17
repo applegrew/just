@@ -473,7 +473,7 @@ expression = { assignment_expression ~ (s~ "," ~s~ assignment_expression)* }
 expression__in = { assignment_expression__in ~ (s~ "," ~s~ assignment_expression__in)* }
 expression__yield = { assignment_expression__yield ~ (s~ "," ~s~ assignment_expression__yield)* }
 expression__in_yield = { assignment_expression__in_yield ~ (s~ "," ~s~ assignment_expression__in_yield)* }
-statement = _{
+statement = {
     debugger_statement
     | continue_statement
     | break_statement
@@ -488,7 +488,7 @@ statement = _{
     | labelled_statement
     | empty_statement
 }
-statement__yield = _{
+statement__yield = {
     debugger_statement
     | continue_statement__yield
     | break_statement__yield
@@ -503,7 +503,7 @@ statement__yield = _{
     | labelled_statement__yield
     | empty_statement
 }
-statement__return = _{
+statement__return = {
     debugger_statement
     | continue_statement
     | break_statement
@@ -519,7 +519,7 @@ statement__return = _{
     | labelled_statement__return
     | empty_statement
 }
-statement__yield_return = _{
+statement__yield_return = {
     debugger_statement
     | continue_statement__yield
     | break_statement__yield

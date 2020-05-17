@@ -216,7 +216,7 @@ fn build_ast_from_declaration(pair: Pair<Rule>) -> Result<Node, Error<Rule>> {
 }
 
 fn get_unexpected_error(id: i32, pair: Pair<Rule>) -> Error<Rule> {
-    let message = format!("Unexpected state reached - {}", id);
+    let message = format!("Unexpected state reached [{:?}] - {}", pair.as_rule(), id);
     Error::new_from_span(ErrorVariant::CustomError { message }, pair.as_span())
 }
 
@@ -460,17 +460,16 @@ fn get_arguments(pair: Pair<Rule>) -> Result<Vec<ArgumentType>, Error<Rule>> {
 }
 
 fn build_ast_from_new_expression(pair: Pair<Rule>) -> Result<Node, Error<Rule>> {
-    let mut inner_pairs: Vec<Pair<Rule>> = pair.into_inner().collect();
-    let member_node = build_ast_from_member_expression(inner_pairs.pop().unwrap())?;
-    if inner_pairs.len() > 0 {
-        let mut n = Node::NewExpression(Box::new(member_node));
-        for _ in inner_pairs {
-            n = Node::NewExpression(Box::new(n));
-        }
-        Ok(n)
-    } else {
-        Ok(member_node)
-    }
+    let inner_pair = pair.into_inner().next().unwrap();
+    Ok(
+        if inner_pair.as_rule() == Rule::member_expression
+            || inner_pair.as_rule() == Rule::member_expression__yield
+        {
+            build_ast_from_member_expression(inner_pair)?
+        } else {
+            Node::NewExpression(Box::new(build_ast_from_new_expression(inner_pair)?))
+        },
+    )
 }
 
 fn build_ast_from_postfix_expression(pair: Pair<Rule>) -> Result<Node, Error<Rule>> {
