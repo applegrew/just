@@ -962,7 +962,7 @@ fn test_function3() {
         }"#,
         rule: Rule::function_expression,
         tokens: [
-            function_expression(0, 39, [
+            function_expression(0, 35, [
                 binding_identifier(9, 14),
                 formal_parameters(15, 22, [
                     formal_parameter(15, 16, [
@@ -978,7 +978,7 @@ fn test_function3() {
                         ])
                     ])
                 ]),
-                function_body(38, 38)
+                function_body(34, 34)
             ])
         ]
     };
@@ -1509,30 +1509,30 @@ fn test_script3_for() {
                 ]),
                 smart_semicolon(7, 8)
             ]),
-            breakable_statement(20, 39, [
-                iteration_statement(20, 39, [
-                    for_binding(29, 30, [
-                        binding_identifier(29, 30)
+            breakable_statement(16, 35, [
+                iteration_statement(16, 35, [
+                    for_binding(25, 26, [
+                        binding_identifier(25, 26)
                     ]),
-                    assignment_expression__in(34, 35, [
-                        conditional_expression__in(34, 35, [
-                            logical_or_expression__in(34, 35, [
-                                logical_and_expression__in(34, 35, [
-                                    bitwise_or_expression__in(34, 35, [
-                                        bitwise_xor_expression__in(34, 35, [
-                                            bitwise_and_expression__in(34, 35, [
-                                                equality_expression__in(34, 35, [
-                                                    relational_expression__in(34, 35, [
-                                                        shift_expression(34, 35, [
-                                                            additive_expression(34, 35, [
-                                                                multiplicative_expression(34, 35, [
-                                                                    unary_expression(34, 35, [
-                                                                        postfix_expression(34, 35, [
-                                                                            left_hand_side_expression(34, 35, [
-                                                                                new_expression(34, 35, [
-                                                                                    member_expression(34, 35, [
-                                                                                        primary_expression(34, 35, [
-                                                                                            identifier_reference(34, 35)
+                    assignment_expression__in(30, 31, [
+                        conditional_expression__in(30, 31, [
+                            logical_or_expression__in(30, 31, [
+                                logical_and_expression__in(30, 31, [
+                                    bitwise_or_expression__in(30, 31, [
+                                        bitwise_xor_expression__in(30, 31, [
+                                            bitwise_and_expression__in(30, 31, [
+                                                equality_expression__in(30, 31, [
+                                                    relational_expression__in(30, 31, [
+                                                        shift_expression(30, 31, [
+                                                            additive_expression(30, 31, [
+                                                                multiplicative_expression(30, 31, [
+                                                                    unary_expression(30, 31, [
+                                                                        postfix_expression(30, 31, [
+                                                                            left_hand_side_expression(30, 31, [
+                                                                                new_expression(30, 31, [
+                                                                                    member_expression(30, 31, [
+                                                                                        primary_expression(30, 31, [
+                                                                                            identifier_reference(30, 31)
                                                                                         ])
                                                                                     ])
                                                                                 ])
@@ -1551,8 +1551,8 @@ fn test_script3_for() {
                             ])
                         ])
                     ]),
-                    block_statement(37, 39, [
-                        block(37, 39)
+                    block_statement(33, 35, [
+                        block(33, 35)
                     ])
                 ])
             ])
