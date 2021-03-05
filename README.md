@@ -1,3 +1,5 @@
+<img src="logo/just-logo.png" alt="logo image" />
+
 # just - JS on Rust
 A ground up implementation of ES6 JavaScript engine complete from parser to executor.
 
