@@ -3,6 +3,16 @@ mod parser_util;
 use parser_util::assert_parse;
 
 #[test]
+fn test_simple() {
+    assert_parse("simple");
+}
+
+#[test]
+fn test_closure() {
+    assert_parse("closure");
+}
+
+#[test]
 fn test_arrows() {
     assert_parse("arrows");
 }

@@ -1,6 +1,6 @@
 extern crate just;
 
-use just::parser::parse_to_token_tree;
+use just::parser::JsParser;
 use std::cmp;
 use std::fs;
 use std::time::Instant;
@@ -87,12 +87,16 @@ fn print_diff(
 }
 
 pub fn assert_parse(test_name: &str) {
-    let unparsed_file = fs::read_to_string(format!("tests/artifacts/test_{}.js", test_name))
-        .expect("Cannot read test file");
-    let expected_tree = fs::read_to_string(format!("tests/artifacts/assertpt_{}.txt", test_name))
-        .expect("Cannot read assertpt file");
+    let unparsed_file =
+        fs::read_to_string(format!("tests/artifacts/test_js/test_{}.js", test_name))
+            .expect("Cannot read test file");
+    let expected_tree = fs::read_to_string(format!(
+        "tests/artifacts/parse_trees/assertpt_{}.txt",
+        test_name
+    ))
+    .expect("Cannot read assertpt file");
     let start = Instant::now();
-    let result = parse_to_token_tree(unparsed_file.as_str()).unwrap();
+    let result = JsParser::parse_to_token_tree(unparsed_file.as_str()).unwrap();
     let end = Instant::now();
     let total_time = end.saturating_duration_since(start);
     diff_parse_tree(expected_tree.as_str(), result.as_str());

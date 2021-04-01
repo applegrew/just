@@ -1,4 +1,3 @@
-use super::api::parse_to_token_tree;
 use super::api::JsParser;
 use super::api::Rule;
 
@@ -672,7 +671,9 @@ fn test_template_string5() {
         parser: JsParser,
         input: "`Testing invalid template with non-expression scripts like ${f1(); f2()}`",
         rule: Rule::template_literal,
-        positives: vec![Rule::template_middle, Rule::template_tail, Rule::template_literal, Rule::arguments, Rule::multiplicative_operator, Rule::assignment_operator],
+        positives: vec![Rule::template_middle, Rule::template_tail, Rule::template_literal,
+            Rule::arguments, Rule::postfix_operator, Rule::multiplicative_operator, Rule::additive_operator,
+            Rule::shift_operator, Rule::relational_operator__in, Rule::equality_operator, Rule::assignment_operator],
         negatives: vec![],
         pos: 65
     };
@@ -1689,7 +1690,7 @@ fn test_generator1() {
 #[test]
 fn test_perf1() {
     let start = Instant::now();
-    let result = parse_to_token_tree("[[[[]]]]");
+    let result = JsParser::parse_to_token_tree("[[[[]]]]");
     let end = Instant::now();
     match result {
         Ok(_) => {
