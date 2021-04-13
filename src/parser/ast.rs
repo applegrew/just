@@ -1,48 +1,84 @@
+#[derive(Debug)]
 pub struct JsError {
+    pub src: &'static str,
     pub message: String,
 }
 
 #[derive(Debug)]
-pub struct Script {
+pub struct CodeBlock {
     pub instructions: Vec<Instruction>,
 }
 
 #[derive(Debug)]
 pub enum Instruction {
-    Declaration(Declaration),
-    Statement(Statement),
+    Declaration(DeclarationType),
+    Statement(StatementType),
 }
 
 #[derive(Debug)]
-pub enum Statement {
-    VariableStatement(Vec<BindingType>),
+pub enum StatementType {
+    VariableStatement(Vec<BindingElement>),
+    ExpressionStatement(Expression),
 }
 
 #[derive(Debug)]
-pub enum Declaration {
-    HoistableDeclaration,
+pub enum DeclarationType {
+    HoistableDeclaration(HoistableDeclarationType),
     LexicalDeclaration,
 }
 
 #[derive(Debug)]
-pub enum BindingType {
-    SimpleBinding {
-        identifier: String,
-        initializer: Option<AssignmentExpression>,
-    },
-    ArrayBinding {
-        identifiers: Vec<ArrayBindingIdentifier>,
-        initialize: AssignmentExpression,
-    },
-    ObjectBinding {
-        identifiers: Vec<ObjectBindingIdentifier>,
-        initialize: AssignmentExpression,
-    },
+pub enum HoistableDeclarationType {
+    GeneratorDeclaration(GeneratorDefinition),
+    FunctionDeclaration(FunctionDefinition),
+}
+
+#[derive(Debug)]
+pub struct FunctionDefinition {
+    pub name: Option<String>,
+    pub parameters: FormalParameters,
+    pub body: CodeBlock,
+}
+
+#[derive(Debug)]
+pub struct GeneratorDefinition {
+    pub definition: FunctionDefinition,
+}
+
+#[derive(Debug)]
+pub struct FormalParameters {
+    pub arguments: Vec<FormalParameter>,
+}
+
+#[derive(Debug)]
+pub enum FormalParameter {
+    Regular(BindingElement),
+    Rest(BindingElement),
+}
+
+#[derive(Debug)]
+pub struct SimpleBinding {
+    pub identifier: String,
+    pub initializer: Option<AssignmentExpression>,
+}
+
+#[derive(Debug)]
+pub struct ComplexBinding {
+    pub property_name: PropertyNameType,
+    pub initializer: BindingElement,
+}
+
+#[derive(Debug)]
+pub enum PropertyNameType {
+    IdentifierProperty(String),
+    StringLiteralProperty(String),
+    NumericLiteralProperty(NumericType),
+    ComputedProperty(AssignmentExpression),
 }
 
 #[derive(Debug)]
 pub struct ArrayBindingIdentifier {
-    pub identifier: String,
+    pub identifier: BindingProperty,
     pub index: u32,
     pub is_rest: bool,
 }
@@ -51,6 +87,27 @@ pub struct ArrayBindingIdentifier {
 pub struct ObjectBindingIdentifier {
     pub identifier: String,
     pub path: String,
+}
+
+#[derive(Debug)]
+pub enum BindingElement {
+    DirectBindingElement(SimpleBinding),
+    PatternBindingElement {
+        binding_pattern: BindingPattern,
+        initializer: Option<AssignmentExpression>,
+    },
+}
+
+#[derive(Debug)]
+pub enum BindingPattern {
+    ObjectBindingPattern(Vec<BindingProperty>),
+    ArrayBindingPattern(Vec<ArrayBindingIdentifier>),
+}
+
+#[derive(Debug)]
+pub enum BindingProperty {
+    SimpleBindingProperty(SimpleBinding),
+    ComplexBindingProperty(ComplexBinding),
 }
 
 #[derive(Debug)]

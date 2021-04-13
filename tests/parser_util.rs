@@ -5,7 +5,7 @@ use std::cmp;
 use std::fs;
 use std::time::Instant;
 
-fn diff_parse_tree(expected_tree: &str, actual_tree: &str) {
+fn diff_tree(expected_tree: &str, actual_tree: &str) {
     let expected_lines: Vec<&str> = expected_tree.split("\n").collect();
     let actual_lines: Vec<&str> = actual_tree.split("\n").collect();
     let expected_total_lines = expected_lines.len();
@@ -90,15 +90,30 @@ pub fn assert_parse(test_name: &str) {
     let unparsed_file =
         fs::read_to_string(format!("tests/artifacts/test_js/test_{}.js", test_name))
             .expect("Cannot read test file");
-    let expected_tree = fs::read_to_string(format!(
-        "tests/artifacts/parse_trees/assertpt_{}.txt",
+    let expected_p_tree =
+        fs::read_to_string(format!("tests/artifacts/parse_trees/{}.txt", test_name))
+            .expect("Cannot read assert parse tree file");
+    let expected_as_tree = fs::read_to_string(format!(
+        "tests/artifacts/abstract_syntax_trees/{}.txt",
         test_name
     ))
-    .expect("Cannot read assertpt file");
+    .expect("Cannot read assert ast file");
     let start = Instant::now();
     let result = JsParser::parse_to_token_tree(unparsed_file.as_str()).unwrap();
-    let end = Instant::now();
-    let total_time = end.saturating_duration_since(start);
-    diff_parse_tree(expected_tree.as_str(), result.as_str());
-    println!("Test {} took {}ms", test_name, total_time.as_millis());
+    let end_1 = Instant::now();
+    let ast_result = JsParser::parse_to_ast(unparsed_file.as_str()).unwrap();
+    let end_2 = Instant::now();
+    let total_time_1 = end_1.saturating_duration_since(start);
+    let total_time_2 = end_2.saturating_duration_since(end_1);
+    diff_tree(expected_p_tree.as_str(), result.as_str());
+    diff_tree(
+        expected_as_tree.as_str(),
+        format!("{:#?}", ast_result).as_str(),
+    );
+    println!(
+        "Test {} took {}ms and {}ms",
+        test_name,
+        total_time_1.as_millis(),
+        total_time_2.as_millis()
+    );
 }
