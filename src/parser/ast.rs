@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 #[derive(Debug)]
 pub struct JsError {
     pub src: &'static str,
@@ -5,354 +7,726 @@ pub struct JsError {
 }
 
 #[derive(Debug)]
-pub struct CodeBlock {
-    pub instructions: Vec<Instruction>,
+pub struct Meta {
+    pub start_index: usize,
+    pub end_index: usize,
+}
+
+pub trait HasMeta {
+    fn get_meta(&self) -> &Meta;
+}
+
+pub trait Expression: HasMeta + Debug {}
+pub trait Pattern: HasMeta + Debug {}
+
+#[derive(Debug)]
+pub struct IdentifierData {
+    pub name: String,
+    pub meta: Meta,
 }
 
 #[derive(Debug)]
-pub enum Instruction {
-    Declaration(DeclarationType),
-    Statement(StatementType),
+pub enum ExpressionPatternType {
+    Identifier(IdentifierData),
+    MemberExpression(MemberExpressionType),
+}
+
+impl Expression for ExpressionPatternType {}
+impl Pattern for ExpressionPatternType {}
+impl HasMeta for ExpressionPatternType {
+    fn get_meta(&self) -> &Meta {
+        match self {
+            ExpressionPatternType::Identifier(data) => &data.meta,
+            ExpressionPatternType::MemberExpression(data) => data.get_meta(),
+        }
+    }
 }
 
 #[derive(Debug)]
-pub enum StatementType {
-    VariableStatement(Vec<BindingElement>),
-    ExpressionStatement(Expression),
-}
-
-#[derive(Debug)]
-pub enum DeclarationType {
-    HoistableDeclaration(HoistableDeclarationType),
-    LexicalDeclaration,
-}
-
-#[derive(Debug)]
-pub enum HoistableDeclarationType {
-    GeneratorDeclaration(GeneratorDefinition),
-    FunctionDeclaration(FunctionDefinition),
-}
-
-#[derive(Debug)]
-pub struct FunctionDefinition {
-    pub name: Option<String>,
-    pub parameters: FormalParameters,
-    pub body: CodeBlock,
-}
-
-#[derive(Debug)]
-pub struct GeneratorDefinition {
-    pub definition: FunctionDefinition,
-}
-
-#[derive(Debug)]
-pub struct FormalParameters {
-    pub arguments: Vec<FormalParameter>,
-}
-
-#[derive(Debug)]
-pub enum FormalParameter {
-    Regular(BindingElement),
-    Rest(BindingElement),
-}
-
-#[derive(Debug)]
-pub struct SimpleBinding {
-    pub identifier: String,
-    pub initializer: Option<AssignmentExpression>,
-}
-
-#[derive(Debug)]
-pub struct ComplexBinding {
-    pub property_name: PropertyNameType,
-    pub initializer: BindingElement,
-}
-
-#[derive(Debug)]
-pub enum PropertyNameType {
-    IdentifierProperty(String),
-    StringLiteralProperty(String),
-    NumericLiteralProperty(NumericType),
-    ComputedProperty(AssignmentExpression),
-}
-
-#[derive(Debug)]
-pub struct ArrayBindingIdentifier {
-    pub identifier: BindingProperty,
-    pub index: u32,
-    pub is_rest: bool,
-}
-
-#[derive(Debug)]
-pub struct ObjectBindingIdentifier {
-    pub identifier: String,
-    pub path: String,
-}
-
-#[derive(Debug)]
-pub enum BindingElement {
-    DirectBindingElement(SimpleBinding),
-    PatternBindingElement {
-        binding_pattern: BindingPattern,
-        initializer: Option<AssignmentExpression>,
+pub enum ExpressionType {
+    Literal(LiteralData),
+    ThisExpression {
+        meta: Meta,
     },
-}
-
-#[derive(Debug)]
-pub enum BindingPattern {
-    ObjectBindingPattern(Vec<BindingProperty>),
-    ArrayBindingPattern(Vec<ArrayBindingIdentifier>),
-}
-
-#[derive(Debug)]
-pub enum BindingProperty {
-    SimpleBindingProperty(SimpleBinding),
-    ComplexBindingProperty(ComplexBinding),
-}
-
-#[derive(Debug)]
-pub enum AssignmentExpression {
-    ArrowFunctionExpression,
-    LhsRhsAssignmentExpression(LhsRhsAssignmentExpressionType),
-    YieldExpression {
-        is_star: bool,
-        assignment_expression: Option<Box<AssignmentExpression>>,
+    ArrayExpression {
+        meta: Meta,
+        elements: Vec<Option<ExpressionOrSpreadElement>>,
     },
-    ConditionalExpression(LogicAndMathExpression),
-}
-
-#[derive(Debug)]
-pub enum LogicAndMathExpression {
-    ConditionOperatorExpression {
-        condition: Box<LogicAndMathExpression>,
-        if_true: Box<AssignmentExpression>,
-        if_false: Box<AssignmentExpression>,
+    ObjectExpression {
+        meta: Meta,
+        properties: Vec<PropertyData<Box<dyn Expression>>>,
     },
-    LogicalOrExpression(Box<Vec<LogicAndMathExpression>>),
-    LogicalAndExpression(Box<Vec<LogicAndMathExpression>>),
-    BitwiseOrExpression(Box<Vec<LogicAndMathExpression>>),
-    BitwiseXorExpression(Box<Vec<LogicAndMathExpression>>),
-    BitwiseAndExpression(Box<Vec<LogicAndMathExpression>>),
-    LogicalEqualityExpression {
-        operands: Box<Vec<LogicAndMathExpression>>,
-        operators: Vec<LogicalEqualityOperator>,
-    },
-    RelationalExpression {
-        operands: Box<Vec<LogicAndMathExpression>>,
-        operators: Vec<RelationalOperator>,
-    },
-    ShiftExpression {
-        operands: Box<Vec<LogicAndMathExpression>>,
-        operators: Vec<ShiftOperator>,
-    },
-    AdditiveExpression {
-        operands: Box<Vec<LogicAndMathExpression>>,
-        operators: Vec<AdditiveOperator>,
-    },
-    MultiplicativeExpression {
-        operands: Box<Vec<LogicAndMathExpression>>,
-        operators: Vec<MultiplicativeOperator>,
-    },
+    FunctionExpression(FunctionData),
     UnaryExpression {
-        operand: Box<LogicAndMathExpression>,
+        meta: Meta,
         operator: UnaryOperator,
+        argument: Box<dyn Expression>,
     },
-    PostfixExpression {
-        operand: Box<LogicAndMathExpression>,
-        operator: PostfixOperator,
+    UpdateExpression {
+        meta: Meta,
+        operator: UpdateOperator,
+        argument: Box<dyn Expression>,
+        prefix: bool,
     },
-    LhsExpressionWrapper(LhsExpressionType),
-}
-
-#[derive(Debug)]
-pub enum LogicalEqualityOperator {
-    StrictlyEqual,
-    StrictlyUnequal,
-    LooselyEqual,
-    LooselyUnequal,
-}
-
-#[derive(Debug)]
-pub enum RelationalOperator {
-    LessThanEqual,
-    GreaterThanEqual,
-    LessThan,
-    GreaterThan,
-    InstanceOf,
-    In,
-}
-
-#[derive(Debug)]
-pub enum ShiftOperator {
-    LeftShift,
-    RightShift,
-    UnsignedRightShift,
-}
-
-#[derive(Debug)]
-pub enum AdditiveOperator {
-    Add,
-    Subtract,
-}
-
-#[derive(Debug)]
-pub enum MultiplicativeOperator {
-    Multiply,
-    Divide,
-    Modulo,
-}
-
-#[derive(Debug)]
-pub enum UnaryOperator {
-    Delete,
-    Void,
-    Typeof,
-    PrefixIncrement,
-    PrefixDecrement,
-    Plus,
-    Minus,
-    BitwiseNot,
-    LogicalNot,
-}
-
-#[derive(Debug)]
-pub enum PostfixOperator {
-    PostfixIncrement,
-    PostfixDecrement,
-}
-
-#[derive(Debug)]
-pub struct Expression {
-    pub assignment_expressions: Vec<AssignmentExpression>,
-}
-
-#[derive(Debug)]
-pub struct LhsRhsAssignmentExpressionType {
-    pub lhs_expression: LhsExpressionType,
-    pub assignment_operator: AssignmentOperator,
-    pub rhs_expression: Box<AssignmentExpression>,
-}
-
-#[derive(Debug)]
-pub enum LhsExpressionType {
-    CallExpression(CallExpressionType),
-    NewExpression(NewExpressionType),
-}
-
-#[derive(Debug)]
-pub enum CallExpressionType {
-    FunctionCallExpression(FunctionCallExpressionType),
-    SimplePropertyAccessExpression(SimplePropertyAccessExpressionData<CallExpressionType>),
-    ComplexPropertyAccessExpression(ComplexPropertyAccessExpressionData<CallExpressionType>),
-    TaggedTemplateLiteral,
-}
-
-#[derive(Debug)]
-pub struct SimplePropertyAccessExpressionData<E> {
-    pub object: Box<E>,
-    pub property_name: String,
-}
-
-#[derive(Debug)]
-pub struct ComplexPropertyAccessExpressionData<E> {
-    pub object: Box<E>,
-    pub property_expression: Expression,
-}
-
-#[derive(Debug)]
-pub enum FunctionCallExpressionType {
-    CallOnMemberExpression {
-        function_obj: Box<MemberExpression>,
-        arguments: ArgumentList,
+    BinaryExpression {
+        meta: Meta,
+        operator: BinaryOperator,
+        left: Box<dyn Expression>,
+        right: Box<dyn Expression>,
     },
-    CallOnSuper {
-        arguments: ArgumentList,
+    AssignmentExpression {
+        meta: Meta,
+        operator: AssignmentOperator,
+        left: PatternOrExpression,
+        right: Box<dyn Expression>,
     },
-    CallOnCallExpressionType {
-        function_obj: Box<CallExpressionType>,
-        arguments: ArgumentList,
+    LogicalExpression {
+        meta: Meta,
+        operator: LogicalOperator,
+        left: Box<dyn Expression>,
+        right: Box<dyn Expression>,
     },
+    ConditionalExpression {
+        meta: Meta,
+        test: Box<dyn Expression>,
+        consequent: Box<dyn Expression>,
+        alternate: Box<dyn Expression>,
+    },
+    CallExpression {
+        //A function or method call expression.
+        meta: Meta,
+        callee: ExpressionOrSuper,
+        arguments: Vec<ExpressionOrSpreadElement>,
+    },
+    NewExpression {
+        meta: Meta,
+        callee: Box<dyn Expression>,
+        arguments: Vec<ExpressionOrSpreadElement>,
+    },
+    SequenceExpression {
+        //A comma-separated sequence of expressions
+        meta: Meta,
+        expressions: Vec<Box<dyn Expression>>,
+    },
+    ArrowFunctionExpression {
+        meta: Meta,
+        body: FunctionBodyOrExpression,
+        expression: bool,
+    },
+    YieldExpression {
+        meta: Meta,
+        argument: Option<Box<dyn Expression>>,
+        delegate: bool,
+    },
+    TemplateLiteral(TemplateLiteralData),
+    TaggedTemplateExpression {
+        meta: Meta,
+        tag: Box<dyn Expression>,
+        quasi: TemplateLiteralData,
+    },
+    ClassExpression(ClassData),
+    MetaProperty {
+        //Represents new.target meta property in ES2015. In the future, it will represent other meta properties as well.
+        meta: Meta,
+        meta_object: IdentifierData,
+        property: IdentifierData,
+    },
+}
+
+impl Expression for ExpressionType {}
+impl HasMeta for ExpressionType {
+    fn get_meta(&self) -> &Meta {
+        match self {
+            ExpressionType::Literal(data) => &data.meta,
+            ExpressionType::ThisExpression { meta } => &meta,
+            ExpressionType::ArrayExpression { meta, .. } => &meta,
+            ExpressionType::ObjectExpression { meta, .. } => &meta,
+            ExpressionType::FunctionExpression(data) => &data.meta,
+            ExpressionType::UnaryExpression { meta, .. } => &meta,
+            ExpressionType::UpdateExpression { meta, .. } => &meta,
+            ExpressionType::BinaryExpression { meta, .. } => &meta,
+            ExpressionType::AssignmentExpression { meta, .. } => &meta,
+            ExpressionType::LogicalExpression { meta, .. } => &meta,
+            ExpressionType::ConditionalExpression { meta, .. } => &meta,
+            ExpressionType::CallExpression { meta, .. } => &meta,
+            ExpressionType::NewExpression { meta, .. } => &meta,
+            ExpressionType::SequenceExpression { meta, .. } => &meta,
+            ExpressionType::ArrowFunctionExpression { meta, .. } => &meta,
+            ExpressionType::YieldExpression { meta, .. } => &meta,
+            ExpressionType::TemplateLiteral(data) => &data.meta,
+            ExpressionType::TaggedTemplateExpression { meta, .. } => &meta,
+            ExpressionType::ClassExpression(data) => &data.meta,
+            ExpressionType::MetaProperty { meta, .. } => &meta,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum PatternType {
+    ObjectPattern {
+        meta: Meta,
+        properties: Vec<AssignmentPropertyData>,
+    },
+    ArrayPattern {
+        meta: Meta,
+        elements: Vec<Option<Box<dyn Pattern>>>,
+    },
+    RestElement {
+        meta: Meta,
+        argument: Box<dyn Pattern>,
+    },
+    AssignmentPattern {
+        meta: Meta,
+        left: Box<dyn Pattern>,
+        right: Box<dyn Expression>,
+    },
+}
+
+impl Pattern for PatternType {}
+impl HasMeta for PatternType {
+    fn get_meta(&self) -> &Meta {
+        match self {
+            PatternType::ObjectPattern { meta, .. } => &meta,
+            PatternType::ArrayPattern { meta, .. } => &meta,
+            PatternType::RestElement { meta, .. } => &meta,
+            PatternType::AssignmentPattern { meta, .. } => &meta,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct TemplateLiteralData {
+    pub meta: Meta,
+    pub quasis: Vec<TemplateElementData>,
+    pub expressions: Vec<Box<dyn Expression>>,
+}
+
+impl HasMeta for TemplateLiteralData {
+    fn get_meta(&self) -> &Meta {
+        &self.meta
+    }
+}
+
+#[derive(Debug)]
+pub struct TemplateElementData {
+    pub meta: Meta,
+    pub tail: bool,
+    pub cooked_value: String,
+    pub raw_value: String,
+}
+
+impl HasMeta for TemplateElementData {
+    fn get_meta(&self) -> &Meta {
+        &self.meta
+    }
+}
+
+#[derive(Debug)]
+pub enum FunctionBodyOrExpression {
+    FunctionBody(FunctionBodyData),
+    Expression(Box<dyn Expression>),
+}
+
+#[derive(Debug)]
+pub enum ExpressionOrSuper {
+    Expression(Box<dyn Expression>),
+    Super,
+}
+
+#[derive(Debug)]
+pub enum MemberExpressionType {
+    SimpleMemberExpression {
+        meta: Meta,
+        object: ExpressionOrSuper,
+        property: IdentifierData,
+    },
+    ComputedMemberExpression {
+        meta: Meta,
+        object: ExpressionOrSuper,
+        property: Box<dyn Expression>,
+    },
+}
+
+impl Pattern for MemberExpressionType {}
+impl HasMeta for MemberExpressionType {
+    fn get_meta(&self) -> &Meta {
+        match self {
+            MemberExpressionType::SimpleMemberExpression { meta, .. } => &meta,
+            MemberExpressionType::ComputedMemberExpression { meta, .. } => &meta,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum ExpressionOrSpreadElement {
+    Expression(Box<dyn Expression>),
+    SpreadElement(Box<dyn Expression>),
+}
+
+#[derive(Debug)]
+pub struct MemberExpressionData {
+    pub meta: Meta,
+    pub object: Box<dyn Expression>,
+    pub property: Box<dyn Expression>,
+    pub computed: bool,
+}
+
+#[derive(Debug)]
+pub enum PatternOrExpression {
+    Pattern(Box<dyn Pattern>),
+    Expression(Box<dyn Expression>),
 }
 
 #[derive(Debug)]
 pub enum AssignmentOperator {
-    Equal,
-    MultiplyEqual,
-    DivideEqual,
-    ModuloEqual,
-    AddEqual,
-    SubtractEqual,
-    LeftShiftEqual,
-    RightShiftEqual,
-    TripleRightShiftEqual,
-    BitwiseAndEqual,
-    BitwiseOrEqual,
-    BitwiseXorEqual,
+    Equals,
+    AddEquals,
+    SubtractEquals,
+    MultiplyEquals,
+    DivideEquals,
+    ModuloEquals,
+    BitwiseLeftShiftEquals,
+    BitwiseRightShiftEquals,
+    BitwiseUnsignedRightShiftEquals,
+    BitwiseOrEquals,
+    BitwiseAndEquals,
+    BitwiseXorEquals,
 }
 
 #[derive(Debug)]
-pub struct ArgumentList {
-    pub arguments: Vec<Argument>,
+pub enum UnaryOperator {
+    Minus,
+    Plus,
+    LogicalNot,
+    BitwiseNot,
+    TypeOf,
+    Void,
+    Delete,
 }
 
 #[derive(Debug)]
-pub enum Argument {
-    Regular(AssignmentExpression),
-    Spread(AssignmentExpression),
+pub enum UpdateOperator {
+    PlusPlus,
+    MinusMinus,
 }
 
 #[derive(Debug)]
-pub enum NewExpressionType {
-    Member(MemberExpression),
-    New(Box<NewExpressionType>),
+pub enum BinaryOperator {
+    LooselyEqual,
+    LooselyUnequal,
+    StrictlyEqual,
+    StrictlyUnequal,
+    LessThan,
+    LessThanEqual,
+    GreaterThan,
+    GreaterThanEqual,
+    BitwiseLeftShift,
+    BitwiseRightShift,
+    BitwiseUnsignedRightShift,
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Modulo,
+    BitwiseOr,
+    BitwiseAnd,
+    BitwiseXor,
+    In,
+    InstanceOf,
 }
 
 #[derive(Debug)]
-pub enum MemberExpression {
-    MemberSimplePropertyAccessExpression(SimplePropertyAccessExpressionData<MemberExpression>),
-    MemberComplexPropertyAccessExpression(ComplexPropertyAccessExpressionData<MemberExpression>),
-    SuperSimplePropertyAccessExpression {
-        property_name: String,
-    },
-    SuperComplexPropertyAccessExpression {
-        property_expression: Expression,
-    },
-    NewDotTargetExpression,
-    PrimaryExpression(PrimaryExpressionType),
-    MemberTaggedTemplateLiteral,
-    NewObjectFromFunction {
-        function_obj: Box<MemberExpression>,
-        arguments: ArgumentList,
-    },
+pub enum LogicalOperator {
+    Or,
+    And,
 }
 
 #[derive(Debug)]
-pub enum PrimaryExpressionType {
-    IdentifierReference(String),
-    Literal(LiteralType),
-    YieldKeyword,
-    ThisKeyword,
-    ArrayLiteral { items: Vec<ArrayItem>, length: u16 },
-    ObjectLiteral,
-    FunctionDefinition,
+pub struct LiteralData {
+    pub meta: Meta,
+    pub value: LiteralType,
 }
 
 #[derive(Debug)]
 pub enum LiteralType {
-    NullLiteral,
-    BoolLiteral(bool),
-    NumericLiteral(NumericType),
     StringLiteral(String),
+    BooleanLiteral(bool),
+    NullLiteral,
+    NumberLiteral(NumberLiteralType),
+    RegExpLiteral(RegExpLiteralData),
 }
 
 #[derive(Debug)]
-pub enum NumericType {
+pub struct RegExpLiteralData {
+    pub pattern: String,
+    pub flags: String,
+}
+
+#[derive(Debug)]
+pub enum NumberLiteralType {
     IntegerLiteral(i32),
     FloatLiteral(f64),
 }
 
 #[derive(Debug)]
-pub struct ArrayItem {
-    pub index: u16,
-    pub item: Argument,
+pub struct ProgramData {
+    pub meta: Meta,
+    pub body: Vec<StatementType>,
+}
+
+impl HasMeta for ProgramData {
+    fn get_meta(&self) -> &Meta {
+        &self.meta
+    }
+}
+
+#[derive(Debug)]
+pub struct BlockStatementData {
+    pub meta: Meta,
+    pub body: Box<Vec<StatementType>>,
+}
+
+#[derive(Debug)]
+pub enum StatementType {
+    ExpressionStatement {
+        meta: Meta,
+        expression: Box<dyn Expression>,
+    },
+    BlockStatement(BlockStatementData),
+    FunctionBody(FunctionBodyData),
+    EmptyStatement {
+        meta: Meta,
+    },
+    DebuggerStatement {
+        meta: Meta,
+    },
+    ReturnStatement {
+        meta: Meta,
+        argument: Option<Box<dyn Expression>>,
+    },
+    //Label Statement not supported, hence break & continue with labels not supported
+    BreakStatement {
+        meta: Meta,
+    },
+    ContinueStatement {
+        meta: Meta,
+    },
+    IfStatement {
+        meta: Meta,
+        test: Box<dyn Expression>,
+        consequent: Box<StatementType>,
+        alternate: Option<Box<StatementType>>,
+    },
+    SwitchStatement {
+        meta: Meta,
+        discriminant: Box<dyn Expression>,
+        cases: Box<Vec<SwitchCaseData>>,
+    },
+    ThrowStatement {
+        meta: Meta,
+        argument: Box<dyn Expression>,
+    },
+    TryStatement {
+        meta: Meta,
+        block: BlockStatementData,
+        handler: Option<CatchClauseData>,
+        finalizer: Option<BlockStatementData>,
+    },
+    WhileStatement {
+        meta: Meta,
+        test: Box<dyn Expression>,
+        body: Box<StatementType>,
+    },
+    DoWhileStatement {
+        meta: Meta,
+        test: Box<dyn Expression>,
+        body: Box<StatementType>,
+    },
+    ForStatement {
+        meta: Meta,
+        init: Option<VariableDeclarationOrExpression>,
+        test: Option<Box<dyn Expression>>,
+        update: Option<Box<dyn Expression>>,
+        body: Box<StatementType>,
+    },
+    ForInStatement(ForIteratorData),
+    ForOfStatement(ForIteratorData),
+    DeclarationStatement(DeclarationType),
+}
+
+impl HasMeta for StatementType {
+    fn get_meta(&self) -> &Meta {
+        match self {
+            StatementType::ExpressionStatement { meta, .. } => &meta,
+            StatementType::BlockStatement(data) => &data.meta,
+            StatementType::FunctionBody(data) => data.get_meta(),
+            StatementType::EmptyStatement { meta, .. } => &meta,
+            StatementType::DebuggerStatement { meta, .. } => &meta,
+            StatementType::ReturnStatement { meta, .. } => &meta,
+            StatementType::BreakStatement { meta, .. } => &meta,
+            StatementType::ContinueStatement { meta, .. } => &meta,
+            StatementType::IfStatement { meta, .. } => &meta,
+            StatementType::SwitchStatement { meta, .. } => &meta,
+            StatementType::ThrowStatement { meta, .. } => &meta,
+            StatementType::TryStatement { meta, .. } => &meta,
+            StatementType::WhileStatement { meta, .. } => &meta,
+            StatementType::DoWhileStatement { meta, .. } => &meta,
+            StatementType::ForStatement { meta, .. } => &meta,
+            StatementType::ForInStatement(data) => data.get_meta(),
+            StatementType::ForOfStatement(data) => data.get_meta(),
+            StatementType::DeclarationStatement(data) => data.get_meta(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct FunctionBodyData {
+    pub meta: Meta,
+    pub body: Box<Vec<StatementType>>, /*Actual code was -- Box<Vec<DirectiveOrStatement>> -- We do not support directives, like 'use strict'*/
+}
+
+impl HasMeta for FunctionBodyData {
+    fn get_meta(&self) -> &Meta {
+        &self.meta
+    }
+}
+
+#[derive(Debug)]
+pub struct ForIteratorData {
+    meta: Meta,
+    left: VariableDeclarationOrPattern,
+    right: Box<dyn Expression>,
+    body: Box<StatementType>,
+}
+
+impl HasMeta for ForIteratorData {
+    fn get_meta(&self) -> &Meta {
+        &self.meta
+    }
+}
+
+#[derive(Debug)]
+pub enum VariableDeclarationOrExpression {
+    VariableDeclaration(VariableDeclarationData),
+    Expression(Box<dyn Expression>),
+}
+
+#[derive(Debug)]
+pub enum VariableDeclarationOrPattern {
+    VariableDeclaration(VariableDeclarationData),
+    Pattern(Box<dyn Pattern>),
+}
+
+#[derive(Debug)]
+pub enum DeclarationType {
+    FunctionDeclaration(FunctionData), //id is mandatory here
+    VariableDeclaration(VariableDeclarationData),
+    ClassDeclaration(ClassData),
+}
+
+impl HasMeta for DeclarationType {
+    fn get_meta(&self) -> &Meta {
+        match self {
+            DeclarationType::FunctionDeclaration(data) => data.get_meta(),
+            DeclarationType::VariableDeclaration(data) => data.get_meta(),
+            DeclarationType::ClassDeclaration(data) => data.get_meta(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct VariableDeclarationData {
+    pub meta: Meta,
+    pub declarations: Vec<VariableDeclaratorData>,
+    pub kind: VariableDeclarationKind,
+}
+
+#[derive(Debug)]
+pub enum VariableDeclarationKind {
+    Var,
+    Let,
+    Const,
+}
+
+#[derive(Debug)]
+pub struct SwitchCaseData {
+    pub meta: Meta,
+    pub test: Option<Box<dyn Expression>>,
+    pub consequent: Box<Vec<StatementType>>,
+}
+
+impl HasMeta for SwitchCaseData {
+    fn get_meta(&self) -> &Meta {
+        &self.meta
+    }
+}
+
+#[derive(Debug)]
+pub struct FunctionData {
+    pub meta: Meta,
+    pub id: Option<IdentifierData>,
+    pub params: Vec<Box<dyn Pattern>>,
+    pub body: FunctionBodyData,
+    pub generator: bool,
+}
+
+impl HasMeta for FunctionData {
+    fn get_meta(&self) -> &Meta {
+        &self.meta
+    }
+}
+
+#[derive(Debug)]
+pub struct CatchClauseData {
+    pub meta: Meta,
+    pub param: Box<dyn Pattern>,
+    pub body: BlockStatementData,
+}
+
+impl HasMeta for CatchClauseData {
+    fn get_meta(&self) -> &Meta {
+        &self.meta
+    }
+}
+
+#[derive(Debug)]
+pub struct VariableDeclaratorData {
+    pub meta: Meta,
+    pub id: Box<dyn Pattern>,
+    pub init: Option<Box<dyn Expression>>,
+}
+
+impl HasMeta for VariableDeclarationData {
+    fn get_meta(&self) -> &Meta {
+        &self.meta
+    }
+}
+
+#[derive(Debug)]
+pub struct PropertyData<V> {
+    meta: Meta,
+    key: LiteralOrIdentifier,
+    value: V,
+    kind: PropertyKind,
+    method: bool,
+    shorthand: bool,
+    computed: bool,
+}
+
+impl HasMeta for PropertyData<Box<dyn Expression>> {
+    fn get_meta(&self) -> &Meta {
+        &self.meta
+    }
+}
+
+impl HasMeta for PropertyData<Box<dyn Pattern>> {
+    fn get_meta(&self) -> &Meta {
+        &self.meta
+    }
+}
+
+#[derive(Debug)]
+pub enum LiteralOrIdentifier {
+    Literal(LiteralData),
+    Identifier(IdentifierData),
+}
+
+#[derive(Debug)]
+pub struct AssignmentPropertyData(PropertyData<Box<dyn Pattern>>);
+
+impl AssignmentPropertyData {
+    fn new(
+        meta: Meta,
+        key: LiteralOrIdentifier,
+        value: Box<dyn Pattern>,
+        shorthand: bool,
+        computed: bool,
+    ) -> Self {
+        AssignmentPropertyData(PropertyData {
+            meta,
+            key,
+            value,
+            shorthand,
+            computed,
+            method: false,
+            kind: PropertyKind::Init,
+        })
+    }
+
+    // fn new_from_variable_declarator_data(data: VariableDeclaratorData) -> Self {
+    //     if let ExpressionPatternType::Identifier(id) = *data.id {
+    //         Self::new(
+    //             data.meta,
+    //             LiteralOrIdentifier::Identifier(id),
+    //             data.init.unwrap(),
+    //             false,
+    //             false,
+    //         )
+    //     } else {
+    //         panic!("Method called with unexpected data");
+    //     }
+    // }
+}
+
+impl HasMeta for AssignmentPropertyData {
+    fn get_meta(&self) -> &Meta {
+        &self.0.meta
+    }
+}
+
+#[derive(Debug)]
+pub enum PropertyKind {
+    Init,
+    Get,
+    Set,
+}
+
+#[derive(Debug)]
+pub struct ClassData {
+    pub meta: Meta,
+    pub id: Option<IdentifierData>,
+    pub super_class: Option<Box<dyn Expression>>,
+    pub body: ClassBodyData,
+}
+
+impl HasMeta for ClassData {
+    fn get_meta(&self) -> &Meta {
+        &self.meta
+    }
+}
+
+#[derive(Debug)]
+pub struct ClassBodyData {
+    pub meta: Meta,
+    pub body: Vec<MethodDefinitionData>,
+}
+
+impl HasMeta for ClassBodyData {
+    fn get_meta(&self) -> &Meta {
+        &self.meta
+    }
+}
+
+#[derive(Debug)]
+pub struct MethodDefinitionData {
+    pub meta: Meta,
+    pub key: Box<dyn Expression>,
+    pub value: FunctionData,
+    pub kind: MethodDefinitionKind,
+    pub computed: bool,
+    pub static_flag: bool,
+}
+
+impl HasMeta for MethodDefinitionData {
+    fn get_meta(&self) -> &Meta {
+        &self.meta
+    }
+}
+
+#[derive(Debug)]
+pub enum MethodDefinitionKind {
+    Constructor,
+    Method,
+    Get,
+    Set,
 }
