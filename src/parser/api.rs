@@ -1,11 +1,12 @@
 use crate::parser::ast::{
     AssignmentOperator, BinaryOperator, DeclarationType, Expression, ExpressionOrSpreadElement,
     ExpressionOrSuper, ExpressionPatternType, ExpressionType, FunctionBodyData, FunctionData,
-    IdentifierData, JsError, LiteralData, LiteralType, LogicalOperator, MemberExpressionType, Meta,
-    NumberLiteralType, Pattern, PatternOrExpression, PatternType, ProgramData, StatementType,
-    UnaryOperator, UpdateOperator, VariableDeclarationData, VariableDeclarationKind,
-    VariableDeclaratorData,
+    HasMeta, IdentifierData, JsError, LiteralData, LiteralType, LogicalOperator,
+    MemberExpressionType, Meta, NumberLiteralType, Pattern, PatternOrExpression, PatternType,
+    ProgramData, StatementType, UnaryOperator, UpdateOperator, VariableDeclarationData,
+    VariableDeclarationKind, VariableDeclaratorData,
 };
+use crate::parser::util::TAB_WIDTH;
 use pest::iterators::{Pair, Pairs};
 use pest::Parser;
 use pest_derive::Parser;
@@ -14,8 +15,6 @@ use std::time::Instant;
 #[derive(Parser)]
 #[grammar = "parser/js_grammar.pest"] // relative to src
 pub struct JsParser;
-
-const TAB_WIDTH: usize = 2;
 
 fn pair_to_string(pair: Pair<Rule>, level: usize) -> Vec<String> {
     let mut tree = vec![];
@@ -71,6 +70,11 @@ impl JsParser {
                 });
             }
         }
+    }
+
+    pub fn parse_to_ast_string(script: &str) -> Result<String, JsError> {
+        let result = Self::parse_to_ast(script)?;
+        Ok(result.to_formatted_string(script))
     }
 }
 
@@ -320,7 +324,9 @@ fn build_ast_from_statement(pair: Pair<Rule>) -> Result<StatementType, JsError> 
         | Rule::labelled_statement__return
         | Rule::labelled_statement__yield_return => unimplemented!(),
         Rule::empty_statement => unimplemented!(),
-        Rule::return_statement | Rule::return_statement__yield => unimplemented!(),
+        Rule::return_statement | Rule::return_statement__yield => {
+            build_ast_from_return_statement(inner_pair)?
+        }
         _ => {
             return Err(get_unexpected_error(
                 "build_ast_from_statement",
@@ -328,6 +334,22 @@ fn build_ast_from_statement(pair: Pair<Rule>) -> Result<StatementType, JsError> 
             ))
         }
     })
+}
+
+fn build_ast_from_return_statement(pair: Pair<Rule>) -> Result<StatementType, JsError> {
+    let meta = get_meta(&pair);
+    let inner_pair = pair.into_inner().next().unwrap();
+    let argument: Option<Box<dyn Expression>> = if inner_pair.as_rule() == Rule::expression__in {
+        Some(Box::new(build_ast_from_expression(inner_pair)?))
+    } else if inner_pair.as_rule() == Rule::smart_semicolon {
+        None
+    } else {
+        return Err(get_unexpected_error(
+            "build_ast_from_return_statement",
+            &inner_pair,
+        ));
+    };
+    Ok(StatementType::ReturnStatement { meta, argument })
 }
 
 fn build_ast_from_variable_statement(pair: Pair<Rule>) -> Result<StatementType, JsError> {
@@ -636,7 +658,7 @@ fn get_ast_for_logical_expression(
 fn get_ast_for_binary_expression(
     left: Option<Box<dyn Expression>>,
     right: Box<dyn Expression>,
-    operator: BinaryOperator,
+    operator: Option<BinaryOperator>,
 ) -> Box<dyn Expression> {
     if let Some(actual_left) = left {
         Box::new(ExpressionType::BinaryExpression {
@@ -644,7 +666,7 @@ fn get_ast_for_binary_expression(
                 start_index: actual_left.get_meta().start_index,
                 end_index: right.get_meta().end_index,
             },
-            operator,
+            operator: operator.unwrap(),
             left: actual_left,
             right,
         })
@@ -686,7 +708,7 @@ fn build_ast_from_bitwise_or_expression(pair: Pair<Rule>) -> Result<Box<dyn Expr
         left = Some(get_ast_for_binary_expression(
             left,
             right,
-            BinaryOperator::BitwiseOr,
+            Some(BinaryOperator::BitwiseOr),
         ))
     }
     Ok(left.unwrap())
@@ -699,7 +721,7 @@ fn build_ast_from_bitwise_xor_expression(pair: Pair<Rule>) -> Result<Box<dyn Exp
         left = Some(get_ast_for_binary_expression(
             left,
             right,
-            BinaryOperator::BitwiseXor,
+            Some(BinaryOperator::BitwiseXor),
         ))
     }
     Ok(left.unwrap())
@@ -712,7 +734,7 @@ fn build_ast_from_bitwise_and_expression(pair: Pair<Rule>) -> Result<Box<dyn Exp
         left = Some(get_ast_for_binary_expression(
             left,
             right,
-            BinaryOperator::BitwiseAnd,
+            Some(BinaryOperator::BitwiseAnd),
         ))
     }
     Ok(left.unwrap())
@@ -722,21 +744,24 @@ fn build_ast_from_equality_expression(pair: Pair<Rule>) -> Result<Box<dyn Expres
     let mut left = None;
     let mut pair_iter = pair.into_inner();
     loop {
-        if let Some(inner_pair) = pair_iter.next() {
-            let inner_pair_1 = inner_pair.into_inner().next().unwrap();
-            let operator = match inner_pair_1.as_str() {
-                "===" => BinaryOperator::StrictlyEqual,
-                "!==" => BinaryOperator::StrictlyUnequal,
-                "==" => BinaryOperator::LooselyEqual,
-                "!=" => BinaryOperator::LooselyUnequal,
-                _ => {
-                    return Err(get_unexpected_error(
-                        "build_ast_from_equality_expression",
-                        &inner_pair_1,
-                    ))
-                }
-            };
-            let right = build_ast_from_relational_expression(pair_iter.next().unwrap())?;
+        if let Some(mut inner_pair) = pair_iter.next() {
+            let mut operator = None;
+            if inner_pair.as_rule() == Rule::equality_operator {
+                operator = Some(match inner_pair.as_str() {
+                    "===" => BinaryOperator::StrictlyEqual,
+                    "!==" => BinaryOperator::StrictlyUnequal,
+                    "==" => BinaryOperator::LooselyEqual,
+                    "!=" => BinaryOperator::LooselyUnequal,
+                    _ => {
+                        return Err(get_unexpected_error(
+                            "build_ast_from_equality_expression",
+                            &inner_pair,
+                        ))
+                    }
+                });
+                inner_pair = pair_iter.next().unwrap();
+            }
+            let right = build_ast_from_relational_expression(inner_pair)?;
             left = Some(get_ast_for_binary_expression(left, right, operator));
         } else {
             break;
@@ -749,23 +774,26 @@ fn build_ast_from_relational_expression(pair: Pair<Rule>) -> Result<Box<dyn Expr
     let mut left = None;
     let mut pair_iter = pair.into_inner();
     loop {
-        if let Some(inner_pair) = pair_iter.next() {
-            let inner_pair_1 = inner_pair.into_inner().next().unwrap();
-            let operator = match inner_pair_1.as_str() {
-                "<=" => BinaryOperator::LessThanEqual,
-                ">=" => BinaryOperator::GreaterThanEqual,
-                "<" => BinaryOperator::LessThan,
-                ">" => BinaryOperator::GreaterThan,
-                "instanceof" => BinaryOperator::InstanceOf,
-                "in" => BinaryOperator::In,
-                _ => {
-                    return Err(get_unexpected_error(
-                        "build_ast_from_relational_expression",
-                        &inner_pair_1,
-                    ))
-                }
-            };
-            let right = build_ast_from_shift_expression(pair_iter.next().unwrap())?;
+        if let Some(mut inner_pair) = pair_iter.next() {
+            let mut operator = None;
+            if inner_pair.as_rule() == Rule::relational_operator {
+                operator = Some(match inner_pair.as_str() {
+                    "<=" => BinaryOperator::LessThanEqual,
+                    ">=" => BinaryOperator::GreaterThanEqual,
+                    "<" => BinaryOperator::LessThan,
+                    ">" => BinaryOperator::GreaterThan,
+                    "instanceof" => BinaryOperator::InstanceOf,
+                    "in" => BinaryOperator::In,
+                    _ => {
+                        return Err(get_unexpected_error(
+                            "build_ast_from_relational_expression",
+                            &inner_pair,
+                        ))
+                    }
+                });
+                inner_pair = pair_iter.next().unwrap();
+            }
+            let right = build_ast_from_shift_expression(inner_pair)?;
             left = Some(get_ast_for_binary_expression(left, right, operator));
         } else {
             break;
@@ -778,20 +806,23 @@ fn build_ast_from_shift_expression(pair: Pair<Rule>) -> Result<Box<dyn Expressio
     let mut left = None;
     let mut pair_iter = pair.into_inner();
     loop {
-        if let Some(inner_pair) = pair_iter.next() {
-            let inner_pair_1 = inner_pair.into_inner().next().unwrap();
-            let operator = match inner_pair_1.as_str() {
-                "<<" => BinaryOperator::BitwiseLeftShift,
-                ">>>" => BinaryOperator::BitwiseUnsignedRightShift,
-                ">>" => BinaryOperator::BitwiseRightShift,
-                _ => {
-                    return Err(get_unexpected_error(
-                        "build_ast_from_shift_expression",
-                        &inner_pair_1,
-                    ))
-                }
-            };
-            let right = build_ast_from_additive_expression(pair_iter.next().unwrap())?;
+        if let Some(mut inner_pair) = pair_iter.next() {
+            let mut operator = None;
+            if inner_pair.as_rule() == Rule::shift_operator {
+                operator = Some(match inner_pair.as_str() {
+                    "<<" => BinaryOperator::BitwiseLeftShift,
+                    ">>>" => BinaryOperator::BitwiseUnsignedRightShift,
+                    ">>" => BinaryOperator::BitwiseRightShift,
+                    _ => {
+                        return Err(get_unexpected_error(
+                            "build_ast_from_shift_expression",
+                            &inner_pair,
+                        ))
+                    }
+                });
+                inner_pair = pair_iter.next().unwrap();
+            }
+            let right = build_ast_from_additive_expression(inner_pair)?;
             left = Some(get_ast_for_binary_expression(left, right, operator));
         } else {
             break;
@@ -804,19 +835,22 @@ fn build_ast_from_additive_expression(pair: Pair<Rule>) -> Result<Box<dyn Expres
     let mut left = None;
     let mut pair_iter = pair.into_inner();
     loop {
-        if let Some(inner_pair) = pair_iter.next() {
-            let inner_pair_1 = inner_pair.into_inner().next().unwrap();
-            let operator = match inner_pair_1.as_str() {
-                "+" => BinaryOperator::Add,
-                "-" => BinaryOperator::Subtract,
-                _ => {
-                    return Err(get_unexpected_error(
-                        "build_ast_from_additive_expression",
-                        &inner_pair_1,
-                    ))
-                }
-            };
-            let right = build_ast_from_multiplicative_expression(pair_iter.next().unwrap())?;
+        if let Some(mut inner_pair) = pair_iter.next() {
+            let mut operator = None;
+            if inner_pair.as_rule() == Rule::additive_operator {
+                operator = Some(match inner_pair.as_str() {
+                    "+" => BinaryOperator::Add,
+                    "-" => BinaryOperator::Subtract,
+                    _ => {
+                        return Err(get_unexpected_error(
+                            "build_ast_from_additive_expression",
+                            &inner_pair,
+                        ))
+                    }
+                });
+                inner_pair = pair_iter.next().unwrap();
+            }
+            let right = build_ast_from_multiplicative_expression(inner_pair)?;
             left = Some(get_ast_for_binary_expression(left, right, operator));
         } else {
             break;
@@ -831,20 +865,23 @@ fn build_ast_from_multiplicative_expression(
     let mut left = None;
     let mut pair_iter = pair.into_inner();
     loop {
-        if let Some(inner_pair) = pair_iter.next() {
-            let inner_pair_1 = inner_pair.into_inner().next().unwrap();
-            let operator = match inner_pair_1.as_str() {
-                "*" => BinaryOperator::Multiply,
-                "/" => BinaryOperator::Divide,
-                "%" => BinaryOperator::Modulo,
-                _ => {
-                    return Err(get_unexpected_error(
-                        "build_ast_from_multiplicative_expression",
-                        &inner_pair_1,
-                    ))
-                }
-            };
-            let right = build_ast_from_unary_expression(pair_iter.next().unwrap())?;
+        if let Some(mut inner_pair) = pair_iter.next() {
+            let mut operator = None;
+            if inner_pair.as_rule() == Rule::multiplicative_operator {
+                operator = Some(match inner_pair.as_str() {
+                    "*" => BinaryOperator::Multiply,
+                    "/" => BinaryOperator::Divide,
+                    "%" => BinaryOperator::Modulo,
+                    _ => {
+                        return Err(get_unexpected_error(
+                            "build_ast_from_multiplicative_expression",
+                            &inner_pair,
+                        ))
+                    }
+                });
+                inner_pair = pair_iter.next().unwrap();
+            }
+            let right = build_ast_from_unary_expression(inner_pair)?;
             left = Some(get_ast_for_binary_expression(left, right, operator));
         } else {
             break;
