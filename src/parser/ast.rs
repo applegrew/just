@@ -1,10 +1,18 @@
 use crate::parser::util::{format_has_meta_option, format_option, format_struct, format_vec};
+use pest::error::Error;
 use std::fmt::Debug;
 
 #[derive(Debug)]
-pub struct JsError {
-    pub src: &'static str,
+pub struct JsError<Rule> {
+    pub kind: JsErrorType<Rule>,
     pub message: String,
+}
+
+#[derive(Debug)]
+pub enum JsErrorType<R> {
+    Unexpected(&'static str),
+    ParserValidation(Error<R>),
+    AstBuilderValidation(Meta),
 }
 
 #[derive(Debug)]
@@ -19,6 +27,15 @@ impl Meta {
             "Meta {{ \"{}\" }}",
             &script[self.start_index..self.end_index].replace("\n", "░")
         )
+    }
+}
+
+impl Clone for Meta {
+    fn clone(&self) -> Self {
+        Meta {
+            start_index: self.start_index,
+            end_index: self.end_index,
+        }
     }
 }
 
@@ -361,7 +378,10 @@ impl HasMeta for ExpressionType {
                     .add_fields("quasi", quasi.to_formatted_string(script))
                     .to_string()
             }
-            ExpressionType::ClassExpression(data) => unimplemented!(),
+            ExpressionType::ClassExpression(data) => format!(
+                "ExpressionType::ClassExpression({})",
+                data.to_formatted_string(script)
+            ),
             ExpressionType::MetaProperty {
                 meta,
                 meta_object,
@@ -1064,10 +1084,13 @@ impl HasMeta for FunctionBodyData {
 
 #[derive(Debug)]
 pub struct ForIteratorData {
-    meta: Meta,
-    left: VariableDeclarationOrPattern,
-    right: Box<dyn Expression>,
-    body: Box<StatementType>,
+    pub meta: Meta,
+    // As per ESTree spec (https://github.com/estree/estree/blob/master/es5.md#forinstatement) it
+    // should be VariableDeclarationOrPattern. However, as per rules we left_hand_side_expression
+    // which is an expression.
+    pub left: VariableDeclarationOrExpression,
+    pub right: Box<dyn Expression>,
+    pub body: Box<StatementType>,
 }
 
 impl HasMeta for ForIteratorData {

@@ -1,10 +1,11 @@
 use crate::parser::ast::{
-    AssignmentOperator, BinaryOperator, DeclarationType, Expression, ExpressionOrSpreadElement,
-    ExpressionOrSuper, ExpressionPatternType, ExpressionType, FunctionBodyData, FunctionData,
-    HasMeta, IdentifierData, JsError, LiteralData, LiteralType, LogicalOperator,
-    MemberExpressionType, Meta, NumberLiteralType, Pattern, PatternOrExpression, PatternType,
-    ProgramData, StatementType, UnaryOperator, UpdateOperator, VariableDeclarationData,
-    VariableDeclarationKind, VariableDeclaratorData,
+    AssignmentOperator, BinaryOperator, BlockStatementData, DeclarationType, Expression,
+    ExpressionOrSpreadElement, ExpressionOrSuper, ExpressionPatternType, ExpressionType,
+    ForIteratorData, FunctionBodyData, FunctionData, HasMeta, IdentifierData, JsError, JsErrorType,
+    LiteralData, LiteralType, LogicalOperator, MemberExpressionType, Meta, NumberLiteralType,
+    Pattern, PatternOrExpression, PatternType, ProgramData, StatementType, UnaryOperator,
+    UpdateOperator, VariableDeclarationData, VariableDeclarationKind,
+    VariableDeclarationOrExpression, VariableDeclaratorData,
 };
 use crate::parser::util::TAB_WIDTH;
 use pest::iterators::{Pair, Pairs};
@@ -15,6 +16,8 @@ use std::time::Instant;
 #[derive(Parser)]
 #[grammar = "parser/js_grammar.pest"] // relative to src
 pub struct JsParser;
+
+type JsRuleError = JsError<Rule>;
 
 fn pair_to_string(pair: Pair<Rule>, level: usize) -> Vec<String> {
     let mut tree = vec![];
@@ -52,35 +55,46 @@ impl JsParser {
                     tree.push(pair_to_string(pair, 0).join("\n"));
                 }
             }
-            Err(rule) => {
-                return Err(format!("Parse error due to {:?}", rule));
+            Err(err) => {
+                return Err(format!("Parse error due to {:?}", err));
             }
         }
         Ok(tree.join("\n"))
     }
 
-    pub fn parse_to_ast(script: &str) -> Result<ProgramData, JsError> {
+    pub fn parse_to_ast(script: &str) -> Result<ProgramData, JsRuleError> {
         let result = Self::parse(Rule::script, script);
         match result {
             Ok(pairs) => build_ast_from_script(pairs),
-            Err(rule) => {
-                return Err(JsError {
-                    src: "parse_to_ast",
-                    message: format!("Parse error due to {:?}", rule),
+            Err(err) => {
+                return Err(JsRuleError {
+                    kind: JsErrorType::ParserValidation(err.clone()),
+                    message: format!("Parse error due to \n{}", err),
                 });
             }
         }
     }
 
-    pub fn parse_to_ast_string(script: &str) -> Result<String, JsError> {
+    pub fn parse_to_ast_string(script: &str) -> Result<String, JsRuleError> {
         let result = Self::parse_to_ast(script)?;
         Ok(result.to_formatted_string(script))
     }
 }
 
-fn get_unexpected_error(src: &'static str, pair: &Pair<Rule>) -> JsError {
+fn get_unexpected_error(src: &'static str, pair: &Pair<Rule>) -> JsRuleError {
     let message = format!("Unexpected state reached in the parser at \"{:?}\". This indicates internal logic error in the parser.", pair.as_rule());
-    JsError { src, message }
+    JsRuleError {
+        message,
+        kind: JsErrorType::Unexpected(src),
+    }
+}
+
+fn get_validation_error(error: String, pair: &Pair<Rule>) -> JsRuleError {
+    let message = format!("Parsing error encountered: {}", error);
+    JsRuleError {
+        message,
+        kind: JsErrorType::AstBuilderValidation(get_meta(pair)),
+    }
 }
 
 fn get_meta(pair: &Pair<Rule>) -> Meta {
@@ -90,7 +104,7 @@ fn get_meta(pair: &Pair<Rule>) -> Meta {
     }
 }
 
-fn build_ast_from_script(pairs: Pairs<Rule>) -> Result<ProgramData, JsError> {
+fn build_ast_from_script(pairs: Pairs<Rule>) -> Result<ProgramData, JsRuleError> {
     let mut instructions = vec![];
     let mut end: usize = 0;
     for pair in pairs {
@@ -119,7 +133,7 @@ fn build_ast_from_script(pairs: Pairs<Rule>) -> Result<ProgramData, JsError> {
     })
 }
 
-fn build_ast_from_declaration(pair: Pair<Rule>) -> Result<DeclarationType, JsError> {
+fn build_ast_from_declaration(pair: Pair<Rule>) -> Result<DeclarationType, JsRuleError> {
     let inner_pair = pair.into_inner().next().unwrap();
     Ok(match inner_pair.as_rule() {
         Rule::hoistable_declaration | Rule::hoistable_declaration__yield => {
@@ -129,7 +143,7 @@ fn build_ast_from_declaration(pair: Pair<Rule>) -> Result<DeclarationType, JsErr
             unimplemented!()
         }
         Rule::lexical_declaration__in | Rule::lexical_declaration__in_yield => {
-            build_ast_from_lexical_declaration(inner_pair)?
+            DeclarationType::VariableDeclaration(build_ast_from_lexical_declaration(inner_pair)?)
         }
         _ => {
             return Err(get_unexpected_error(
@@ -140,18 +154,22 @@ fn build_ast_from_declaration(pair: Pair<Rule>) -> Result<DeclarationType, JsErr
     })
 }
 
-fn build_ast_from_lexical_declaration(pair: Pair<Rule>) -> Result<DeclarationType, JsError> {
+fn build_ast_from_lexical_declaration(
+    pair: Pair<Rule>,
+) -> Result<VariableDeclarationData, JsRuleError> {
     unimplemented!()
 }
 
-fn build_ast_from_hoistable_declaration(pair: Pair<Rule>) -> Result<DeclarationType, JsError> {
+fn build_ast_from_hoistable_declaration(pair: Pair<Rule>) -> Result<DeclarationType, JsRuleError> {
     let inner_pair = pair.into_inner().next().unwrap();
     Ok(match inner_pair.as_rule() {
         Rule::generator_declaration | Rule::generator_declaration__yield => {
             DeclarationType::FunctionDeclaration(build_ast_from_generator_declaration(inner_pair)?)
         }
         Rule::function_declaration | Rule::function_declaration__yield => {
-            DeclarationType::FunctionDeclaration(build_ast_from_function_declaration(inner_pair)?)
+            DeclarationType::FunctionDeclaration(
+                build_ast_from_function_declaration_or_function_expression(inner_pair)?,
+            )
         }
         _ => {
             return Err(get_unexpected_error(
@@ -162,7 +180,7 @@ fn build_ast_from_hoistable_declaration(pair: Pair<Rule>) -> Result<DeclarationT
     })
 }
 
-fn build_ast_from_generator_declaration(pair: Pair<Rule>) -> Result<FunctionData, JsError> {
+fn build_ast_from_generator_declaration(pair: Pair<Rule>) -> Result<FunctionData, JsRuleError> {
     let meta = get_meta(&pair);
     let mut pair_iter = pair.into_inner();
     let f_name = get_identifier_data(pair_iter.next().unwrap());
@@ -180,24 +198,35 @@ fn build_ast_from_generator_declaration(pair: Pair<Rule>) -> Result<FunctionData
     })
 }
 
-fn build_ast_from_function_declaration(pair: Pair<Rule>) -> Result<FunctionData, JsError> {
+fn build_ast_from_function_declaration_or_function_expression(
+    pair: Pair<Rule>,
+) -> Result<FunctionData, JsRuleError> {
     let meta = get_meta(&pair);
     let mut pair_iter = pair.into_inner();
-    let f_name = get_identifier_data(pair_iter.next().unwrap());
-    let formal_parameters = pair_iter.next().unwrap();
+    let first_pair = pair_iter.next().unwrap();
+    let (f_name, formal_parameters) = if first_pair.as_rule() == Rule::binding_identifier {
+        (
+            Some(get_identifier_data(first_pair)),
+            pair_iter.next().unwrap(),
+        )
+    } else {
+        (None, first_pair)
+    };
     let args = build_ast_from_formal_parameters(formal_parameters)?;
     let function_body_pair = pair_iter.next().unwrap();
     let body = build_ast_from_function_body(function_body_pair)?;
     Ok(FunctionData {
         meta,
-        id: Some(f_name),
+        id: f_name,
         body,
         params: args,
         generator: false,
     })
 }
 
-fn build_ast_from_formal_parameters(pair: Pair<Rule>) -> Result<Vec<Box<dyn Pattern>>, JsError> {
+fn build_ast_from_formal_parameters(
+    pair: Pair<Rule>,
+) -> Result<Vec<Box<dyn Pattern>>, JsRuleError> {
     let mut args: Vec<Box<dyn Pattern>> = vec![];
     for param in pair.into_inner() {
         let meta = get_meta(&param);
@@ -217,7 +246,7 @@ fn build_ast_from_formal_parameters(pair: Pair<Rule>) -> Result<Vec<Box<dyn Patt
             }
             _ => {
                 return Err(get_unexpected_error(
-                    "build_ast_from_function_declaration",
+                    "build_ast_from_formal_parameters",
                     &param,
                 ))
             }
@@ -226,7 +255,7 @@ fn build_ast_from_formal_parameters(pair: Pair<Rule>) -> Result<Vec<Box<dyn Patt
     Ok(args)
 }
 
-fn build_ast_from_binding_element(pair: Pair<Rule>) -> Result<Box<dyn Pattern>, JsError> {
+fn build_ast_from_binding_element(pair: Pair<Rule>) -> Result<Box<dyn Pattern>, JsRuleError> {
     let binding_element = pair.into_inner().next().unwrap();
     let mut binding_element_inner_iter = binding_element.into_inner();
     let binding_element_inner = binding_element_inner_iter.next().unwrap();
@@ -259,7 +288,7 @@ fn build_ast_from_binding_element(pair: Pair<Rule>) -> Result<Box<dyn Pattern>, 
     )
 }
 
-fn build_ast_from_function_body(pair: Pair<Rule>) -> Result<FunctionBodyData, JsError> {
+fn build_ast_from_function_body(pair: Pair<Rule>) -> Result<FunctionBodyData, JsRuleError> {
     let meta = get_meta(&pair);
     let mut statements = vec![];
     for pair in pair.into_inner() {
@@ -280,7 +309,7 @@ fn build_ast_from_function_body(pair: Pair<Rule>) -> Result<FunctionBodyData, Js
     })
 }
 
-fn build_ast_from_statement(pair: Pair<Rule>) -> Result<StatementType, JsError> {
+fn build_ast_from_statement(pair: Pair<Rule>) -> Result<StatementType, JsRuleError> {
     let inner_pair = pair.into_inner().next().unwrap();
     let meta = get_meta(&inner_pair);
     Ok(match inner_pair.as_rule() {
@@ -306,17 +335,19 @@ fn build_ast_from_statement(pair: Pair<Rule>) -> Result<StatementType, JsError> 
         Rule::breakable_statement
         | Rule::breakable_statement__yield
         | Rule::breakable_statement__return
-        | Rule::breakable_statement__yield_return => unimplemented!(),
+        | Rule::breakable_statement__yield_return => {
+            build_ast_from_breakable_statement(inner_pair)?
+        }
         Rule::block_statement
         | Rule::block_statement__yield
         | Rule::block_statement__return
-        | Rule::block_statement__yield_return => unimplemented!(),
+        | Rule::block_statement__yield_return => StatementType::BlockStatement(
+            build_ast_from_block(inner_pair.into_inner().next().unwrap())?,
+        ),
         Rule::expression_statement | Rule::expression_statement__yield => {
             StatementType::ExpressionStatement {
                 meta,
-                expression: Box::new(build_ast_from_expression(
-                    inner_pair.into_inner().next().unwrap(),
-                )?),
+                expression: build_ast_from_expression(inner_pair.into_inner().next().unwrap())?,
             }
         }
         Rule::labelled_statement
@@ -336,11 +367,277 @@ fn build_ast_from_statement(pair: Pair<Rule>) -> Result<StatementType, JsError> 
     })
 }
 
-fn build_ast_from_return_statement(pair: Pair<Rule>) -> Result<StatementType, JsError> {
+fn build_ast_from_block(pair: Pair<Rule>) -> Result<BlockStatementData, JsRuleError> {
+    let meta = get_meta(&pair);
+    let mut declarations = vec![];
+    for inner_pair in pair.into_inner() {
+        declarations.push(match inner_pair.as_rule() {
+            Rule::declaration | Rule::declaration__yield => {
+                StatementType::DeclarationStatement(build_ast_from_declaration(inner_pair)?)
+            }
+            Rule::statement
+            | Rule::statement__yield
+            | Rule::statement__return
+            | Rule::statement__yield_return => build_ast_from_statement(inner_pair)?,
+            _ => return Err(get_unexpected_error("build_ast_from_block", &inner_pair)),
+        });
+    }
+    Ok(BlockStatementData {
+        meta,
+        body: Box::new(declarations),
+    })
+}
+
+fn build_ast_from_breakable_statement(pair: Pair<Rule>) -> Result<StatementType, JsRuleError> {
+    let inner_pair = pair.into_inner().next().unwrap();
+    Ok(
+        if inner_pair.as_rule() == Rule::iteration_statement
+            || inner_pair.as_rule() == Rule::iteration_statement__yield
+            || inner_pair.as_rule() == Rule::iteration_statement__return
+            || inner_pair.as_rule() == Rule::iteration_statement__yield_return
+        {
+            build_ast_from_iteration_statement(inner_pair)?
+        } else {
+            build_ast_from_switch_statement(inner_pair)?
+        },
+    )
+}
+
+fn build_ast_from_iteration_statement(pair: Pair<Rule>) -> Result<StatementType, JsRuleError> {
+    let tag = pair.as_str().splitn(2, ' ').next().unwrap();
+    Ok(match tag {
+        "do" => build_ast_for_breakable_statement_do(pair)?,
+        "while" => build_ast_for_breakable_statement_while(pair)?,
+        "for" => build_ast_for_breakable_statement_for(pair)?,
+        _ => {
+            return Err(get_unexpected_error(
+                "build_ast_from_iteration_statement",
+                &pair,
+            ))
+        }
+    })
+}
+
+fn build_ast_for_breakable_statement_do(pair: Pair<Rule>) -> Result<StatementType, JsRuleError> {
+    let meta = get_meta(&pair);
+    let mut inner_iter = pair.into_inner();
+    let statement_pair = inner_iter.next().unwrap();
+    let test_expression_pair = inner_iter.next().unwrap();
+    Ok(StatementType::DoWhileStatement {
+        meta,
+        test: build_ast_from_expression(test_expression_pair)?,
+        body: Box::new(build_ast_from_statement(statement_pair)?),
+    })
+}
+
+fn build_ast_for_breakable_statement_while(pair: Pair<Rule>) -> Result<StatementType, JsRuleError> {
+    let meta = get_meta(&pair);
+    let mut inner_iter = pair.into_inner();
+    let test_expression_pair = inner_iter.next().unwrap();
+    let statement_pair = inner_iter.next().unwrap();
+    Ok(StatementType::WhileStatement {
+        meta,
+        test: build_ast_from_expression(test_expression_pair)?,
+        body: Box::new(build_ast_from_statement(statement_pair)?),
+    })
+}
+
+fn build_ast_for_breakable_statement_for(pair: Pair<Rule>) -> Result<StatementType, JsRuleError> {
+    let meta = get_meta(&pair);
+    let mut inner_iter = pair.into_inner();
+    let first_pair = inner_iter.next().unwrap();
+    Ok(match first_pair.as_rule() {
+        Rule::left_hand_side_expression
+        | Rule::left_hand_side_expression__yield
+        | Rule::for_binding
+        | Rule::for_binding__yield
+        | Rule::for_declaration
+        | Rule::for_declaration__yield => {
+            let in_of_left = match first_pair.as_rule() {
+                Rule::left_hand_side_expression | Rule::left_hand_side_expression__yield => {
+                    VariableDeclarationOrExpression::Expression(
+                        build_ast_from_left_hand_side_expression(first_pair)?,
+                    )
+                }
+                Rule::for_binding | Rule::for_binding__yield => {
+                    let meta = get_meta(&first_pair);
+                    let meta2 = meta.clone();
+                    VariableDeclarationOrExpression::VariableDeclaration(VariableDeclarationData {
+                        meta,
+                        declarations: vec![VariableDeclaratorData {
+                            meta: meta2,
+                            id: build_ast_from_for_binding(first_pair)?,
+                            init: None,
+                        }],
+                        kind: VariableDeclarationKind::Var,
+                    })
+                }
+                Rule::for_declaration | Rule::for_declaration__yield => {
+                    build_ast_from_for_declaration(first_pair)?
+                }
+                _ => {
+                    return Err(get_unexpected_error(
+                        "build_ast_for_breakable_statement_for:1",
+                        &first_pair,
+                    ))
+                }
+            };
+            let second_pair = inner_iter.next().unwrap();
+            let (in_of_right, is_for_of) = match second_pair.as_rule() {
+                Rule::assignment_expression__in | Rule::assignment_expression__in_yield => {
+                    (build_ast_from_assignment_expression(second_pair)?, true)
+                }
+                _ => (build_ast_from_expression(second_pair)?, false),
+            };
+            let statement = build_ast_from_statement(inner_iter.next().unwrap())?;
+            let node = ForIteratorData {
+                meta,
+                left: in_of_left,
+                right: in_of_right,
+                body: Box::new(statement),
+            };
+            if is_for_of {
+                StatementType::ForOfStatement(node)
+            } else {
+                StatementType::ForInStatement(node)
+            }
+        }
+        _ => {
+            let init = match first_pair.as_rule() {
+                Rule::lexical_declaration | Rule::lexical_declaration__yield => {
+                    //Lexical Declaration rule ends with smart semicolon which is too flexible. We need to ensure it is semi-colon and nothing else.
+                    let last_char = first_pair.as_str().trim_end().chars().last().unwrap();
+                    if last_char != ';' {
+                        return Err(get_validation_error(
+                            format!(
+                                "Was expecting semi-colon at the end, but got '{}'.",
+                                last_char
+                            ),
+                            &first_pair,
+                        ));
+                    } else {
+                        Some(VariableDeclarationOrExpression::VariableDeclaration(
+                            build_ast_from_lexical_declaration(first_pair)?,
+                        ))
+                    }
+                }
+                Rule::variable_declaration_list | Rule::variable_declaration_list__yield => {
+                    let meta = get_meta(&first_pair);
+                    let declarations = build_ast_from_variable_declaration_list(first_pair)?;
+                    if declarations.is_empty() {
+                        None
+                    } else {
+                        Some(VariableDeclarationOrExpression::VariableDeclaration(
+                            VariableDeclarationData {
+                                meta,
+                                declarations,
+                                kind: VariableDeclarationKind::Var,
+                            },
+                        ))
+                    }
+                }
+                Rule::init_expression | Rule::init_expression__yield => {
+                    if let Some(inner_pair) = first_pair.into_inner().next() {
+                        Some(VariableDeclarationOrExpression::Expression(
+                            build_ast_from_expression(inner_pair)?,
+                        ))
+                    } else {
+                        None
+                    }
+                }
+                _ => {
+                    return Err(get_unexpected_error(
+                        "build_ast_for_breakable_statement_for:2",
+                        &first_pair,
+                    ))
+                }
+            };
+            let test_pair = inner_iter.next().unwrap();
+            let test = if let Some(test_expression_pair) = test_pair.into_inner().next() {
+                Some(build_ast_from_expression(test_expression_pair)?)
+            } else {
+                None
+            };
+            let update_pair = inner_iter.next().unwrap();
+            let update = if let Some(update_expression_pair) = update_pair.into_inner().next() {
+                Some(build_ast_from_expression(update_expression_pair)?)
+            } else {
+                None
+            };
+            StatementType::ForStatement {
+                meta,
+                init,
+                test,
+                update,
+                body: Box::new(build_ast_from_statement(inner_iter.next().unwrap())?),
+            }
+        }
+    })
+}
+
+fn build_ast_from_binding_pattern(pair: Pair<Rule>) -> Result<Box<dyn Pattern>, JsRuleError> {
+    unimplemented!()
+}
+
+fn build_ast_from_for_binding(pair: Pair<Rule>) -> Result<Box<dyn Pattern>, JsRuleError> {
+    let inner_pair = pair.into_inner().next().unwrap();
+    Ok(match inner_pair.as_rule() {
+        Rule::binding_identifier | Rule::binding_identifier__yield => {
+            let id: Box<dyn Pattern> = Box::new(ExpressionPatternType::Identifier(
+                get_identifier_data(inner_pair),
+            ));
+            id
+        }
+        Rule::binding_pattern | Rule::binding_pattern__yield => {
+            build_ast_from_binding_pattern(inner_pair)?
+        }
+        _ => {
+            return Err(get_unexpected_error(
+                "build_ast_from_for_binding",
+                &inner_pair,
+            ))
+        }
+    })
+}
+
+fn build_ast_from_for_declaration(
+    pair: Pair<Rule>,
+) -> Result<VariableDeclarationOrExpression, JsRuleError> {
+    let meta = get_meta(&pair);
+    let mut inner_iter = pair.into_inner();
+    let let_or_const_pair = inner_iter.next().unwrap();
+    let for_binding_pair = inner_iter.next().unwrap();
+    let meta2 = meta.clone();
+    Ok(VariableDeclarationOrExpression::VariableDeclaration(
+        VariableDeclarationData {
+            meta,
+            declarations: vec![VariableDeclaratorData {
+                meta: meta2,
+                id: build_ast_from_for_binding(for_binding_pair)?,
+                init: None,
+            }],
+            kind: get_let_or_const(let_or_const_pair)?,
+        },
+    ))
+}
+
+fn get_let_or_const(let_or_const_pair: Pair<Rule>) -> Result<VariableDeclarationKind, JsRuleError> {
+    Ok(match let_or_const_pair.as_str() {
+        "let" => VariableDeclarationKind::Let,
+        "const" => VariableDeclarationKind::Const,
+        _ => return Err(get_unexpected_error("get_let_or_const", &let_or_const_pair)),
+    })
+}
+
+fn build_ast_from_switch_statement(pair: Pair<Rule>) -> Result<StatementType, JsRuleError> {
+    unimplemented!()
+}
+
+fn build_ast_from_return_statement(pair: Pair<Rule>) -> Result<StatementType, JsRuleError> {
     let meta = get_meta(&pair);
     let inner_pair = pair.into_inner().next().unwrap();
     let argument: Option<Box<dyn Expression>> = if inner_pair.as_rule() == Rule::expression__in {
-        Some(Box::new(build_ast_from_expression(inner_pair)?))
+        Some(build_ast_from_expression(inner_pair)?)
     } else if inner_pair.as_rule() == Rule::smart_semicolon {
         None
     } else {
@@ -352,8 +649,23 @@ fn build_ast_from_return_statement(pair: Pair<Rule>) -> Result<StatementType, Js
     Ok(StatementType::ReturnStatement { meta, argument })
 }
 
-fn build_ast_from_variable_statement(pair: Pair<Rule>) -> Result<StatementType, JsError> {
+fn build_ast_from_variable_statement(pair: Pair<Rule>) -> Result<StatementType, JsRuleError> {
     let meta = get_meta(&pair);
+
+    Ok(StatementType::DeclarationStatement(
+        DeclarationType::VariableDeclaration(VariableDeclarationData {
+            meta,
+            declarations: build_ast_from_variable_declaration_list(
+                pair.into_inner().next().unwrap(),
+            )?,
+            kind: VariableDeclarationKind::Var,
+        }),
+    ))
+}
+
+fn build_ast_from_variable_declaration_list(
+    pair: Pair<Rule>,
+) -> Result<Vec<VariableDeclaratorData>, JsRuleError> {
     let mut declarations = vec![];
     for var_pair in pair.into_inner() {
         if var_pair.as_rule() == Rule::variable_declaration
@@ -364,26 +676,19 @@ fn build_ast_from_variable_statement(pair: Pair<Rule>) -> Result<StatementType, 
                     var_pair,
                 )?,
             )
-        } else if var_pair.as_rule() != Rule::smart_semicolon {
-            // smart_semicolon at the end is expected but nothing except smart_semicolon.
+        } else {
             return Err(get_unexpected_error(
-                "build_ast_from_variable_statement",
+                "build_ast_from_variable_declaration_list",
                 &var_pair,
             ));
         }
     }
-    Ok(StatementType::DeclarationStatement(
-        DeclarationType::VariableDeclaration(VariableDeclarationData {
-            meta,
-            declarations,
-            kind: VariableDeclarationKind::Var,
-        }),
-    ))
+    Ok(declarations)
 }
 
 fn build_ast_from_lexical_binding_or_variable_declaration_or_binding_element(
     pair: Pair<Rule>,
-) -> Result<VariableDeclaratorData, JsError> {
+) -> Result<VariableDeclaratorData, JsRuleError> {
     let meta = get_meta(&pair);
     let mut inner_iter = pair.into_inner();
     let inner_pair = inner_iter.next().unwrap();
@@ -412,14 +717,13 @@ fn build_ast_from_lexical_binding_or_variable_declaration_or_binding_element(
         } else if inner_pair.as_rule() == Rule::binding_pattern
             || inner_pair.as_rule() == Rule::binding_pattern__yield
         {
-            unimplemented!()
-            // VariableDeclaratorData {
-            //     meta,
-            //     id: build_ast_from_binding_pattern(inner_pair)?,
-            //     init: Some(build_ast_from_assignment_expression(
-            //         inner_iter.next().unwrap(),
-            //     )?),
-            // }
+            VariableDeclaratorData {
+                meta,
+                id: build_ast_from_binding_pattern(inner_pair)?,
+                init: Some(build_ast_from_assignment_expression(
+                    inner_iter.next().unwrap(),
+                )?),
+            }
         } else if inner_pair.as_rule() == Rule::single_name_binding
             || inner_pair.as_rule() == Rule::single_name_binding__yield
         {
@@ -433,7 +737,9 @@ fn build_ast_from_lexical_binding_or_variable_declaration_or_binding_element(
     )
 }
 
-fn build_ast_from_single_name_binding(pair: Pair<Rule>) -> Result<VariableDeclaratorData, JsError> {
+fn build_ast_from_single_name_binding(
+    pair: Pair<Rule>,
+) -> Result<VariableDeclaratorData, JsRuleError> {
     let meta = get_meta(&pair);
     let mut inner_iter = pair.into_inner();
     let id = Box::new(ExpressionPatternType::Identifier(get_identifier_data(
@@ -454,7 +760,7 @@ fn build_ast_from_single_name_binding(pair: Pair<Rule>) -> Result<VariableDeclar
     })
 }
 
-// fn build_ast_from_binding_pattern(pair: Pair<Rule>) -> Result<PatternType, JsError> {
+// fn build_ast_from_binding_pattern(pair: Pair<Rule>) -> Result<PatternType, JsRuleError> {
 //     let meta = get_meta(&pair);
 //     let mut binding_properties = vec![];
 //     let inner_pair = pair.into_inner().next().unwrap();
@@ -479,7 +785,7 @@ fn build_ast_from_single_name_binding(pair: Pair<Rule>) -> Result<VariableDeclar
 //     })
 // }
 //
-// fn build_ast_from_binding_property(pair: Pair<Rule>) -> Result<AssignmentPropertyData, JsError> {
+// fn build_ast_from_binding_property(pair: Pair<Rule>) -> Result<AssignmentPropertyData, JsRuleError> {
 //     let mut inner_iter = pair.into_inner();
 //     let inner_pair = inner_iter.next().unwrap();
 //     if inner_pair.as_rule() == Rule::single_name_binding
@@ -489,7 +795,9 @@ fn build_ast_from_single_name_binding(pair: Pair<Rule>) -> Result<VariableDeclar
 //     }
 // }
 
-fn build_ast_from_assignment_expression(pair: Pair<Rule>) -> Result<Box<dyn Expression>, JsError> {
+fn build_ast_from_assignment_expression(
+    pair: Pair<Rule>,
+) -> Result<Box<dyn Expression>, JsRuleError> {
     let meta = get_meta(&pair);
     let mut inner_pair_iter = pair.into_inner();
     let inner_pair = inner_pair_iter.next().unwrap();
@@ -575,13 +883,13 @@ fn build_ast_from_assignment_expression(pair: Pair<Rule>) -> Result<Box<dyn Expr
     })
 }
 
-fn build_ast_from_arrow_function(pair: Pair<Rule>) -> Result<Box<dyn Expression>, JsError> {
+fn build_ast_from_arrow_function(pair: Pair<Rule>) -> Result<Box<dyn Expression>, JsRuleError> {
     unimplemented!()
 }
 
 fn build_ast_from_left_hand_side_expression(
     pair: Pair<Rule>,
-) -> Result<Box<dyn Expression>, JsError> {
+) -> Result<Box<dyn Expression>, JsRuleError> {
     let inner_pair: Pair<Rule> = pair.into_inner().next().unwrap();
     Ok(match inner_pair.as_rule() {
         Rule::call_expression | Rule::call_expression__yield => {
@@ -599,7 +907,7 @@ fn build_ast_from_left_hand_side_expression(
     })
 }
 
-fn build_ast_from_new_expression(pair: Pair<Rule>) -> Result<Box<dyn Expression>, JsError> {
+fn build_ast_from_new_expression(pair: Pair<Rule>) -> Result<Box<dyn Expression>, JsRuleError> {
     let inner_pair = pair.into_inner().next().unwrap();
     Ok(
         if inner_pair.as_rule() == Rule::member_expression
@@ -616,7 +924,9 @@ fn build_ast_from_new_expression(pair: Pair<Rule>) -> Result<Box<dyn Expression>
     )
 }
 
-fn build_ast_from_conditional_expression(pair: Pair<Rule>) -> Result<Box<dyn Expression>, JsError> {
+fn build_ast_from_conditional_expression(
+    pair: Pair<Rule>,
+) -> Result<Box<dyn Expression>, JsRuleError> {
     let meta = get_meta(&pair);
     let mut pair_iter = pair.into_inner();
     let logical_or_pair = pair_iter.next().unwrap();
@@ -675,7 +985,9 @@ fn get_ast_for_binary_expression(
     }
 }
 
-fn build_ast_from_logical_or_expression(pair: Pair<Rule>) -> Result<Box<dyn Expression>, JsError> {
+fn build_ast_from_logical_or_expression(
+    pair: Pair<Rule>,
+) -> Result<Box<dyn Expression>, JsRuleError> {
     let mut left = None;
     for inner_pair in pair.into_inner() {
         let right = build_ast_from_logical_and_expression(inner_pair)?;
@@ -688,7 +1000,9 @@ fn build_ast_from_logical_or_expression(pair: Pair<Rule>) -> Result<Box<dyn Expr
     Ok(left.unwrap())
 }
 
-fn build_ast_from_logical_and_expression(pair: Pair<Rule>) -> Result<Box<dyn Expression>, JsError> {
+fn build_ast_from_logical_and_expression(
+    pair: Pair<Rule>,
+) -> Result<Box<dyn Expression>, JsRuleError> {
     let mut left = None;
     for inner_pair in pair.into_inner() {
         let right = build_ast_from_bitwise_or_expression(inner_pair)?;
@@ -701,7 +1015,9 @@ fn build_ast_from_logical_and_expression(pair: Pair<Rule>) -> Result<Box<dyn Exp
     Ok(left.unwrap())
 }
 
-fn build_ast_from_bitwise_or_expression(pair: Pair<Rule>) -> Result<Box<dyn Expression>, JsError> {
+fn build_ast_from_bitwise_or_expression(
+    pair: Pair<Rule>,
+) -> Result<Box<dyn Expression>, JsRuleError> {
     let mut left = None;
     for inner_pair in pair.into_inner() {
         let right = build_ast_from_bitwise_xor_expression(inner_pair)?;
@@ -714,7 +1030,9 @@ fn build_ast_from_bitwise_or_expression(pair: Pair<Rule>) -> Result<Box<dyn Expr
     Ok(left.unwrap())
 }
 
-fn build_ast_from_bitwise_xor_expression(pair: Pair<Rule>) -> Result<Box<dyn Expression>, JsError> {
+fn build_ast_from_bitwise_xor_expression(
+    pair: Pair<Rule>,
+) -> Result<Box<dyn Expression>, JsRuleError> {
     let mut left = None;
     for inner_pair in pair.into_inner() {
         let right = build_ast_from_bitwise_and_expression(inner_pair)?;
@@ -727,7 +1045,9 @@ fn build_ast_from_bitwise_xor_expression(pair: Pair<Rule>) -> Result<Box<dyn Exp
     Ok(left.unwrap())
 }
 
-fn build_ast_from_bitwise_and_expression(pair: Pair<Rule>) -> Result<Box<dyn Expression>, JsError> {
+fn build_ast_from_bitwise_and_expression(
+    pair: Pair<Rule>,
+) -> Result<Box<dyn Expression>, JsRuleError> {
     let mut left = None;
     for inner_pair in pair.into_inner() {
         let right = build_ast_from_equality_expression(inner_pair)?;
@@ -740,7 +1060,21 @@ fn build_ast_from_bitwise_and_expression(pair: Pair<Rule>) -> Result<Box<dyn Exp
     Ok(left.unwrap())
 }
 
-fn build_ast_from_equality_expression(pair: Pair<Rule>) -> Result<Box<dyn Expression>, JsError> {
+fn build_ast_from_equality_expression(
+    pair: Pair<Rule>,
+) -> Result<Box<dyn Expression>, JsRuleError> {
+    if cfg!(debug_assertions) {
+        if pair.as_rule() != Rule::equality_expression
+            && pair.as_rule() != Rule::equality_expression__in
+            && pair.as_rule() != Rule::equality_expression__yield
+            && pair.as_rule() != Rule::equality_expression__in_yield
+        {
+            return Err(get_unexpected_error(
+                "build_ast_from_equality_expression:0",
+                &pair,
+            ));
+        }
+    }
     let mut left = None;
     let mut pair_iter = pair.into_inner();
     loop {
@@ -770,13 +1104,29 @@ fn build_ast_from_equality_expression(pair: Pair<Rule>) -> Result<Box<dyn Expres
     Ok(left.unwrap())
 }
 
-fn build_ast_from_relational_expression(pair: Pair<Rule>) -> Result<Box<dyn Expression>, JsError> {
+fn build_ast_from_relational_expression(
+    pair: Pair<Rule>,
+) -> Result<Box<dyn Expression>, JsRuleError> {
+    if cfg!(debug_assertions) {
+        if pair.as_rule() != Rule::relational_expression
+            && pair.as_rule() != Rule::relational_expression__in
+            && pair.as_rule() != Rule::relational_expression__yield
+            && pair.as_rule() != Rule::relational_expression__in_yield
+        {
+            return Err(get_unexpected_error(
+                "build_ast_from_relational_expression:0",
+                &pair,
+            ));
+        }
+    }
     let mut left = None;
     let mut pair_iter = pair.into_inner();
     loop {
         if let Some(mut inner_pair) = pair_iter.next() {
             let mut operator = None;
-            if inner_pair.as_rule() == Rule::relational_operator {
+            if inner_pair.as_rule() == Rule::relational_operator
+                || inner_pair.as_rule() == Rule::relational_operator__in
+            {
                 operator = Some(match inner_pair.as_str() {
                     "<=" => BinaryOperator::LessThanEqual,
                     ">=" => BinaryOperator::GreaterThanEqual,
@@ -802,7 +1152,17 @@ fn build_ast_from_relational_expression(pair: Pair<Rule>) -> Result<Box<dyn Expr
     Ok(left.unwrap())
 }
 
-fn build_ast_from_shift_expression(pair: Pair<Rule>) -> Result<Box<dyn Expression>, JsError> {
+fn build_ast_from_shift_expression(pair: Pair<Rule>) -> Result<Box<dyn Expression>, JsRuleError> {
+    if cfg!(debug_assertions) {
+        if pair.as_rule() != Rule::shift_expression
+            && pair.as_rule() != Rule::shift_expression__yield
+        {
+            return Err(get_unexpected_error(
+                "build_ast_from_shift_expression:0",
+                &pair,
+            ));
+        }
+    }
     let mut left = None;
     let mut pair_iter = pair.into_inner();
     loop {
@@ -831,7 +1191,9 @@ fn build_ast_from_shift_expression(pair: Pair<Rule>) -> Result<Box<dyn Expressio
     Ok(left.unwrap())
 }
 
-fn build_ast_from_additive_expression(pair: Pair<Rule>) -> Result<Box<dyn Expression>, JsError> {
+fn build_ast_from_additive_expression(
+    pair: Pair<Rule>,
+) -> Result<Box<dyn Expression>, JsRuleError> {
     let mut left = None;
     let mut pair_iter = pair.into_inner();
     loop {
@@ -861,7 +1223,7 @@ fn build_ast_from_additive_expression(pair: Pair<Rule>) -> Result<Box<dyn Expres
 
 fn build_ast_from_multiplicative_expression(
     pair: Pair<Rule>,
-) -> Result<Box<dyn Expression>, JsError> {
+) -> Result<Box<dyn Expression>, JsRuleError> {
     let mut left = None;
     let mut pair_iter = pair.into_inner();
     loop {
@@ -890,7 +1252,7 @@ fn build_ast_from_multiplicative_expression(
     Ok(left.unwrap())
 }
 
-fn build_ast_from_unary_expression(pair: Pair<Rule>) -> Result<Box<dyn Expression>, JsError> {
+fn build_ast_from_unary_expression(pair: Pair<Rule>) -> Result<Box<dyn Expression>, JsRuleError> {
     let meta = get_meta(&pair);
     let mut pair_iter = pair.into_inner();
     let first_pair = pair_iter.next().unwrap();
@@ -942,7 +1304,7 @@ fn build_ast_from_unary_expression(pair: Pair<Rule>) -> Result<Box<dyn Expressio
     )
 }
 
-fn build_ast_from_postfix_expression(pair: Pair<Rule>) -> Result<Box<dyn Expression>, JsError> {
+fn build_ast_from_postfix_expression(pair: Pair<Rule>) -> Result<Box<dyn Expression>, JsRuleError> {
     let meta = get_meta(&pair);
     let mut pair_iter = pair.into_inner();
     let lhs = build_ast_from_left_hand_side_expression(pair_iter.next().unwrap())?;
@@ -967,7 +1329,7 @@ fn build_ast_from_postfix_expression(pair: Pair<Rule>) -> Result<Box<dyn Express
     })
 }
 
-fn build_ast_from_call_expression(pair: Pair<Rule>) -> Result<Box<dyn Expression>, JsError> {
+fn build_ast_from_call_expression(pair: Pair<Rule>) -> Result<Box<dyn Expression>, JsRuleError> {
     let mut pair_iter = pair.into_inner();
     let pair = pair_iter.next().unwrap();
     let meta = get_meta(&pair);
@@ -995,7 +1357,7 @@ fn build_ast_from_call_expression(pair: Pair<Rule>) -> Result<Box<dyn Expression
                     MemberExpressionType::ComputedMemberExpression {
                         meta,
                         object: ExpressionOrSuper::Expression(obj),
-                        property: Box::new(build_ast_from_expression(pair)?),
+                        property: build_ast_from_expression(pair)?,
                     },
                 ))
             }
@@ -1031,19 +1393,21 @@ fn get_identifier_data(pair: Pair<Rule>) -> IdentifierData {
     }
 }
 
-fn build_ast_from_expression(pair: Pair<Rule>) -> Result<ExpressionType, JsError> {
+fn build_ast_from_expression(pair: Pair<Rule>) -> Result<Box<dyn Expression>, JsRuleError> {
     let meta = get_meta(&pair);
     let mut node_children: Vec<Box<dyn Expression>> = vec![];
     for inner_pair in pair.into_inner() {
         node_children.push(build_ast_from_assignment_expression(inner_pair)?);
     }
-    Ok(ExpressionType::SequenceExpression {
+    Ok(Box::new(ExpressionType::SequenceExpression {
         meta,
         expressions: node_children,
-    })
+    }))
 }
 
-fn build_ast_from_arguments(pair: Pair<Rule>) -> Result<Vec<ExpressionOrSpreadElement>, JsError> {
+fn build_ast_from_arguments(
+    pair: Pair<Rule>,
+) -> Result<Vec<ExpressionOrSpreadElement>, JsRuleError> {
     let mut arguments = vec![];
     if let Some(argument_list_pair) = pair.into_inner().next() {
         for inner_pair in argument_list_pair.into_inner() {
@@ -1065,7 +1429,7 @@ fn build_ast_from_arguments(pair: Pair<Rule>) -> Result<Vec<ExpressionOrSpreadEl
     Ok(arguments)
 }
 
-fn build_ast_from_member_expression(pair: Pair<Rule>) -> Result<Box<dyn Expression>, JsError> {
+fn build_ast_from_member_expression(pair: Pair<Rule>) -> Result<Box<dyn Expression>, JsRuleError> {
     let meta = get_meta(&pair);
     let mut pair_iter = pair.into_inner();
     let pair_1 = pair_iter.next().unwrap();
@@ -1097,7 +1461,7 @@ fn build_ast_from_member_expression(pair: Pair<Rule>) -> Result<Box<dyn Expressi
                             MemberExpressionType::ComputedMemberExpression {
                                 meta,
                                 object: ExpressionOrSuper::Super,
-                                property: Box::new(build_ast_from_expression(super_pair)?),
+                                property: build_ast_from_expression(super_pair)?,
                             },
                         ))
                     }
@@ -1141,7 +1505,7 @@ fn build_ast_from_member_expression(pair: Pair<Rule>) -> Result<Box<dyn Expressi
                             MemberExpressionType::ComputedMemberExpression {
                                 meta,
                                 object: ExpressionOrSuper::Expression(obj),
-                                property: Box::new(build_ast_from_expression(pair)?),
+                                property: build_ast_from_expression(pair)?,
                             },
                         ))
                     }
@@ -1166,7 +1530,7 @@ fn build_ast_from_member_expression(pair: Pair<Rule>) -> Result<Box<dyn Expressi
     )
 }
 
-fn build_ast_from_primary_expression(pair: Pair<Rule>) -> Result<Box<dyn Expression>, JsError> {
+fn build_ast_from_primary_expression(pair: Pair<Rule>) -> Result<Box<dyn Expression>, JsRuleError> {
     let inner_pair = pair.into_inner().next().unwrap();
     let meta = get_meta(&inner_pair);
     Ok(match inner_pair.as_rule() {
@@ -1180,7 +1544,9 @@ fn build_ast_from_primary_expression(pair: Pair<Rule>) -> Result<Box<dyn Express
         }
         Rule::object_literal | Rule::object_literal__yield => unimplemented!(),
         Rule::generator_expression => unimplemented!(),
-        Rule::function_expression => unimplemented!(),
+        Rule::function_expression => Box::new(ExpressionType::FunctionExpression(
+            build_ast_from_function_declaration_or_function_expression(inner_pair)?,
+        )),
         Rule::class_expression | Rule::class_expression__yield => unimplemented!(),
         Rule::regular_expression_literal => unimplemented!(),
         Rule::template_literal | Rule::template_literal__yield => unimplemented!(),
@@ -1197,7 +1563,7 @@ fn build_ast_from_primary_expression(pair: Pair<Rule>) -> Result<Box<dyn Express
     })
 }
 
-fn build_ast_from_literal(pair: Pair<Rule>) -> Result<LiteralData, JsError> {
+fn build_ast_from_literal(pair: Pair<Rule>) -> Result<LiteralData, JsRuleError> {
     let inner_pair = pair.into_inner().next().unwrap();
     let meta = get_meta(&inner_pair);
     Ok(match inner_pair.as_rule() {
@@ -1221,7 +1587,7 @@ fn build_ast_from_literal(pair: Pair<Rule>) -> Result<LiteralData, JsError> {
     })
 }
 
-fn build_ast_from_string_literal(pair: Pair<Rule>) -> Result<LiteralData, JsError> {
+fn build_ast_from_string_literal(pair: Pair<Rule>) -> Result<LiteralData, JsRuleError> {
     let meta = get_meta(&pair);
     let s = pair.as_str();
     Ok(LiteralData {
@@ -1230,7 +1596,7 @@ fn build_ast_from_string_literal(pair: Pair<Rule>) -> Result<LiteralData, JsErro
     })
 }
 
-fn build_ast_from_numeric_literal(pair: Pair<Rule>) -> Result<NumberLiteralType, JsError> {
+fn build_ast_from_numeric_literal(pair: Pair<Rule>) -> Result<NumberLiteralType, JsRuleError> {
     let inner_pair = pair.into_inner().next().unwrap();
     Ok(match inner_pair.as_rule() {
         Rule::binary_integer_literal => NumberLiteralType::IntegerLiteral(
@@ -1284,7 +1650,7 @@ fn build_ast_from_numeric_literal(pair: Pair<Rule>) -> Result<NumberLiteralType,
     })
 }
 
-fn build_ast_from_array_literal(pair: Pair<Rule>) -> Result<ExpressionType, JsError> {
+fn build_ast_from_array_literal(pair: Pair<Rule>) -> Result<ExpressionType, JsRuleError> {
     let meta = get_meta(&pair);
     let mut arguments = vec![];
     for inner_pair in pair.into_inner() {
@@ -1318,7 +1684,9 @@ fn build_ast_from_array_literal(pair: Pair<Rule>) -> Result<ExpressionType, JsEr
     })
 }
 
-fn build_ast_from_identifier_reference(pair: Pair<Rule>) -> Result<Box<dyn Expression>, JsError> {
+fn build_ast_from_identifier_reference(
+    pair: Pair<Rule>,
+) -> Result<Box<dyn Expression>, JsRuleError> {
     let id = pair.as_str();
     Ok(if id == "yield" {
         Box::new(ExpressionType::YieldExpression {
