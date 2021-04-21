@@ -621,16 +621,16 @@ variable_statement = {
 variable_statement__yield = {
     "var" ~ variable_declaration_list__in_yield ~ smart_semicolon
 }
-variable_declaration_list = _{
+variable_declaration_list = {
     variable_declaration ~ (s~ "," ~s~ variable_declaration)*
 }
-variable_declaration_list__in = _{
+variable_declaration_list__in = {
     variable_declaration__in ~ (s~ "," ~s~ variable_declaration__in)*
 }
-variable_declaration_list__yield = _{
+variable_declaration_list__yield = {
     variable_declaration__yield ~ (s~ "," ~s~ variable_declaration__yield)*
 }
-variable_declaration_list__in_yield = _{
+variable_declaration_list__in_yield = {
     variable_declaration__in_yield ~ (s~ "," ~s~ variable_declaration__in_yield)*
 }
 variable_declaration = {
@@ -712,12 +712,18 @@ if_statement__yield_return = {
     "if" ~s~ "(" ~s~ expression__in_yield ~s~ ")" ~s~ statement__yield_return ~s~ "else" ~s~ statement__yield_return
     | "if" ~s~ "(" ~s~ expression__in_yield ~s~ ")" ~s~ statement__yield_return
 }
+test_expression__in = { expression__in? }
+test_expression__in_yield = { expression__in_yield? }
+update_expression__in = { expression__in? }
+update_expression__in_yield = { expression__in_yield? }
+init_expression = { expression? }
+init_expression__yield = { expression__yield? }
 iteration_statement = {
     "do" ~s~ statement ~s~ "while" ~s~ "(" ~s~ expression__in ~s~ ")" ~ smart_semicolon
     | "while" ~s~ "(" ~s~ expression__in ~s~ ")" ~s~ statement
-    | "for" ~s~ "(" ~s~ !("let" ~ "[") ~s~ expression? ~s~ ";" ~s~ expression__in? ~s~ ";" ~s~ expression__in? ~s~ ")" ~s~ statement
-    | "for" ~s~ "(" ~s~ "var" ~s~ variable_declaration_list ~s~ ";" ~s~ expression__in? ~s~ ";" ~s~ expression__in? ~s~ ")" ~s~ statement
-    | "for" ~s~ "(" ~s~ lexical_declaration ~s~ expression__in? ~s~ ";" ~ expression__in? ~s~ ")" ~s~ statement
+    | "for" ~s~ "(" ~s~ !("let" ~ "[") ~s~ init_expression ~s~ ";" ~s~ test_expression__in ~s~ ";" ~s~ update_expression__in ~s~ ")" ~s~ statement
+    | "for" ~s~ "(" ~s~ "var" ~s~ variable_declaration_list ~s~ ";" ~s~ test_expression__in ~s~ ";" ~s~ update_expression__in ~s~ ")" ~s~ statement
+    | "for" ~s~ "(" ~s~ lexical_declaration ~s~ test_expression__in ~s~ ";" ~ update_expression__in ~s~ ")" ~s~ statement
     | "for" ~s~ "(" ~s~ !("let" ~ "[") ~ left_hand_side_expression ~ "in" ~s~ expression__in ~ ")" ~s~ statement
     | "for" ~s~ "(" ~s~ "var" ~s~ for_binding ~s~ "in" ~s~ expression__in ~s~ ")" ~s~ statement
     | "for" ~s~ "(" ~s~ for_declaration ~s~ "in" ~s~ expression__in ~s~ ")" ~s~ statement
@@ -728,9 +734,9 @@ iteration_statement = {
 iteration_statement__yield = {
     "do" ~s~ statement__yield ~s~ "while" ~s~ "(" ~s~ expression__in_yield ~s~ ")" ~ smart_semicolon
     | "while" ~s~ "(" ~s~ expression__in_yield ~s~ ")" ~s~ statement__yield
-    | "for" ~s~ "(" ~s~ !("let" ~ "[") ~s~ expression__yield? ~s~ ";" ~s~ expression__in_yield? ~s~ ";" ~s~ expression__in_yield? ~s~ ")" ~s~ statement__yield
-    | "for" ~s~ "(" ~s~ "var" ~s~ variable_declaration_list__yield ~s~ ";" ~s~ expression__in_yield? ~s~ ";" ~s~ expression__in_yield? ~s~ ")" ~s~ statement__yield
-    | "for" ~s~ "(" ~s~ lexical_declaration__yield ~s~ expression__in_yield? ~s~ ";" ~s~ expression__in_yield? ~s~ ")" ~s~ statement__yield
+    | "for" ~s~ "(" ~s~ !("let" ~ "[") ~s~ init_expression__yield ~s~ ";" ~s~ test_expression__in_yield ~s~ ";" ~s~ update_expression__in_yield ~s~ ")" ~s~ statement__yield
+    | "for" ~s~ "(" ~s~ "var" ~s~ variable_declaration_list__yield ~s~ ";" ~s~ test_expression__in_yield ~s~ ";" ~s~ update_expression__in_yield ~s~ ")" ~s~ statement__yield
+    | "for" ~s~ "(" ~s~ lexical_declaration__yield ~s~ test_expression__in_yield ~s~ ";" ~s~ update_expression__in_yield ~s~ ")" ~s~ statement__yield
     | "for" ~s~ "(" ~s~ !("let" ~ "[") ~ left_hand_side_expression__yield ~s~ "in" ~s~ expression__in_yield ~s~ ")" ~s~ statement__yield
     | "for" ~s~ "(" ~s~ "var" ~s~ for_binding__yield ~s~ "in" ~s~ expression__in_yield ~s~ ")" ~s~ statement__yield
     | "for" ~s~ "(" ~s~ for_declaration__yield ~s~ "in" ~s~ expression__in_yield ~s~ ")" ~s~ statement__yield
@@ -741,9 +747,9 @@ iteration_statement__yield = {
 iteration_statement__return = {
     "do" ~s~ statement__return ~s~ "while" ~s~ "(" ~s~ expression__in ~s~ ")" ~ smart_semicolon
     | "while" ~s~ "(" ~s~ expression__in ~s~ ")" ~s~ statement__return
-    | "for" ~s~ "(" ~s~ !("let" ~ "[") ~s~ expression? ~s~ ";" ~s~ expression__in? ~s~ ";" ~s~ expression__in? ~s~ ")" ~s~ statement__return
-    | "for" ~s~ "(" ~s~ "var" ~s~ variable_declaration_list ~s~ ";" ~s~ expression__in? ~s~ ";" ~s~ expression__in? ~s~ ")" ~s~ statement__return
-    | "for" ~s~ "(" ~s~ lexical_declaration ~s~ expression__in? ~s~ ";" ~ expression__in? ~s~ ")" ~s~ statement__return
+    | "for" ~s~ "(" ~s~ !("let" ~ "[") ~s~ init_expression ~s~ ";" ~s~ test_expression__in ~s~ ";" ~s~ update_expression__in ~s~ ")" ~s~ statement__return
+    | "for" ~s~ "(" ~s~ "var" ~s~ variable_declaration_list ~s~ ";" ~s~ test_expression__in ~s~ ";" ~s~ update_expression__in ~s~ ")" ~s~ statement__return
+    | "for" ~s~ "(" ~s~ lexical_declaration ~s~ test_expression__in ~s~ ";" ~ update_expression__in ~s~ ")" ~s~ statement__return
     | "for" ~s~ "(" ~s~ !("let" ~ "[") ~ left_hand_side_expression ~s~ "in" ~s~ expression__in ~s~ ")" ~s~ statement__return
     | "for" ~s~ "(" ~s~ "var" ~s~ for_binding ~s~ "in" ~s~ expression__in ~s~ ")" ~s~ statement__return
     | "for" ~s~ "(" ~s~ for_declaration ~s~ "in" ~s~ expression__in ~s~ ")" ~s~ statement__return
@@ -754,9 +760,9 @@ iteration_statement__return = {
 iteration_statement__yield_return = {
     "do" ~s~ statement__yield_return ~s~ "while" ~s~ "(" ~s~ expression__in_yield ~s~ ")" ~ smart_semicolon
     | "while" ~s~ "(" ~s~ expression__in_yield ~s~ ")" ~s~ statement__yield_return
-    | "for" ~s~ "(" ~s~ !("let" ~ "[") ~ expression__yield? ~s~ ";" ~s~ expression__in_yield? ~s~ ";" ~s~ expression__in_yield? ~s~ ")" ~s~ statement__yield_return
-    | "for" ~s~ "(" ~s~ "var" ~s~ variable_declaration_list__yield ~ ";" ~s~ expression__in_yield? ~s~ ";" ~s~ expression__in_yield? ~ ")" ~s~ statement__yield_return
-    | "for" ~s~ "(" ~s~ lexical_declaration__yield ~s~ expression__in_yield? ~s~ ";" ~s~ expression__in_yield? ~s~ ")" ~s~ statement__yield_return
+    | "for" ~s~ "(" ~s~ !("let" ~ "[") ~ init_expression__yield ~s~ ";" ~s~ test_expression__in_yield ~s~ ";" ~s~ update_expression__in_yield ~s~ ")" ~s~ statement__yield_return
+    | "for" ~s~ "(" ~s~ "var" ~s~ variable_declaration_list__yield ~ ";" ~s~ test_expression__in_yield ~s~ ";" ~s~ update_expression__in_yield ~ ")" ~s~ statement__yield_return
+    | "for" ~s~ "(" ~s~ lexical_declaration__yield ~s~ test_expression__in_yield ~s~ ";" ~s~ update_expression__in_yield ~s~ ")" ~s~ statement__yield_return
     | "for" ~s~ "(" ~s~ !("let" ~ "[") ~ left_hand_side_expression__yield ~s~ "in" ~s~ expression__in_yield ~ ")" ~s~ statement__yield_return
     | "for" ~s~ "(" ~s~ "var" ~s~ for_binding__yield ~s~ "in" ~s~ expression__in_yield ~s~ ")" ~s~ statement__yield_return
     | "for" ~s~ "(" ~s~ for_declaration__yield ~s~ "in" ~s~ expression__in_yield ~s~ ")" ~s~ statement__yield_return
