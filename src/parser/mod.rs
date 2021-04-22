@@ -1,5 +1,5 @@
 mod api;
-mod ast;
+pub mod ast;
 #[allow(non_fmt_panic)]
 #[cfg(test)]
 mod unit_tests;
