@@ -1,0 +1,77 @@
+ProgramData {
+  meta: Meta { "// ES6 introduces two new types of numeric literals░// Binary and octal notation:░░console.log(0b111110111 === 503);░console.log(0o767 === 503);░" },
+  body: [
+    StatementType::ExpressionStatement {
+      meta: Meta { "console.log(0b111110111 === 503);░" },
+      expression: ExpressionType::SequenceExpression {
+        meta: Meta { "console.log(0b111110111 === 503)" },
+        expressions: [
+          ExpressionType::CallExpression {
+            meta: Meta { "console.log" },
+            callee: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::MemberExpression(MemberExpressionType::SimpleMemberExpression {
+              meta: Meta { "console.log" },
+              object: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
+                meta: Meta { "console" },
+                name: console,
+              }))),
+              property: IdentifierData {
+                meta: Meta { "log" },
+                name: log,
+              },
+            }))),
+            arguments: [
+              ExpressionOrSpreadElement::Expression(ExpressionType::BinaryExpression {
+                meta: Meta { "0b111110111 === 503" },
+                operator: StrictlyEqual,
+                left: ExpressionType::Literal(LiteralData {
+                  meta: Meta { "0b111110111" },
+                  value: NumberLiteral(IntegerLiteral(503)),
+                }),
+                right: ExpressionType::Literal(LiteralData {
+                  meta: Meta { "503" },
+                  value: NumberLiteral(IntegerLiteral(503)),
+                }),
+              }),
+            ],
+          },
+        ],
+      },
+    },
+    StatementType::ExpressionStatement {
+      meta: Meta { "console.log(0o767 === 503);░" },
+      expression: ExpressionType::SequenceExpression {
+        meta: Meta { "console.log(0o767 === 503)" },
+        expressions: [
+          ExpressionType::CallExpression {
+            meta: Meta { "console.log" },
+            callee: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::MemberExpression(MemberExpressionType::SimpleMemberExpression {
+              meta: Meta { "console.log" },
+              object: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
+                meta: Meta { "console" },
+                name: console,
+              }))),
+              property: IdentifierData {
+                meta: Meta { "log" },
+                name: log,
+              },
+            }))),
+            arguments: [
+              ExpressionOrSpreadElement::Expression(ExpressionType::BinaryExpression {
+                meta: Meta { "0o767 === 503" },
+                operator: StrictlyEqual,
+                left: ExpressionType::Literal(LiteralData {
+                  meta: Meta { "0o767" },
+                  value: NumberLiteral(IntegerLiteral(503)),
+                }),
+                right: ExpressionType::Literal(LiteralData {
+                  meta: Meta { "503" },
+                  value: NumberLiteral(IntegerLiteral(503)),
+                }),
+              }),
+            ],
+          },
+        ],
+      },
+    },
+  ],
+}

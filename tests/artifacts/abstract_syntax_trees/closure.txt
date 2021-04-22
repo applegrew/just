@@ -17,10 +17,10 @@ ProgramData {
             declarations: [
               VariableDeclaratorData {
                 meta: Meta { "fs = []" },
-                id: ExpressionPatternType::Identifier(IdentifierData {
+                id: PatternType::PatternWhichCanBeExpression(ExpressionPatternType::Identifier(IdentifierData {
                   meta: Meta { "fs" },
                   name: fs,
-                }),
+                })),
                 init: ExpressionType::ArrayExpression {
                   meta: Meta { "[]" },
                   elements: [
@@ -37,10 +37,10 @@ ProgramData {
               declarations: [
                 VariableDeclaratorData {
                   meta: Meta { "i = 0" },
-                  id: ExpressionPatternType::Identifier(IdentifierData {
+                  id: PatternType::PatternWhichCanBeExpression(ExpressionPatternType::Identifier(IdentifierData {
                     meta: Meta { "i" },
                     name: i,
-                  }),
+                  })),
                   init: ExpressionType::Literal(LiteralData {
                     meta: Meta { "0" },
                     value: NumberLiteral(IntegerLiteral(0)),
@@ -55,10 +55,10 @@ ProgramData {
                 ExpressionType::BinaryExpression {
                   meta: Meta { "i < 10" },
                   operator: LessThan,
-                  left: ExpressionPatternType::Identifier(IdentifierData {
+                  left: ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
                     meta: Meta { "i" },
                     name: i,
-                  }),
+                  })),
                   right: ExpressionType::Literal(LiteralData {
                     meta: Meta { "10" },
                     value: NumberLiteral(IntegerLiteral(10)),
@@ -72,10 +72,10 @@ ProgramData {
                 ExpressionType::UpdateExpression {
                   meta: Meta { "i++" },
                   operator: PlusPlus,
-                  argument: ExpressionPatternType::Identifier(IdentifierData {
+                  argument: ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
                     meta: Meta { "i" },
                     name: i,
-                  }),
+                  })),
                   prefix: false,
                 },
               ],
@@ -90,17 +90,17 @@ ProgramData {
                     expressions: [
                       ExpressionType::CallExpression {
                         meta: Meta { "fs.push" },
-                        callee: ExpressionOrSuper::Expression(ExpressionPatternType::MemberExpression(MemberExpressionType::SimpleMemberExpression {
-                          meta: Meta { "push" },
-                          object: ExpressionOrSuper::Expression(ExpressionPatternType::Identifier(IdentifierData {
+                        callee: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::MemberExpression(MemberExpressionType::SimpleMemberExpression {
+                          meta: Meta { "fs.push" },
+                          object: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
                             meta: Meta { "fs" },
                             name: fs,
-                          })),
+                          }))),
                           property: IdentifierData {
                             meta: Meta { "push" },
                             name: push,
                           },
-                        })),
+                        }))),
                         arguments: [
                           ExpressionOrSpreadElement::Expression(ExpressionType::FunctionExpression(FunctionData {
                             meta: Meta { "function () {░            return i;░        }" },
@@ -115,10 +115,10 @@ ProgramData {
                                   argument: ExpressionType::SequenceExpression {
                                     meta: Meta { "i" },
                                     expressions: [
-                                      ExpressionPatternType::Identifier(IdentifierData {
+                                      ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
                                         meta: Meta { "i" },
                                         name: i,
-                                      }),
+                                      })),
                                     ],
                                   },
                                 },
@@ -139,10 +139,10 @@ ProgramData {
             argument: ExpressionType::SequenceExpression {
               meta: Meta { "fs" },
               expressions: [
-                ExpressionPatternType::Identifier(IdentifierData {
+                ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
                   meta: Meta { "fs" },
                   name: fs,
-                }),
+                })),
               ],
             },
           },
@@ -155,16 +155,16 @@ ProgramData {
       declarations: [
         VariableDeclaratorData {
           meta: Meta { "gs = gen()" },
-          id: ExpressionPatternType::Identifier(IdentifierData {
+          id: PatternType::PatternWhichCanBeExpression(ExpressionPatternType::Identifier(IdentifierData {
             meta: Meta { "gs" },
             name: gs,
-          }),
+          })),
           init: ExpressionType::CallExpression {
             meta: Meta { "gen" },
-            callee: ExpressionOrSuper::Expression(ExpressionPatternType::Identifier(IdentifierData {
+            callee: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
               meta: Meta { "gen" },
               name: gen,
-            })),
+            }))),
             arguments: [
             ],
           },
@@ -179,26 +179,26 @@ ProgramData {
         expressions: [
           ExpressionType::CallExpression {
             meta: Meta { "console.log" },
-            callee: ExpressionOrSuper::Expression(ExpressionPatternType::MemberExpression(MemberExpressionType::SimpleMemberExpression {
-              meta: Meta { "log" },
-              object: ExpressionOrSuper::Expression(ExpressionPatternType::Identifier(IdentifierData {
+            callee: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::MemberExpression(MemberExpressionType::SimpleMemberExpression {
+              meta: Meta { "console.log" },
+              object: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
                 meta: Meta { "console" },
                 name: console,
-              })),
+              }))),
               property: IdentifierData {
                 meta: Meta { "log" },
                 name: log,
               },
-            })),
+            }))),
             arguments: [
               ExpressionOrSpreadElement::Expression(ExpressionType::CallExpression {
                 meta: Meta { "gs[0]" },
-                callee: ExpressionOrSuper::Expression(ExpressionPatternType::MemberExpression(MemberExpressionType::ComputedMemberExpression {
-                  meta: Meta { "0" },
-                  object: ExpressionOrSuper::Expression(ExpressionPatternType::Identifier(IdentifierData {
+                callee: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::MemberExpression(MemberExpressionType::ComputedMemberExpression {
+                  meta: Meta { "gs[0" },
+                  object: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
                     meta: Meta { "gs" },
                     name: gs,
-                  })),
+                  }))),
                   property: ExpressionType::SequenceExpression {
                     meta: Meta { "0" },
                     expressions: [
@@ -208,7 +208,7 @@ ProgramData {
                       }),
                     ],
                   },
-                })),
+                }))),
                 arguments: [
                 ],
               }),
@@ -224,26 +224,26 @@ ProgramData {
         expressions: [
           ExpressionType::CallExpression {
             meta: Meta { "console.log" },
-            callee: ExpressionOrSuper::Expression(ExpressionPatternType::MemberExpression(MemberExpressionType::SimpleMemberExpression {
-              meta: Meta { "log" },
-              object: ExpressionOrSuper::Expression(ExpressionPatternType::Identifier(IdentifierData {
+            callee: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::MemberExpression(MemberExpressionType::SimpleMemberExpression {
+              meta: Meta { "console.log" },
+              object: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
                 meta: Meta { "console" },
                 name: console,
-              })),
+              }))),
               property: IdentifierData {
                 meta: Meta { "log" },
                 name: log,
               },
-            })),
+            }))),
             arguments: [
               ExpressionOrSpreadElement::Expression(ExpressionType::CallExpression {
                 meta: Meta { "gs[1]" },
-                callee: ExpressionOrSuper::Expression(ExpressionPatternType::MemberExpression(MemberExpressionType::ComputedMemberExpression {
-                  meta: Meta { "1" },
-                  object: ExpressionOrSuper::Expression(ExpressionPatternType::Identifier(IdentifierData {
+                callee: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::MemberExpression(MemberExpressionType::ComputedMemberExpression {
+                  meta: Meta { "gs[1" },
+                  object: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
                     meta: Meta { "gs" },
                     name: gs,
-                  })),
+                  }))),
                   property: ExpressionType::SequenceExpression {
                     meta: Meta { "1" },
                     expressions: [
@@ -253,7 +253,7 @@ ProgramData {
                       }),
                     ],
                   },
-                })),
+                }))),
                 arguments: [
                 ],
               }),
@@ -269,26 +269,26 @@ ProgramData {
         expressions: [
           ExpressionType::CallExpression {
             meta: Meta { "console.log" },
-            callee: ExpressionOrSuper::Expression(ExpressionPatternType::MemberExpression(MemberExpressionType::SimpleMemberExpression {
-              meta: Meta { "log" },
-              object: ExpressionOrSuper::Expression(ExpressionPatternType::Identifier(IdentifierData {
+            callee: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::MemberExpression(MemberExpressionType::SimpleMemberExpression {
+              meta: Meta { "console.log" },
+              object: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
                 meta: Meta { "console" },
                 name: console,
-              })),
+              }))),
               property: IdentifierData {
                 meta: Meta { "log" },
                 name: log,
               },
-            })),
+            }))),
             arguments: [
               ExpressionOrSpreadElement::Expression(ExpressionType::CallExpression {
                 meta: Meta { "gs[8]" },
-                callee: ExpressionOrSuper::Expression(ExpressionPatternType::MemberExpression(MemberExpressionType::ComputedMemberExpression {
-                  meta: Meta { "8" },
-                  object: ExpressionOrSuper::Expression(ExpressionPatternType::Identifier(IdentifierData {
+                callee: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::MemberExpression(MemberExpressionType::ComputedMemberExpression {
+                  meta: Meta { "gs[8" },
+                  object: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
                     meta: Meta { "gs" },
                     name: gs,
-                  })),
+                  }))),
                   property: ExpressionType::SequenceExpression {
                     meta: Meta { "8" },
                     expressions: [
@@ -298,7 +298,7 @@ ProgramData {
                       }),
                     ],
                   },
-                })),
+                }))),
                 arguments: [
                 ],
               }),
@@ -314,26 +314,26 @@ ProgramData {
         expressions: [
           ExpressionType::CallExpression {
             meta: Meta { "console.log" },
-            callee: ExpressionOrSuper::Expression(ExpressionPatternType::MemberExpression(MemberExpressionType::SimpleMemberExpression {
-              meta: Meta { "log" },
-              object: ExpressionOrSuper::Expression(ExpressionPatternType::Identifier(IdentifierData {
+            callee: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::MemberExpression(MemberExpressionType::SimpleMemberExpression {
+              meta: Meta { "console.log" },
+              object: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
                 meta: Meta { "console" },
                 name: console,
-              })),
+              }))),
               property: IdentifierData {
                 meta: Meta { "log" },
                 name: log,
               },
-            })),
+            }))),
             arguments: [
               ExpressionOrSpreadElement::Expression(ExpressionType::CallExpression {
                 meta: Meta { "gs[9]" },
-                callee: ExpressionOrSuper::Expression(ExpressionPatternType::MemberExpression(MemberExpressionType::ComputedMemberExpression {
-                  meta: Meta { "9" },
-                  object: ExpressionOrSuper::Expression(ExpressionPatternType::Identifier(IdentifierData {
+                callee: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::MemberExpression(MemberExpressionType::ComputedMemberExpression {
+                  meta: Meta { "gs[9" },
+                  object: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
                     meta: Meta { "gs" },
                     name: gs,
-                  })),
+                  }))),
                   property: ExpressionType::SequenceExpression {
                     meta: Meta { "9" },
                     expressions: [
@@ -343,7 +343,7 @@ ProgramData {
                       }),
                     ],
                   },
-                })),
+                }))),
                 arguments: [
                 ],
               }),

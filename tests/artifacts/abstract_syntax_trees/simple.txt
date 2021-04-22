@@ -6,10 +6,10 @@ ProgramData {
       declarations: [
         VariableDeclaratorData {
           meta: Meta { "a = 10" },
-          id: ExpressionPatternType::Identifier(IdentifierData {
+          id: PatternType::PatternWhichCanBeExpression(ExpressionPatternType::Identifier(IdentifierData {
             meta: Meta { "a" },
             name: a,
-          }),
+          })),
           init: ExpressionType::Literal(LiteralData {
             meta: Meta { "10" },
             value: NumberLiteral(IntegerLiteral(10)),
@@ -17,10 +17,10 @@ ProgramData {
         },
         VariableDeclaratorData {
           meta: Meta { "b = 20" },
-          id: ExpressionPatternType::Identifier(IdentifierData {
+          id: PatternType::PatternWhichCanBeExpression(ExpressionPatternType::Identifier(IdentifierData {
             meta: Meta { "b" },
             name: b,
-          }),
+          })),
           init: ExpressionType::Literal(LiteralData {
             meta: Meta { "20" },
             value: NumberLiteral(IntegerLiteral(20)),
@@ -37,10 +37,10 @@ ProgramData {
           ExpressionType::AssignmentExpression {
             meta: Meta { "c = 30" },
             operator: Equals,
-            left: ExpressionPatternType::Identifier(IdentifierData {
+            left: ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
               meta: Meta { "c" },
               name: c,
-            }),
+            })),
             right: ExpressionType::Literal(LiteralData {
               meta: Meta { "30" },
               value: NumberLiteral(IntegerLiteral(30)),
@@ -56,14 +56,14 @@ ProgramData {
         name: cal,
       },
       params: [
-        ExpressionPatternType::Identifier(IdentifierData {
+        PatternType::PatternWhichCanBeExpression(ExpressionPatternType::Identifier(IdentifierData {
           meta: Meta { "a" },
           name: a,
-        }),
-        ExpressionPatternType::Identifier(IdentifierData {
+        })),
+        PatternType::PatternWhichCanBeExpression(ExpressionPatternType::Identifier(IdentifierData {
           meta: Meta { "b" },
           name: b,
-        }),
+        })),
       ],
       body: FunctionBodyData {
         meta: Meta { "return a + b;░" },
@@ -76,14 +76,14 @@ ProgramData {
                 ExpressionType::BinaryExpression {
                   meta: Meta { "a + b" },
                   operator: Add,
-                  left: ExpressionPatternType::Identifier(IdentifierData {
+                  left: ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
                     meta: Meta { "a" },
                     name: a,
-                  }),
-                  right: ExpressionPatternType::Identifier(IdentifierData {
+                  })),
+                  right: ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
                     meta: Meta { "b" },
                     name: b,
-                  }),
+                  })),
                 },
               ],
             },
@@ -97,25 +97,25 @@ ProgramData {
       declarations: [
         VariableDeclaratorData {
           meta: Meta { "c = cal(a, b)" },
-          id: ExpressionPatternType::Identifier(IdentifierData {
+          id: PatternType::PatternWhichCanBeExpression(ExpressionPatternType::Identifier(IdentifierData {
             meta: Meta { "c" },
             name: c,
-          }),
+          })),
           init: ExpressionType::CallExpression {
             meta: Meta { "cal" },
-            callee: ExpressionOrSuper::Expression(ExpressionPatternType::Identifier(IdentifierData {
+            callee: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
               meta: Meta { "cal" },
               name: cal,
-            })),
+            }))),
             arguments: [
-              ExpressionOrSpreadElement::Expression(ExpressionPatternType::Identifier(IdentifierData {
+              ExpressionOrSpreadElement::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
                 meta: Meta { "a" },
                 name: a,
-              })),
-              ExpressionOrSpreadElement::Expression(ExpressionPatternType::Identifier(IdentifierData {
+              }))),
+              ExpressionOrSpreadElement::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
                 meta: Meta { "b" },
                 name: b,
-              })),
+              }))),
             ],
           },
         },
