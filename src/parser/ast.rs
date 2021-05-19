@@ -1,6 +1,8 @@
 use crate::parser::util::{format_has_meta_option, format_option, format_struct, format_vec};
 use pest::error::Error;
 use std::fmt::Debug;
+use std::hash::{Hash, Hasher};
+use std::rc::Rc;
 
 #[derive(Debug)]
 pub struct JsError<Rule> {
@@ -19,22 +21,32 @@ pub enum JsErrorType<R> {
 pub struct Meta {
     pub start_index: usize,
     pub end_index: usize,
+    pub script: Option<Rc<String>>,
 }
-
 impl Meta {
-    fn to_formatted_string(&self, script: &str) -> String {
+    pub fn to_formatted_string(&self, script: &str) -> String {
         format!(
             "Meta {{ \"{}\" }}",
             &script[self.start_index..self.end_index].replace("\n", "░")
         )
     }
-}
 
+    pub fn to_formatted_code(&self) -> String {
+        match &self.script {
+            None => "[unknown]",
+            Some(s) => (*s[self.start_index..self.end_index]).to_string(),
+        }
+    }
+}
 impl Clone for Meta {
     fn clone(&self) -> Self {
         Meta {
             start_index: self.start_index,
             end_index: self.end_index,
+            script: match &self.script {
+                None => None,
+                Some(s) => s.clone(),
+            },
         }
     }
 }
@@ -60,6 +72,20 @@ impl HasMeta for IdentifierData {
             .add_fields("meta", self.meta.to_formatted_string(script))
             .add_fields("name", self.name.to_string())
             .to_string()
+    }
+}
+
+impl PartialEq for IdentifierData {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+
+impl Eq for IdentifierData {}
+
+impl Hash for IdentifierData {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.name.hash(state)
     }
 }
 
@@ -1348,13 +1374,13 @@ impl HasMeta for VariableDeclaratorData {
 
 #[derive(Debug)]
 pub struct PropertyData<V> {
-    meta: Meta,
-    key: LiteralOrIdentifier,
-    value: V,
-    kind: PropertyKind,
-    method: bool,
-    shorthand: bool,
-    computed: bool,
+    pub meta: Meta,
+    pub key: LiteralOrIdentifier,
+    pub value: V,
+    pub kind: PropertyKind,
+    pub method: bool,
+    pub shorthand: bool,
+    pub computed: bool,
 }
 
 impl HasMeta for PropertyData<Box<ExpressionType>> {
@@ -1412,7 +1438,7 @@ impl HasMeta for LiteralOrIdentifier {
 }
 
 #[derive(Debug)]
-pub struct AssignmentPropertyData(PropertyData<Box<PatternType>>);
+pub struct AssignmentPropertyData(pub PropertyData<Box<PatternType>>);
 
 impl AssignmentPropertyData {
     fn new(

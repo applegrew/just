@@ -101,6 +101,7 @@ fn get_meta(pair: &Pair<Rule>) -> Meta {
     Meta {
         start_index: pair.as_span().start(),
         end_index: pair.as_span().end(),
+        script: Some(pair.as_str()),
     }
 }
 
