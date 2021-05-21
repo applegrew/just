@@ -5,16 +5,14 @@ use crate::runner::ds::env_record::{
 use crate::runner::ds::lex_env::LexEnvironment;
 use crate::runner::ds::misc::IdentifierReference;
 use crate::runner::ds::object::ObjectType;
-use crate::runner::ds::value::JsValue;
 use std::borrow::Borrow;
 use std::cell::RefCell;
-use std::ops::Deref;
 use std::rc::Rc;
 
-pub fn get_identifier_reference<'a>(
-    lex: Option<Rc<RefCell<LexEnvironment>>>,
+pub fn get_identifier_reference<'a, 'code>(
+    lex: Option<Rc<RefCell<LexEnvironment<'code>>>>,
     name: String,
-) -> IdentifierReference<'a> {
+) -> IdentifierReference<'a, 'code> {
     if let Some(lex) = lex {
         if lex
             .borrow()
@@ -53,10 +51,10 @@ pub fn new_declarative_environment(
     }))
 }
 
-pub fn new_object_environment(
+pub fn new_object_environment<'code>(
     o: Box<ObjectType>,
-    outer_lex: Option<Rc<RefCell<LexEnvironment>>>,
-) -> Rc<RefCell<LexEnvironment>> {
+    outer_lex: Option<Rc<RefCell<LexEnvironment<'code>>>>,
+) -> Rc<RefCell<LexEnvironment<'code>>> {
     Rc::new(RefCell::new(LexEnvironment {
         inner: Box::new(EnvironmentRecordType::Object(ObjectEnvironmentRecord::new(
             o,
@@ -68,7 +66,7 @@ pub fn new_object_environment(
     }))
 }
 
-pub fn new_function_environment(F: x, newTarget: y) {}
+// pub fn new_function_environment(F: x, newTarget: y) {}
 
 pub fn new_global_environment(global_object: Box<ObjectType>) -> Rc<RefCell<LexEnvironment>> {
     Rc::new(RefCell::new(LexEnvironment {

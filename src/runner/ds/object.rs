@@ -1,36 +1,42 @@
-use crate::parser::ast::{FunctionBodyData, PatternType};
+use crate::runner::ds::array_object::JsArrayObject;
 use crate::runner::ds::function_object::JsFunctionObject;
-use crate::runner::ds::lex_env::LexEnvironment;
+use crate::runner::ds::iterator_object::JsIteratorObject;
 use crate::runner::ds::object_property::{
     PropertyDescriptor, PropertyDescriptorSetter, PropertyKey,
 };
-use crate::runner::ds::operations::test_and_comparison::{same_object, same_value};
-use crate::runner::ds::symbol::SymbolData;
+use crate::runner::ds::operations::test_and_comparison::{same_js_object, same_object, same_value};
 use crate::runner::ds::value::JsValue;
 use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::Deref;
-use std::ptr;
 use std::rc::Rc;
 
-pub enum ObjectType {
-    Ordinary(Box<dyn JsObject>),
-    Function(Box<dyn JsFunctionObject>),
+pub enum ObjectType<'code> {
+    Ordinary(Box<dyn JsObject<'code>>),
+    Function(Box<dyn JsFunctionObject<'code>>),
+    Array(Box<dyn JsArrayObject<'code>>),
 }
-impl PartialEq for ObjectType {
+impl<'code> PartialEq for ObjectType<'code> {
     fn eq(&self, other: &Self) -> bool {
         match self {
             ObjectType::Ordinary(o) => {
                 if let ObjectType::Ordinary(o1) = other {
-                    o.equals(o1)
+                    same_js_object(o.deref(), o1.deref())
                 } else {
                     false
                 }
             }
             ObjectType::Function(o) => {
                 if let ObjectType::Function(o1) = other {
-                    o.equals(o1)
+                    same_js_object(o.deref(), o1.deref())
+                } else {
+                    false
+                }
+            }
+            ObjectType::Array(o) => {
+                if let ObjectType::Array(o1) = other {
+                    same_js_object(o.deref(), o1.deref())
                 } else {
                     false
                 }
@@ -38,28 +44,38 @@ impl PartialEq for ObjectType {
         }
     }
 }
-impl ObjectType {
-    pub fn as_js_object(&self) -> &dyn JsObject {
+impl<'code> ObjectType<'code> {
+    pub fn is_callable(&self) -> bool {
         match self {
-            ObjectType::Ordinary(o) => o,
-            ObjectType::Function(o) => o,
+            ObjectType::Function(_) => true,
+            _ => false,
+        }
+    }
+}
+impl<'code> JsObject<'code> for ObjectType<'code> {
+    fn get_object_base_mut(&mut self) -> &mut ObjectBase {
+        match self {
+            ObjectType::Ordinary(o) => o.get_object_base_mut(),
+            ObjectType::Function(o) => o.get_object_base_mut(),
+            ObjectType::Array(o) => o.get_object_base_mut(),
         }
     }
 
-    pub fn as_js_object_mut(&mut self) -> &mut dyn JsObject {
+    fn get_object_base(&self) -> &ObjectBase {
         match self {
-            ObjectType::Ordinary(o) => o,
-            ObjectType::Function(o) => o,
+            ObjectType::Ordinary(o) => o.get_object_base(),
+            ObjectType::Function(o) => o.get_object_base(),
+            ObjectType::Array(o) => o.get_object_base(),
         }
     }
 }
 
-pub struct ObjectBase {
-    properties: HashMap<PropertyKey, PropertyDescriptor>,
+pub struct ObjectBase<'code> {
+    properties: HashMap<PropertyKey, PropertyDescriptor<'code>>,
     is_extensible: bool,
-    prototype: Option<Rc<RefCell<dyn JsObject>>>,
+    prototype: Option<Rc<RefCell<ObjectType<'code>>>>,
 }
-impl ObjectBase {
+impl<'code> ObjectBase<'code> {
     pub fn new() -> Self {
         ObjectBase {
             properties: HashMap::new(),
@@ -69,25 +85,21 @@ impl ObjectBase {
     }
 }
 
-pub trait JsObject {
-    fn get_object_base_mut(&mut self) -> &mut ObjectBase;
+pub trait JsObject<'code> {
+    fn get_object_base_mut(&mut self) -> &mut ObjectBase<'code>;
 
     fn get_object_base(&self) -> &ObjectBase;
 
-    fn equals<'a>(&'a self, other: &'a dyn JsObject) -> bool {
-        ptr::eq(self.get_object_base(), other.get_object_base())
-    }
-
-    fn get_prototype_of(&self) -> Option<Rc<RefCell<dyn JsObject>>> {
+    fn get_prototype_of(&self) -> Option<Rc<RefCell<ObjectType>>> {
         match &self.get_object_base().prototype {
             None => None,
             Some(j) => Some(j.clone()),
         }
     }
 
-    fn set_prototype_of(&mut self, prototype: Option<Rc<RefCell<dyn JsObject>>>) -> bool {
+    fn set_prototype_of(&mut self, prototype: Option<Rc<RefCell<ObjectType>>>) -> bool {
         let current_value = &self.get_object_base().prototype;
-        let new_value: Option<Rc<RefCell<dyn JsObject>>> = match prototype {
+        let new_value: Option<Rc<RefCell<ObjectType>>> = match prototype {
             None => {
                 if current_value.is_none() {
                     return true;
@@ -105,6 +117,8 @@ pub trait JsObject {
                     } else {
                         Some(p.clone())
                     }
+                } else {
+                    None
                 }
             }
         };
@@ -198,7 +212,7 @@ pub trait JsObject {
                 PropertyDescriptor::Data {
                     value, writable, ..
                 } => {
-                    if writable {
+                    if *writable {
                         match receiver {
                             JsValue::Object(o) => {
                                 let obj = o.deref().borrow().deref().as_js_object_mut();
@@ -310,8 +324,8 @@ pub trait JsObject {
     }
 }
 
-pub fn ordinary_define_own_property(
-    o: &mut dyn JsObject,
+pub fn ordinary_define_own_property<'code, J: JsObject<'code> + ?Sized>(
+    o: &mut J,
     property: PropertyKey,
     mut descriptor_setter: PropertyDescriptorSetter,
 ) -> bool {
@@ -320,7 +334,7 @@ pub fn ordinary_define_own_property(
         if descriptor_setter.is_empty() {
             true
         } else if descriptor_setter.are_all_fields_set()
-            && current_descriptor == descriptor_setter.descriptor
+            && current_descriptor == &descriptor_setter.descriptor
         {
             true
         } else {

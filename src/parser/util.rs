@@ -74,9 +74,9 @@ pub fn format_option<T, U: Fn(&T) -> String>(value: &Option<T>, on_unwrap: U) ->
     }
 }
 
-pub fn format_has_meta_option<T: HasMeta>(value: &Option<T>, script: &str) -> String {
+pub fn format_has_meta_option<T: HasMeta>(value: &Option<T>) -> String {
     match value {
-        Some(a) => a.to_formatted_string(script),
+        Some(a) => a.to_formatted_string(),
         None => "<None>".to_string(),
     }
 }

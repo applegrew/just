@@ -2,110 +2,100 @@ use crate::parser::util::{format_has_meta_option, format_option, format_struct, 
 use pest::error::Error;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
-use std::rc::Rc;
 
 #[derive(Debug)]
-pub struct JsError<Rule> {
-    pub kind: JsErrorType<Rule>,
+pub struct JsError<'code, Rule> {
+    pub kind: JsErrorType<'code, Rule>,
     pub message: String,
 }
 
 #[derive(Debug)]
-pub enum JsErrorType<R> {
+pub enum JsErrorType<'code, R> {
     Unexpected(&'static str),
     ParserValidation(Error<R>),
-    AstBuilderValidation(Meta),
+    AstBuilderValidation(Meta<'code>),
 }
 
 #[derive(Debug)]
-pub struct Meta {
-    pub start_index: usize,
-    pub end_index: usize,
-    pub script: Option<Rc<String>>,
+pub struct Meta<'code> {
+    pub script: Vec<&'code str>,
 }
-impl Meta {
-    pub fn to_formatted_string(&self, script: &str) -> String {
-        format!(
-            "Meta {{ \"{}\" }}",
-            &script[self.start_index..self.end_index].replace("\n", "░")
-        )
+impl<'code> Meta<'code> {
+    pub fn new_by_concat(args: Vec<&'code Self>) -> Self {
+        let mut script = vec![];
+        for a in args {
+            for s in a.script {
+                script.push(s);
+            }
+        }
+        Meta { script }
+    }
+
+    pub fn to_formatted_string(&self) -> String {
+        format!("Meta {{ \"{}\" }}", self.script.join("").replace("\n", "░"))
     }
 
     pub fn to_formatted_code(&self) -> String {
-        match &self.script {
-            None => "[unknown]",
-            Some(s) => (*s[self.start_index..self.end_index]).to_string(),
-        }
+        self.script.join("").to_string()
     }
 }
-impl Clone for Meta {
+impl<'code> Clone for Meta<'code> {
     fn clone(&self) -> Self {
         Meta {
-            start_index: self.start_index,
-            end_index: self.end_index,
-            script: match &self.script {
-                None => None,
-                Some(s) => s.clone(),
-            },
+            script: self.script,
         }
     }
 }
 
 pub trait HasMeta {
     fn get_meta(&self) -> &Meta;
-    fn to_formatted_string(&self, script: &str) -> String;
+    fn to_formatted_string(&self) -> String;
 }
 
 #[derive(Debug)]
-pub struct IdentifierData {
+pub struct IdentifierData<'code> {
     pub name: String,
-    pub meta: Meta,
+    pub meta: Meta<'code>,
 }
-
-impl HasMeta for IdentifierData {
+impl<'code> HasMeta for IdentifierData<'code> {
     fn get_meta(&self) -> &Meta {
         &self.meta
     }
 
-    fn to_formatted_string(&self, script: &str) -> String {
+    fn to_formatted_string(&self) -> String {
         format_struct("IdentifierData")
-            .add_fields("meta", self.meta.to_formatted_string(script))
+            .add_fields("meta", self.meta.to_formatted_string())
             .add_fields("name", self.name.to_string())
             .to_string()
     }
 }
-
-impl PartialEq for IdentifierData {
+impl<'code> PartialEq for IdentifierData<'code> {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name
     }
 }
-
-impl Eq for IdentifierData {}
-
-impl Hash for IdentifierData {
+impl<'code> Eq for IdentifierData<'code> {}
+impl<'code> Hash for IdentifierData<'code> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.name.hash(state)
     }
 }
 
 #[derive(Debug)]
-pub enum ExpressionPatternType {
-    Identifier(IdentifierData),
-    MemberExpression(MemberExpressionType),
+pub enum ExpressionPatternType<'code> {
+    Identifier(IdentifierData<'code>),
+    MemberExpression(MemberExpressionType<'code>),
 }
-
-impl ExpressionPatternType {
-    pub fn convert_to_pattern(self) -> PatternType {
+impl<'code> ExpressionPatternType<'code> {
+    pub fn convert_to_pattern(self) -> PatternType<'code> {
         PatternType::PatternWhichCanBeExpression(self)
     }
 
-    pub fn convert_to_expression(self) -> ExpressionType {
+    pub fn convert_to_expression(self) -> ExpressionType<'code> {
         ExpressionType::ExpressionWhichCanBePattern(self)
     }
 }
-
-impl HasMeta for ExpressionPatternType {
+impl<'code> HasMeta for ExpressionPatternType<'code> {
     fn get_meta(&self) -> &Meta {
         match self {
             ExpressionPatternType::Identifier(data) => &data.meta,
@@ -113,115 +103,114 @@ impl HasMeta for ExpressionPatternType {
         }
     }
 
-    fn to_formatted_string(&self, script: &str) -> String {
+    fn to_formatted_string(&self) -> String {
         match self {
             ExpressionPatternType::Identifier(data) => {
                 format!(
                     "ExpressionPatternType::Identifier({})",
-                    data.to_formatted_string(script)
+                    data.to_formatted_string()
                 )
             }
             ExpressionPatternType::MemberExpression(data) => format!(
                 "ExpressionPatternType::MemberExpression({})",
-                data.to_formatted_string(script)
+                data.to_formatted_string()
             ),
         }
     }
 }
 
 #[derive(Debug)]
-pub enum ExpressionType {
-    ExpressionWhichCanBePattern(ExpressionPatternType),
-    Literal(LiteralData),
+pub enum ExpressionType<'code> {
+    ExpressionWhichCanBePattern(ExpressionPatternType<'code>),
+    Literal(LiteralData<'code>),
     ThisExpression {
-        meta: Meta,
+        meta: Meta<'code>,
     },
     ArrayExpression {
-        meta: Meta,
-        elements: Vec<Option<ExpressionOrSpreadElement>>,
+        meta: Meta<'code>,
+        elements: Vec<Option<ExpressionOrSpreadElement<'code>>>,
     },
     ObjectExpression {
-        meta: Meta,
-        properties: Vec<PropertyData<Box<ExpressionType>>>,
+        meta: Meta<'code>,
+        properties: Vec<PropertyData<'code, Box<ExpressionType<'code>>>>,
     },
-    FunctionExpression(FunctionData),
+    FunctionExpression(FunctionData<'code>),
     UnaryExpression {
-        meta: Meta,
+        meta: Meta<'code>,
         operator: UnaryOperator,
-        argument: Box<ExpressionType>,
+        argument: Box<ExpressionType<'code>>,
     },
     UpdateExpression {
-        meta: Meta,
+        meta: Meta<'code>,
         operator: UpdateOperator,
-        argument: Box<ExpressionType>,
+        argument: Box<ExpressionType<'code>>,
         prefix: bool,
     },
     BinaryExpression {
-        meta: Meta,
+        meta: Meta<'code>,
         operator: BinaryOperator,
-        left: Box<ExpressionType>,
-        right: Box<ExpressionType>,
+        left: Box<ExpressionType<'code>>,
+        right: Box<ExpressionType<'code>>,
     },
     AssignmentExpression {
-        meta: Meta,
+        meta: Meta<'code>,
         operator: AssignmentOperator,
-        left: PatternOrExpression,
-        right: Box<ExpressionType>,
+        left: PatternOrExpression<'code>,
+        right: Box<ExpressionType<'code>>,
     },
     LogicalExpression {
-        meta: Meta,
+        meta: Meta<'code>,
         operator: LogicalOperator,
-        left: Box<ExpressionType>,
-        right: Box<ExpressionType>,
+        left: Box<ExpressionType<'code>>,
+        right: Box<ExpressionType<'code>>,
     },
     ConditionalExpression {
-        meta: Meta,
-        test: Box<ExpressionType>,
-        consequent: Box<ExpressionType>,
-        alternate: Box<ExpressionType>,
+        meta: Meta<'code>,
+        test: Box<ExpressionType<'code>>,
+        consequent: Box<ExpressionType<'code>>,
+        alternate: Box<ExpressionType<'code>>,
     },
     CallExpression {
         //A function or method call expression.
-        meta: Meta,
-        callee: ExpressionOrSuper,
-        arguments: Vec<ExpressionOrSpreadElement>,
+        meta: Meta<'code>,
+        callee: ExpressionOrSuper<'code>,
+        arguments: Vec<ExpressionOrSpreadElement<'code>>,
     },
     NewExpression {
-        meta: Meta,
-        callee: Box<ExpressionType>,
-        arguments: Vec<ExpressionOrSpreadElement>,
+        meta: Meta<'code>,
+        callee: Box<ExpressionType<'code>>,
+        arguments: Vec<ExpressionOrSpreadElement<'code>>,
     },
     SequenceExpression {
         //A comma-separated sequence of expressions
-        meta: Meta,
-        expressions: Vec<Box<ExpressionType>>,
+        meta: Meta<'code>,
+        expressions: Vec<Box<ExpressionType<'code>>>,
     },
     ArrowFunctionExpression {
-        meta: Meta,
-        body: FunctionBodyOrExpression,
+        meta: Meta<'code>,
+        body: FunctionBodyOrExpression<'code>,
         expression: bool,
     },
     YieldExpression {
-        meta: Meta,
-        argument: Option<Box<ExpressionType>>,
+        meta: Meta<'code>,
+        argument: Option<Box<ExpressionType<'code>>>,
         delegate: bool,
     },
-    TemplateLiteral(TemplateLiteralData),
+    TemplateLiteral(TemplateLiteralData<'code>),
     TaggedTemplateExpression {
-        meta: Meta,
-        tag: Box<ExpressionType>,
-        quasi: TemplateLiteralData,
+        meta: Meta<'code>,
+        tag: Box<ExpressionType<'code>>,
+        quasi: TemplateLiteralData<'code>,
     },
-    ClassExpression(ClassData),
+    ClassExpression(ClassData<'code>),
     MetaProperty {
         //Represents new.target meta property in ES2015. In the future, it will represent other meta properties as well.
-        meta: Meta,
-        meta_object: IdentifierData,
-        property: IdentifierData,
+        meta: Meta<'code>,
+        meta_object: IdentifierData<'code>,
+        property: IdentifierData<'code>,
     },
 }
-
-impl HasMeta for ExpressionType {
+impl<'code> HasMeta for ExpressionType<'code> {
     fn get_meta(&self) -> &Meta {
         match self {
             ExpressionType::Literal(data) => &data.meta,
@@ -248,47 +237,46 @@ impl HasMeta for ExpressionType {
         }
     }
 
-    fn to_formatted_string(&self, script: &str) -> String {
+    fn to_formatted_string(&self) -> String {
         match self {
-            ExpressionType::Literal(data) => format!(
-                "ExpressionType::Literal({})",
-                data.to_formatted_string(script)
-            ),
+            ExpressionType::Literal(data) => {
+                format!("ExpressionType::Literal({})", data.to_formatted_string())
+            }
             ExpressionType::ThisExpression { meta } => {
                 format_struct("ExpressionType::ThisExpression")
-                    .add_fields("meta", meta.to_formatted_string(script))
+                    .add_fields("meta", meta.to_formatted_string())
                     .to_string()
             }
             ExpressionType::ArrayExpression { meta, elements } => {
                 format_struct("ExpressionType::ArrayExpression")
-                    .add_fields("meta", meta.to_formatted_string(script))
+                    .add_fields("meta", meta.to_formatted_string())
                     .add_fields(
                         "elements",
-                        format_vec(elements, |p| format_has_meta_option(&p, script)),
+                        format_vec(elements, |p| format_has_meta_option(&p)),
                     )
                     .to_string()
             }
             ExpressionType::ObjectExpression { meta, properties } => {
                 format_struct("ExpressionType::ObjectExpression")
-                    .add_fields("meta", meta.to_formatted_string(script))
+                    .add_fields("meta", meta.to_formatted_string())
                     .add_fields(
                         "properties",
-                        format_vec(properties, |p| p.to_formatted_string(script)),
+                        format_vec(properties, |p| p.to_formatted_string()),
                     )
                     .to_string()
             }
             ExpressionType::FunctionExpression(data) => format!(
                 "ExpressionType::FunctionExpression({})",
-                data.to_formatted_string(script)
+                data.to_formatted_string()
             ),
             ExpressionType::UnaryExpression {
                 meta,
                 operator,
                 argument,
             } => format_struct("ExpressionType::UnaryExpression")
-                .add_fields("meta", meta.to_formatted_string(script))
+                .add_fields("meta", meta.to_formatted_string())
                 .add_fields("operator", format!("{:?}", operator))
-                .add_fields("argument", argument.to_formatted_string(script))
+                .add_fields("argument", argument.to_formatted_string())
                 .to_string(),
             ExpressionType::UpdateExpression {
                 meta,
@@ -296,9 +284,9 @@ impl HasMeta for ExpressionType {
                 argument,
                 prefix,
             } => format_struct("ExpressionType::UpdateExpression")
-                .add_fields("meta", meta.to_formatted_string(script))
+                .add_fields("meta", meta.to_formatted_string())
                 .add_fields("operator", format!("{:?}", operator))
-                .add_fields("argument", argument.to_formatted_string(script))
+                .add_fields("argument", argument.to_formatted_string())
                 .add_fields("prefix", format!("{}", prefix))
                 .to_string(),
             ExpressionType::BinaryExpression {
@@ -307,10 +295,10 @@ impl HasMeta for ExpressionType {
                 left,
                 right,
             } => format_struct("ExpressionType::BinaryExpression")
-                .add_fields("meta", meta.to_formatted_string(script))
+                .add_fields("meta", meta.to_formatted_string())
                 .add_fields("operator", format!("{:?}", operator))
-                .add_fields("left", left.to_formatted_string(script))
-                .add_fields("right", right.to_formatted_string(script))
+                .add_fields("left", left.to_formatted_string())
+                .add_fields("right", right.to_formatted_string())
                 .to_string(),
             ExpressionType::AssignmentExpression {
                 meta,
@@ -318,10 +306,10 @@ impl HasMeta for ExpressionType {
                 left,
                 right,
             } => format_struct("ExpressionType::AssignmentExpression")
-                .add_fields("meta", meta.to_formatted_string(script))
+                .add_fields("meta", meta.to_formatted_string())
                 .add_fields("operator", format!("{:?}", operator))
-                .add_fields("left", left.to_formatted_string(script))
-                .add_fields("right", right.to_formatted_string(script))
+                .add_fields("left", left.to_formatted_string())
+                .add_fields("right", right.to_formatted_string())
                 .to_string(),
             ExpressionType::LogicalExpression {
                 meta,
@@ -329,10 +317,10 @@ impl HasMeta for ExpressionType {
                 left,
                 right,
             } => format_struct("ExpressionType::LogicalExpression")
-                .add_fields("meta", meta.to_formatted_string(script))
+                .add_fields("meta", meta.to_formatted_string())
                 .add_fields("operator", format!("{:?}", operator))
-                .add_fields("left", left.to_formatted_string(script))
-                .add_fields("right", right.to_formatted_string(script))
+                .add_fields("left", left.to_formatted_string())
+                .add_fields("right", right.to_formatted_string())
                 .to_string(),
             ExpressionType::ConditionalExpression {
                 meta,
@@ -340,21 +328,21 @@ impl HasMeta for ExpressionType {
                 consequent,
                 alternate,
             } => format_struct("ExpressionType::ConditionalExpression")
-                .add_fields("meta", meta.to_formatted_string(script))
-                .add_fields("test", test.to_formatted_string(script))
-                .add_fields("consequent", consequent.to_formatted_string(script))
-                .add_fields("alternate", alternate.to_formatted_string(script))
+                .add_fields("meta", meta.to_formatted_string())
+                .add_fields("test", test.to_formatted_string())
+                .add_fields("consequent", consequent.to_formatted_string())
+                .add_fields("alternate", alternate.to_formatted_string())
                 .to_string(),
             ExpressionType::CallExpression {
                 meta,
                 callee,
                 arguments,
             } => format_struct("ExpressionType::CallExpression")
-                .add_fields("meta", meta.to_formatted_string(script))
-                .add_fields("callee", callee.to_formatted_string(script))
+                .add_fields("meta", meta.to_formatted_string())
+                .add_fields("callee", callee.to_formatted_string())
                 .add_fields(
                     "arguments",
-                    format_vec(arguments, |p| p.to_formatted_string(script)),
+                    format_vec(arguments, |p| p.to_formatted_string()),
                 )
                 .to_string(),
             ExpressionType::NewExpression {
@@ -362,19 +350,19 @@ impl HasMeta for ExpressionType {
                 callee,
                 arguments,
             } => format_struct("ExpressionType::NewExpression")
-                .add_fields("meta", meta.to_formatted_string(script))
-                .add_fields("callee", callee.to_formatted_string(script))
+                .add_fields("meta", meta.to_formatted_string())
+                .add_fields("callee", callee.to_formatted_string())
                 .add_fields(
                     "arguments",
-                    format_vec(arguments, |p| p.to_formatted_string(script)),
+                    format_vec(arguments, |p| p.to_formatted_string()),
                 )
                 .to_string(),
             ExpressionType::SequenceExpression { meta, expressions } => {
                 format_struct("ExpressionType::SequenceExpression")
-                    .add_fields("meta", meta.to_formatted_string(script))
+                    .add_fields("meta", meta.to_formatted_string())
                     .add_fields(
                         "expressions",
-                        format_vec(expressions, |p| p.to_formatted_string(script)),
+                        format_vec(expressions, |p| p.to_formatted_string()),
                     )
                     .to_string()
             }
@@ -383,8 +371,8 @@ impl HasMeta for ExpressionType {
                 body,
                 expression,
             } => format_struct("ExpressionType::ArrowFunctionExpression")
-                .add_fields("meta", meta.to_formatted_string(script))
-                .add_fields("body", body.to_formatted_string(script))
+                .add_fields("meta", meta.to_formatted_string())
+                .add_fields("body", body.to_formatted_string())
                 .add_fields("expression", expression.to_string())
                 .to_string(),
             ExpressionType::YieldExpression {
@@ -392,68 +380,67 @@ impl HasMeta for ExpressionType {
                 argument,
                 delegate,
             } => format_struct("ExpressionType::YieldExpression")
-                .add_fields("meta", meta.to_formatted_string(script))
+                .add_fields("meta", meta.to_formatted_string())
                 .add_fields(
                     "argument",
-                    format_option(argument, |o| o.to_formatted_string(script)),
+                    format_option(argument, |o| o.to_formatted_string()),
                 )
                 .add_fields("delegate", delegate.to_string())
                 .to_string(),
             ExpressionType::TemplateLiteral(data) => format!(
                 "ExpressionType::TemplateLiteral({})",
-                data.to_formatted_string(script)
+                data.to_formatted_string()
             ),
             ExpressionType::TaggedTemplateExpression { meta, tag, quasi } => {
                 format_struct("ExpressionType::TaggedTemplateExpression")
-                    .add_fields("meta", meta.to_formatted_string(script))
-                    .add_fields("tag", tag.to_formatted_string(script))
-                    .add_fields("quasi", quasi.to_formatted_string(script))
+                    .add_fields("meta", meta.to_formatted_string())
+                    .add_fields("tag", tag.to_formatted_string())
+                    .add_fields("quasi", quasi.to_formatted_string())
                     .to_string()
             }
             ExpressionType::ClassExpression(data) => format!(
                 "ExpressionType::ClassExpression({})",
-                data.to_formatted_string(script)
+                data.to_formatted_string()
             ),
             ExpressionType::MetaProperty {
                 meta,
                 meta_object,
                 property,
             } => format_struct("ExpressionType::TaggedTemplateExpression")
-                .add_fields("meta", meta.to_formatted_string(script))
-                .add_fields("meta_object", meta_object.to_formatted_string(script))
-                .add_fields("property", property.to_formatted_string(script))
+                .add_fields("meta", meta.to_formatted_string())
+                .add_fields("meta_object", meta_object.to_formatted_string())
+                .add_fields("property", property.to_formatted_string())
                 .to_string(),
             ExpressionType::ExpressionWhichCanBePattern(d) => format!(
                 "ExpressionType::ExpressionWhichCanBePattern({})",
-                d.to_formatted_string(script)
+                d.to_formatted_string()
             ),
         }
     }
 }
 
 #[derive(Debug)]
-pub enum PatternType {
-    PatternWhichCanBeExpression(ExpressionPatternType),
+pub enum PatternType<'code> {
+    PatternWhichCanBeExpression(ExpressionPatternType<'code>),
     ObjectPattern {
-        meta: Meta,
-        properties: Vec<AssignmentPropertyData>,
+        meta: Meta<'code>,
+        properties: Vec<AssignmentPropertyData<'code>>,
     },
     ArrayPattern {
-        meta: Meta,
-        elements: Vec<Option<Box<PatternType>>>,
+        meta: Meta<'code>,
+        elements: Vec<Option<Box<PatternType<'code>>>>,
     },
     RestElement {
-        meta: Meta,
-        argument: Box<PatternType>,
+        meta: Meta<'code>,
+        argument: Box<PatternType<'code>>,
     },
     AssignmentPattern {
-        meta: Meta,
-        left: Box<PatternType>,
-        right: Box<ExpressionType>,
+        meta: Meta<'code>,
+        left: Box<PatternType<'code>>,
+        right: Box<ExpressionType<'code>>,
     },
 }
-
-impl HasMeta for PatternType {
+impl<'code> HasMeta for PatternType<'code> {
     fn get_meta(&self) -> &Meta {
         match self {
             PatternType::ObjectPattern { meta, .. } => &meta,
@@ -464,92 +451,88 @@ impl HasMeta for PatternType {
         }
     }
 
-    fn to_formatted_string(&self, script: &str) -> String {
+    fn to_formatted_string(&self) -> String {
         match self {
             PatternType::ObjectPattern { meta, properties } => {
                 format_struct("PatternType::ObjectPattern")
-                    .add_fields("meta", meta.to_formatted_string(script))
+                    .add_fields("meta", meta.to_formatted_string())
                     .add_fields(
                         "properties",
-                        format_vec(properties, |p| p.to_formatted_string(script)),
+                        format_vec(properties, |p| p.to_formatted_string()),
                     )
                     .to_string()
             }
             PatternType::ArrayPattern { meta, elements } => {
                 format_struct("PatternType::ArrayPattern")
-                    .add_fields("meta", meta.to_formatted_string(script))
+                    .add_fields("meta", meta.to_formatted_string())
                     .add_fields(
                         "elements",
-                        format_vec(elements, |p| {
-                            format_option(&p, |o| o.to_formatted_string(script))
-                        }),
+                        format_vec(elements, |p| format_option(&p, |o| o.to_formatted_string())),
                     )
                     .to_string()
             }
             PatternType::RestElement { meta, argument } => {
                 format_struct("PatternType::RestElement")
-                    .add_fields("meta", meta.to_formatted_string(script))
-                    .add_fields("argument", argument.to_formatted_string(script))
+                    .add_fields("meta", meta.to_formatted_string())
+                    .add_fields("argument", argument.to_formatted_string())
                     .to_string()
             }
             PatternType::AssignmentPattern { meta, left, right } => {
                 format_struct("ExpressionType::AssignmentPattern")
-                    .add_fields("meta", meta.to_formatted_string(script))
-                    .add_fields("left", left.to_formatted_string(script))
-                    .add_fields("right", right.to_formatted_string(script))
+                    .add_fields("meta", meta.to_formatted_string())
+                    .add_fields("left", left.to_formatted_string())
+                    .add_fields("right", right.to_formatted_string())
                     .to_string()
             }
             PatternType::PatternWhichCanBeExpression(d) => format!(
                 "PatternType::PatternWhichCanBeExpression({})",
-                d.to_formatted_string(script)
+                d.to_formatted_string()
             ),
         }
     }
 }
 
 #[derive(Debug)]
-pub struct TemplateLiteralData {
-    pub meta: Meta,
-    pub quasis: Vec<TemplateElementData>,
-    pub expressions: Vec<Box<ExpressionType>>,
+pub struct TemplateLiteralData<'code> {
+    pub meta: Meta<'code>,
+    pub quasis: Vec<TemplateElementData<'code>>,
+    pub expressions: Vec<Box<ExpressionType<'code>>>,
 }
-
-impl HasMeta for TemplateLiteralData {
+impl<'code> HasMeta for TemplateLiteralData<'code> {
     fn get_meta(&self) -> &Meta {
         &self.meta
     }
 
-    fn to_formatted_string(&self, script: &str) -> String {
+    fn to_formatted_string(&self) -> String {
         format_struct("TemplateLiteralData")
-            .add_fields("meta", self.meta.to_formatted_string(script))
+            .add_fields("meta", self.meta.to_formatted_string())
             .add_fields(
                 "quasis",
-                format_vec(&self.quasis, |p| p.to_formatted_string(script)),
+                format_vec(&self.quasis, |p| p.to_formatted_string()),
             )
             .add_fields(
                 "expressions",
-                format_vec(&self.expressions, |p| p.to_formatted_string(script)),
+                format_vec(&self.expressions, |p| p.to_formatted_string()),
             )
             .to_string()
     }
 }
 
 #[derive(Debug)]
-pub struct TemplateElementData {
-    pub meta: Meta,
+pub struct TemplateElementData<'code> {
+    pub meta: Meta<'code>,
     pub tail: bool,
     pub cooked_value: String,
     pub raw_value: String,
 }
-
-impl HasMeta for TemplateElementData {
+impl<'code> HasMeta for TemplateElementData<'code> {
     fn get_meta(&self) -> &Meta {
         &self.meta
     }
 
-    fn to_formatted_string(&self, script: &str) -> String {
+    fn to_formatted_string(&self) -> String {
         format_struct("TemplateElementData")
-            .add_fields("meta", self.meta.to_formatted_string(script))
+            .add_fields("meta", self.meta.to_formatted_string())
             .add_fields("tail", self.tail.to_string())
             .add_fields("cooked_value", self.cooked_value.to_string())
             .add_fields("raw_value", self.raw_value.to_string())
@@ -558,12 +541,11 @@ impl HasMeta for TemplateElementData {
 }
 
 #[derive(Debug)]
-pub enum FunctionBodyOrExpression {
-    FunctionBody(FunctionBodyData),
-    Expression(Box<ExpressionType>),
+pub enum FunctionBodyOrExpression<'code> {
+    FunctionBody(FunctionBodyData<'code>),
+    Expression(Box<ExpressionType<'code>>),
 }
-
-impl HasMeta for FunctionBodyOrExpression {
+impl<'code> HasMeta for FunctionBodyOrExpression<'code> {
     fn get_meta(&self) -> &Meta {
         match self {
             FunctionBodyOrExpression::FunctionBody(d) => d.get_meta(),
@@ -571,27 +553,26 @@ impl HasMeta for FunctionBodyOrExpression {
         }
     }
 
-    fn to_formatted_string(&self, script: &str) -> String {
+    fn to_formatted_string(&self) -> String {
         match self {
             FunctionBodyOrExpression::FunctionBody(d) => format!(
                 "FunctionBodyOrExpression::FunctionBody({})",
-                d.to_formatted_string(script)
+                d.to_formatted_string()
             ),
             FunctionBodyOrExpression::Expression(d) => format!(
                 "FunctionBodyOrExpression::Expression({})",
-                d.to_formatted_string(script)
+                d.to_formatted_string()
             ),
         }
     }
 }
 
 #[derive(Debug)]
-pub enum ExpressionOrSuper {
-    Expression(Box<ExpressionType>),
+pub enum ExpressionOrSuper<'code> {
+    Expression(Box<ExpressionType<'code>>),
     Super,
 }
-
-impl HasMeta for ExpressionOrSuper {
+impl<'code> HasMeta for ExpressionOrSuper<'code> {
     fn get_meta(&self) -> &Meta {
         match self {
             ExpressionOrSuper::Expression(d) => d.get_meta(),
@@ -599,32 +580,30 @@ impl HasMeta for ExpressionOrSuper {
         }
     }
 
-    fn to_formatted_string(&self, script: &str) -> String {
+    fn to_formatted_string(&self) -> String {
         match self {
-            ExpressionOrSuper::Expression(d) => format!(
-                "ExpressionOrSuper::Expression({})",
-                d.to_formatted_string(script)
-            ),
+            ExpressionOrSuper::Expression(d) => {
+                format!("ExpressionOrSuper::Expression({})", d.to_formatted_string())
+            }
             ExpressionOrSuper::Super => format!("ExpressionOrSuper::Super"),
         }
     }
 }
 
 #[derive(Debug)]
-pub enum MemberExpressionType {
+pub enum MemberExpressionType<'code> {
     SimpleMemberExpression {
-        meta: Meta,
-        object: ExpressionOrSuper,
-        property: IdentifierData,
+        meta: Meta<'code>,
+        object: ExpressionOrSuper<'code>,
+        property: IdentifierData<'code>,
     },
     ComputedMemberExpression {
-        meta: Meta,
-        object: ExpressionOrSuper,
-        property: Box<ExpressionType>,
+        meta: Meta<'code>,
+        object: ExpressionOrSuper<'code>,
+        property: Box<ExpressionType<'code>>,
     },
 }
-
-impl HasMeta for MemberExpressionType {
+impl<'code> HasMeta for MemberExpressionType<'code> {
     fn get_meta(&self) -> &Meta {
         match self {
             MemberExpressionType::SimpleMemberExpression { meta, .. } => &meta,
@@ -632,37 +611,36 @@ impl HasMeta for MemberExpressionType {
         }
     }
 
-    fn to_formatted_string(&self, script: &str) -> String {
+    fn to_formatted_string(&self) -> String {
         match self {
             MemberExpressionType::SimpleMemberExpression {
                 meta,
                 object,
                 property,
             } => format_struct("MemberExpressionType::SimpleMemberExpression")
-                .add_fields("meta", meta.to_formatted_string(script))
-                .add_fields("object", object.to_formatted_string(script))
-                .add_fields("property", property.to_formatted_string(script))
+                .add_fields("meta", meta.to_formatted_string())
+                .add_fields("object", object.to_formatted_string())
+                .add_fields("property", property.to_formatted_string())
                 .to_string(),
             MemberExpressionType::ComputedMemberExpression {
                 meta,
                 object,
                 property,
             } => format_struct("MemberExpressionType::ComputedMemberExpression")
-                .add_fields("meta", meta.to_formatted_string(script))
-                .add_fields("object", object.to_formatted_string(script))
-                .add_fields("property", property.to_formatted_string(script))
+                .add_fields("meta", meta.to_formatted_string())
+                .add_fields("object", object.to_formatted_string())
+                .add_fields("property", property.to_formatted_string())
                 .to_string(),
         }
     }
 }
 
 #[derive(Debug)]
-pub enum ExpressionOrSpreadElement {
-    Expression(Box<ExpressionType>),
-    SpreadElement(Box<ExpressionType>),
+pub enum ExpressionOrSpreadElement<'code> {
+    Expression(Box<ExpressionType<'code>>),
+    SpreadElement(Box<ExpressionType<'code>>),
 }
-
-impl HasMeta for ExpressionOrSpreadElement {
+impl<'code> HasMeta for ExpressionOrSpreadElement<'code> {
     fn get_meta(&self) -> &Meta {
         match self {
             ExpressionOrSpreadElement::Expression(data) => data.get_meta(),
@@ -670,35 +648,34 @@ impl HasMeta for ExpressionOrSpreadElement {
         }
     }
 
-    fn to_formatted_string(&self, script: &str) -> String {
+    fn to_formatted_string(&self) -> String {
         match self {
             ExpressionOrSpreadElement::Expression(data) => format!(
                 "ExpressionOrSpreadElement::Expression({})",
-                data.to_formatted_string(script)
+                data.to_formatted_string()
             ),
             ExpressionOrSpreadElement::SpreadElement(data) => format!(
                 "ExpressionOrSpreadElement::SpreadElement({})",
-                data.to_formatted_string(script)
+                data.to_formatted_string()
             ),
         }
     }
 }
 
 #[derive(Debug)]
-pub struct MemberExpressionData {
-    pub meta: Meta,
-    pub object: Box<ExpressionType>,
-    pub property: Box<ExpressionType>,
+pub struct MemberExpressionData<'code> {
+    pub meta: Meta<'code>,
+    pub object: Box<ExpressionType<'code>>,
+    pub property: Box<ExpressionType<'code>>,
     pub computed: bool,
 }
 
 #[derive(Debug)]
-pub enum PatternOrExpression {
-    Pattern(Box<PatternType>),
-    Expression(Box<ExpressionType>),
+pub enum PatternOrExpression<'code> {
+    Pattern(Box<PatternType<'code>>),
+    Expression(Box<ExpressionType<'code>>),
 }
-
-impl HasMeta for PatternOrExpression {
+impl<'code> HasMeta for PatternOrExpression<'code> {
     fn get_meta(&self) -> &Meta {
         match self {
             PatternOrExpression::Pattern(d) => d.get_meta(),
@@ -706,10 +683,10 @@ impl HasMeta for PatternOrExpression {
         }
     }
 
-    fn to_formatted_string(&self, script: &str) -> String {
+    fn to_formatted_string(&self) -> String {
         match self {
-            PatternOrExpression::Pattern(d) => d.to_formatted_string(script),
-            PatternOrExpression::Expression(d) => d.to_formatted_string(script),
+            PatternOrExpression::Pattern(d) => d.to_formatted_string(),
+            PatternOrExpression::Expression(d) => d.to_formatted_string(),
         }
     }
 }
@@ -779,19 +756,18 @@ pub enum LogicalOperator {
 }
 
 #[derive(Debug)]
-pub struct LiteralData {
-    pub meta: Meta,
+pub struct LiteralData<'code> {
+    pub meta: Meta<'code>,
     pub value: LiteralType,
 }
-
-impl HasMeta for LiteralData {
+impl<'code> HasMeta for LiteralData<'code> {
     fn get_meta(&self) -> &Meta {
         &self.meta
     }
 
-    fn to_formatted_string(&self, script: &str) -> String {
+    fn to_formatted_string(&self) -> String {
         format_struct("LiteralData")
-            .add_fields("meta", self.meta.to_formatted_string(script))
+            .add_fields("meta", self.meta.to_formatted_string())
             .add_fields("value", format!("{:?}", self.value))
             .to_string()
     }
@@ -819,118 +795,109 @@ pub enum NumberLiteralType {
 }
 
 #[derive(Debug)]
-pub struct ProgramData {
-    pub meta: Meta,
-    pub body: Vec<StatementType>,
+pub struct ProgramData<'code> {
+    pub meta: Meta<'code>,
+    pub body: Vec<StatementType<'code>>,
 }
-
-impl HasMeta for ProgramData {
+impl<'code> HasMeta for ProgramData<'code> {
     fn get_meta(&self) -> &Meta {
         &self.meta
     }
 
-    fn to_formatted_string(&self, script: &str) -> String {
+    fn to_formatted_string(&self) -> String {
         format_struct("ProgramData")
-            .add_fields("meta", self.meta.to_formatted_string(script))
-            .add_fields(
-                "body",
-                format_vec(&self.body, |p| p.to_formatted_string(script)),
-            )
+            .add_fields("meta", self.meta.to_formatted_string())
+            .add_fields("body", format_vec(&self.body, |p| p.to_formatted_string()))
             .to_string()
     }
 }
 
 #[derive(Debug)]
-pub struct BlockStatementData {
-    pub meta: Meta,
-    pub body: Box<Vec<StatementType>>,
+pub struct BlockStatementData<'code> {
+    pub meta: Meta<'code>,
+    pub body: Box<Vec<StatementType<'code>>>,
 }
-
-impl HasMeta for BlockStatementData {
+impl<'code> HasMeta for BlockStatementData<'code> {
     fn get_meta(&self) -> &Meta {
         &self.meta
     }
 
-    fn to_formatted_string(&self, script: &str) -> String {
+    fn to_formatted_string(&self) -> String {
         format_struct("BlockStatementData")
-            .add_fields("meta", self.meta.to_formatted_string(script))
-            .add_fields(
-                "body",
-                format_vec(&self.body, |p| p.to_formatted_string(script)),
-            )
+            .add_fields("meta", self.meta.to_formatted_string())
+            .add_fields("body", format_vec(&self.body, |p| p.to_formatted_string()))
             .to_string()
     }
 }
 
 #[derive(Debug)]
-pub enum StatementType {
+pub enum StatementType<'code> {
     ExpressionStatement {
-        meta: Meta,
-        expression: Box<ExpressionType>,
+        meta: Meta<'code>,
+        expression: Box<ExpressionType<'code>>,
     },
-    BlockStatement(BlockStatementData),
-    FunctionBody(FunctionBodyData),
+    BlockStatement(BlockStatementData<'code>),
+    FunctionBody(FunctionBodyData<'code>),
     EmptyStatement {
-        meta: Meta,
+        meta: Meta<'code>,
     },
     DebuggerStatement {
-        meta: Meta,
+        meta: Meta<'code>,
     },
     ReturnStatement {
-        meta: Meta,
-        argument: Option<Box<ExpressionType>>,
+        meta: Meta<'code>,
+        argument: Option<Box<ExpressionType<'code>>>,
     },
     //Label Statement not supported, hence break & continue with labels not supported
     BreakStatement {
-        meta: Meta,
+        meta: Meta<'code>,
     },
     ContinueStatement {
-        meta: Meta,
+        meta: Meta<'code>,
     },
     IfStatement {
-        meta: Meta,
-        test: Box<ExpressionType>,
-        consequent: Box<StatementType>,
-        alternate: Option<Box<StatementType>>,
+        meta: Meta<'code>,
+        test: Box<ExpressionType<'code>>,
+        consequent: Box<StatementType<'code>>,
+        alternate: Option<Box<StatementType<'code>>>,
     },
     SwitchStatement {
-        meta: Meta,
-        discriminant: Box<ExpressionType>,
-        cases: Box<Vec<SwitchCaseData>>,
+        meta: Meta<'code>,
+        discriminant: Box<ExpressionType<'code>>,
+        cases: Box<Vec<SwitchCaseData<'code>>>,
     },
     ThrowStatement {
-        meta: Meta,
-        argument: Box<ExpressionType>,
+        meta: Meta<'code>,
+        argument: Box<ExpressionType<'code>>,
     },
     TryStatement {
-        meta: Meta,
-        block: BlockStatementData,
-        handler: Option<CatchClauseData>,
-        finalizer: Option<BlockStatementData>,
+        meta: Meta<'code>,
+        block: BlockStatementData<'code>,
+        handler: Option<CatchClauseData<'code>>,
+        finalizer: Option<BlockStatementData<'code>>,
     },
     WhileStatement {
-        meta: Meta,
-        test: Box<ExpressionType>,
-        body: Box<StatementType>,
+        meta: Meta<'code>,
+        test: Box<ExpressionType<'code>>,
+        body: Box<StatementType<'code>>,
     },
     DoWhileStatement {
-        meta: Meta,
-        test: Box<ExpressionType>,
-        body: Box<StatementType>,
+        meta: Meta<'code>,
+        test: Box<ExpressionType<'code>>,
+        body: Box<StatementType<'code>>,
     },
     ForStatement {
-        meta: Meta,
-        init: Option<VariableDeclarationOrExpression>,
-        test: Option<Box<ExpressionType>>,
-        update: Option<Box<ExpressionType>>,
-        body: Box<StatementType>,
+        meta: Meta<'code>,
+        init: Option<VariableDeclarationOrExpression<'code>>,
+        test: Option<Box<ExpressionType<'code>>>,
+        update: Option<Box<ExpressionType<'code>>>,
+        body: Box<StatementType<'code>>,
     },
-    ForInStatement(ForIteratorData),
-    ForOfStatement(ForIteratorData),
-    DeclarationStatement(DeclarationType),
+    ForInStatement(ForIteratorData<'code>),
+    ForOfStatement(ForIteratorData<'code>),
+    DeclarationStatement(DeclarationType<'code>),
 }
-
-impl HasMeta for StatementType {
+impl<'code> HasMeta for StatementType<'code> {
     fn get_meta(&self) -> &Meta {
         match self {
             StatementType::ExpressionStatement { meta, .. } => &meta,
@@ -954,49 +921,49 @@ impl HasMeta for StatementType {
         }
     }
 
-    fn to_formatted_string(&self, script: &str) -> String {
+    fn to_formatted_string(&self) -> String {
         match self {
             StatementType::ExpressionStatement { meta, expression } => {
                 format_struct("StatementType::ExpressionStatement")
-                    .add_fields("meta", meta.to_formatted_string(script))
-                    .add_fields("expression", expression.to_formatted_string(script))
+                    .add_fields("meta", meta.to_formatted_string())
+                    .add_fields("expression", expression.to_formatted_string())
                     .to_string()
             }
             StatementType::BlockStatement(data) => format!(
                 "StatementType::BlockStatement({})",
-                data.to_formatted_string(script)
+                data.to_formatted_string()
             ),
             StatementType::FunctionBody(data) => format!(
                 "StatementType::FunctionBody({})",
-                data.to_formatted_string(script)
+                data.to_formatted_string()
             ),
             StatementType::EmptyStatement { meta } => {
                 format_struct("StatementType::EmptyStatement")
-                    .add_fields("meta", meta.to_formatted_string(script))
+                    .add_fields("meta", meta.to_formatted_string())
                     .to_string()
             }
             StatementType::DebuggerStatement { meta } => {
                 format_struct("StatementType::DebuggerStatement")
-                    .add_fields("meta", meta.to_formatted_string(script))
+                    .add_fields("meta", meta.to_formatted_string())
                     .to_string()
             }
             StatementType::ReturnStatement { meta, argument } => {
                 format_struct("StatementType::ReturnStatement")
-                    .add_fields("meta", meta.to_formatted_string(script))
+                    .add_fields("meta", meta.to_formatted_string())
                     .add_fields(
                         "argument",
-                        format_option(argument, |o| o.to_formatted_string(script)),
+                        format_option(argument, |o| o.to_formatted_string()),
                     )
                     .to_string()
             }
             StatementType::BreakStatement { meta } => {
                 format_struct("StatementType::BreakStatement")
-                    .add_fields("meta", meta.to_formatted_string(script))
+                    .add_fields("meta", meta.to_formatted_string())
                     .to_string()
             }
             StatementType::ContinueStatement { meta } => {
                 format_struct("StatementType::ContinueStatement")
-                    .add_fields("meta", meta.to_formatted_string(script))
+                    .add_fields("meta", meta.to_formatted_string())
                     .to_string()
             }
             StatementType::IfStatement {
@@ -1005,12 +972,12 @@ impl HasMeta for StatementType {
                 consequent,
                 alternate,
             } => format_struct("StatementType::IfStatement")
-                .add_fields("meta", meta.to_formatted_string(script))
-                .add_fields("test", test.to_formatted_string(script))
-                .add_fields("consequent", consequent.to_formatted_string(script))
+                .add_fields("meta", meta.to_formatted_string())
+                .add_fields("test", test.to_formatted_string())
+                .add_fields("consequent", consequent.to_formatted_string())
                 .add_fields(
                     "alternate",
-                    format_option(alternate, |o| o.to_formatted_string(script)),
+                    format_option(alternate, |o| o.to_formatted_string()),
                 )
                 .to_string(),
             StatementType::SwitchStatement {
@@ -1018,17 +985,14 @@ impl HasMeta for StatementType {
                 discriminant,
                 cases,
             } => format_struct("StatementType::SwitchStatement")
-                .add_fields("meta", meta.to_formatted_string(script))
-                .add_fields("discriminant", discriminant.to_formatted_string(script))
-                .add_fields(
-                    "cases",
-                    format_vec(cases, |p| p.to_formatted_string(script)),
-                )
+                .add_fields("meta", meta.to_formatted_string())
+                .add_fields("discriminant", discriminant.to_formatted_string())
+                .add_fields("cases", format_vec(cases, |p| p.to_formatted_string()))
                 .to_string(),
             StatementType::ThrowStatement { meta, argument } => {
                 format_struct("StatementType::ThrowStatement")
-                    .add_fields("meta", meta.to_formatted_string(script))
-                    .add_fields("argument", argument.to_formatted_string(script))
+                    .add_fields("meta", meta.to_formatted_string())
+                    .add_fields("argument", argument.to_formatted_string())
                     .to_string()
             }
             StatementType::TryStatement {
@@ -1037,29 +1001,29 @@ impl HasMeta for StatementType {
                 handler,
                 finalizer,
             } => format_struct("StatementType::TryStatement")
-                .add_fields("meta", meta.to_formatted_string(script))
-                .add_fields("block", block.to_formatted_string(script))
+                .add_fields("meta", meta.to_formatted_string())
+                .add_fields("block", block.to_formatted_string())
                 .add_fields(
                     "handler",
-                    format_option(handler, |o| o.to_formatted_string(script)),
+                    format_option(handler, |o| o.to_formatted_string()),
                 )
                 .add_fields(
                     "finalizer",
-                    format_option(finalizer, |o| o.to_formatted_string(script)),
+                    format_option(finalizer, |o| o.to_formatted_string()),
                 )
                 .to_string(),
             StatementType::WhileStatement { meta, test, body } => {
                 format_struct("StatementType::WhileStatement")
-                    .add_fields("meta", meta.to_formatted_string(script))
-                    .add_fields("test", test.to_formatted_string(script))
-                    .add_fields("body", body.to_formatted_string(script))
+                    .add_fields("meta", meta.to_formatted_string())
+                    .add_fields("test", test.to_formatted_string())
+                    .add_fields("body", body.to_formatted_string())
                     .to_string()
             }
             StatementType::DoWhileStatement { meta, test, body } => {
                 format_struct("StatementType::DoWhileStatement")
-                    .add_fields("meta", meta.to_formatted_string(script))
-                    .add_fields("test", test.to_formatted_string(script))
-                    .add_fields("body", body.to_formatted_string(script))
+                    .add_fields("meta", meta.to_formatted_string())
+                    .add_fields("test", test.to_formatted_string())
+                    .add_fields("body", body.to_formatted_string())
                     .to_string()
             }
             StatementType::ForStatement {
@@ -1069,92 +1033,77 @@ impl HasMeta for StatementType {
                 update,
                 body,
             } => format_struct("StatementType::ForStatement")
-                .add_fields("meta", meta.to_formatted_string(script))
-                .add_fields(
-                    "init",
-                    format_option(init, |o| o.to_formatted_string(script)),
-                )
-                .add_fields(
-                    "test",
-                    format_option(test, |o| o.to_formatted_string(script)),
-                )
-                .add_fields(
-                    "update",
-                    format_option(update, |o| o.to_formatted_string(script)),
-                )
-                .add_fields("body", body.to_formatted_string(script))
+                .add_fields("meta", meta.to_formatted_string())
+                .add_fields("init", format_option(init, |o| o.to_formatted_string()))
+                .add_fields("test", format_option(test, |o| o.to_formatted_string()))
+                .add_fields("update", format_option(update, |o| o.to_formatted_string()))
+                .add_fields("body", body.to_formatted_string())
                 .to_string(),
             StatementType::ForInStatement(data) => format!(
                 "StatementType::ForInStatement({})",
-                data.to_formatted_string(script)
+                data.to_formatted_string()
             ),
             StatementType::ForOfStatement(data) => format!(
                 "StatementType::ForOfStatement({})",
-                data.to_formatted_string(script)
+                data.to_formatted_string()
             ),
             StatementType::DeclarationStatement(data) => format!(
                 "StatementType::DeclarationStatement({})",
-                data.to_formatted_string(script)
+                data.to_formatted_string()
             ),
         }
     }
 }
 
 #[derive(Debug)]
-pub struct FunctionBodyData {
-    pub meta: Meta,
-    pub body: Box<Vec<StatementType>>, /*Actual code was -- Box<Vec<DirectiveOrStatement>> -- We do not support directives, like 'use strict'*/
+pub struct FunctionBodyData<'code> {
+    pub meta: Meta<'code>,
+    pub body: Box<Vec<StatementType<'code>>>, /*Actual code was -- Box<Vec<DirectiveOrStatement>> -- We do not support directives, like 'use strict'*/
 }
-
-impl HasMeta for FunctionBodyData {
+impl<'code> HasMeta for FunctionBodyData<'code> {
     fn get_meta(&self) -> &Meta {
         &self.meta
     }
 
-    fn to_formatted_string(&self, script: &str) -> String {
+    fn to_formatted_string(&self) -> String {
         format_struct("FunctionBodyData")
-            .add_fields("meta", self.meta.to_formatted_string(script))
-            .add_fields(
-                "body",
-                format_vec(&self.body, |p| p.to_formatted_string(script)),
-            )
+            .add_fields("meta", self.meta.to_formatted_string())
+            .add_fields("body", format_vec(&self.body, |p| p.to_formatted_string()))
             .to_string()
     }
 }
 
 #[derive(Debug)]
-pub struct ForIteratorData {
-    pub meta: Meta,
+pub struct ForIteratorData<'code> {
+    pub meta: Meta<'code>,
     // As per ESTree spec (https://github.com/estree/estree/blob/master/es5.md#forinstatement) it
     // should be VariableDeclarationOrPattern. However, as per rules we left_hand_side_expression
     // which is an expression.
-    pub left: VariableDeclarationOrExpression,
-    pub right: Box<ExpressionType>,
-    pub body: Box<StatementType>,
+    pub left: VariableDeclarationOrExpression<'code>,
+    pub right: Box<ExpressionType<'code>>,
+    pub body: Box<StatementType<'code>>,
 }
-
-impl HasMeta for ForIteratorData {
+impl<'code> HasMeta for ForIteratorData<'code> {
     fn get_meta(&self) -> &Meta {
         &self.meta
     }
 
-    fn to_formatted_string(&self, script: &str) -> String {
+    fn to_formatted_string(&self) -> String {
         format_struct("ForIteratorData")
-            .add_fields("meta", self.meta.to_formatted_string(script))
-            .add_fields("left", self.left.to_formatted_string(script))
-            .add_fields("right", self.right.to_formatted_string(script))
-            .add_fields("body", self.body.to_formatted_string(script))
+            .add_fields("meta", self.meta.to_formatted_string())
+            .add_fields("left", self.left.to_formatted_string())
+            .add_fields("right", self.right.to_formatted_string())
+            .add_fields("body", self.body.to_formatted_string())
             .to_string()
     }
 }
 
 #[derive(Debug)]
-pub enum VariableDeclarationOrExpression {
-    VariableDeclaration(VariableDeclarationData),
-    Expression(Box<ExpressionType>),
+pub enum VariableDeclarationOrExpression<'code> {
+    VariableDeclaration(VariableDeclarationData<'code>),
+    Expression(Box<ExpressionType<'code>>),
 }
-
-impl HasMeta for VariableDeclarationOrExpression {
+impl<'code> HasMeta for VariableDeclarationOrExpression<'code> {
     fn get_meta(&self) -> &Meta {
         match self {
             VariableDeclarationOrExpression::VariableDeclaration(d) => d.get_meta(),
@@ -1162,27 +1111,26 @@ impl HasMeta for VariableDeclarationOrExpression {
         }
     }
 
-    fn to_formatted_string(&self, script: &str) -> String {
+    fn to_formatted_string(&self) -> String {
         match self {
             VariableDeclarationOrExpression::VariableDeclaration(d) => format!(
                 "VariableDeclarationOrExpression::VariableDeclaration({})",
-                d.to_formatted_string(script)
+                d.to_formatted_string()
             ),
             VariableDeclarationOrExpression::Expression(d) => format!(
                 "VariableDeclarationOrExpression::Expression({})",
-                d.to_formatted_string(script)
+                d.to_formatted_string()
             ),
         }
     }
 }
 
 #[derive(Debug)]
-pub enum VariableDeclarationOrPattern {
-    VariableDeclaration(VariableDeclarationData),
-    Pattern(Box<PatternType>),
+pub enum VariableDeclarationOrPattern<'code> {
+    VariableDeclaration(VariableDeclarationData<'code>),
+    Pattern(Box<PatternType<'code>>),
 }
-
-impl HasMeta for VariableDeclarationOrPattern {
+impl<'code> HasMeta for VariableDeclarationOrPattern<'code> {
     fn get_meta(&self) -> &Meta {
         match self {
             VariableDeclarationOrPattern::VariableDeclaration(d) => d.get_meta(),
@@ -1190,28 +1138,27 @@ impl HasMeta for VariableDeclarationOrPattern {
         }
     }
 
-    fn to_formatted_string(&self, script: &str) -> String {
+    fn to_formatted_string(&self) -> String {
         match self {
             VariableDeclarationOrPattern::VariableDeclaration(d) => format!(
                 "VariableDeclarationOrPattern::VariableDeclaration({})",
-                d.to_formatted_string(script)
+                d.to_formatted_string()
             ),
             VariableDeclarationOrPattern::Pattern(d) => format!(
                 "VariableDeclarationOrPattern::Pattern({})",
-                d.to_formatted_string(script)
+                d.to_formatted_string()
             ),
         }
     }
 }
 
 #[derive(Debug)]
-pub enum DeclarationType {
-    FunctionDeclaration(FunctionData), //id is mandatory here
-    VariableDeclaration(VariableDeclarationData),
-    ClassDeclaration(ClassData),
+pub enum DeclarationType<'code> {
+    FunctionDeclaration(FunctionData<'code>), //id is mandatory here
+    VariableDeclaration(VariableDeclarationData<'code>),
+    ClassDeclaration(ClassData<'code>),
 }
-
-impl HasMeta for DeclarationType {
+impl<'code> HasMeta for DeclarationType<'code> {
     fn get_meta(&self) -> &Meta {
         match self {
             DeclarationType::FunctionDeclaration(data) => data.get_meta(),
@@ -1220,42 +1167,41 @@ impl HasMeta for DeclarationType {
         }
     }
 
-    fn to_formatted_string(&self, script: &str) -> String {
+    fn to_formatted_string(&self) -> String {
         match self {
             DeclarationType::FunctionDeclaration(data) => format!(
                 "DeclarationType::FunctionDeclaration({})",
-                data.to_formatted_string(script)
+                data.to_formatted_string()
             ),
             DeclarationType::VariableDeclaration(data) => format!(
                 "DeclarationType::VariableDeclaration({})",
-                data.to_formatted_string(script)
+                data.to_formatted_string()
             ),
             DeclarationType::ClassDeclaration(data) => format!(
                 "DeclarationType::ClassDeclaration({})",
-                data.to_formatted_string(script)
+                data.to_formatted_string()
             ),
         }
     }
 }
 
 #[derive(Debug)]
-pub struct VariableDeclarationData {
-    pub meta: Meta,
-    pub declarations: Vec<VariableDeclaratorData>,
+pub struct VariableDeclarationData<'code> {
+    pub meta: Meta<'code>,
+    pub declarations: Vec<VariableDeclaratorData<'code>>,
     pub kind: VariableDeclarationKind,
 }
-
-impl HasMeta for VariableDeclarationData {
+impl<'code> HasMeta for VariableDeclarationData<'code> {
     fn get_meta(&self) -> &Meta {
         &self.meta
     }
 
-    fn to_formatted_string(&self, script: &str) -> String {
+    fn to_formatted_string(&self) -> String {
         format_struct("VariableDeclarationData")
-            .add_fields("meta", self.meta.to_formatted_string(script))
+            .add_fields("meta", self.meta.to_formatted_string())
             .add_fields(
                 "declarations",
-                format_vec(&self.declarations, |p| p.to_formatted_string(script)),
+                format_vec(&self.declarations, |p| p.to_formatted_string()),
             )
             .add_fields("kind", format!("{:?}", self.kind))
             .to_string()
@@ -1270,158 +1216,148 @@ pub enum VariableDeclarationKind {
 }
 
 #[derive(Debug)]
-pub struct SwitchCaseData {
-    pub meta: Meta,
-    pub test: Option<Box<ExpressionType>>,
-    pub consequent: Box<Vec<StatementType>>,
+pub struct SwitchCaseData<'code> {
+    pub meta: Meta<'code>,
+    pub test: Option<Box<ExpressionType<'code>>>,
+    pub consequent: Box<Vec<StatementType<'code>>>,
 }
-
-impl HasMeta for SwitchCaseData {
+impl<'code> HasMeta for SwitchCaseData<'code> {
     fn get_meta(&self) -> &Meta {
         &self.meta
     }
 
-    fn to_formatted_string(&self, script: &str) -> String {
+    fn to_formatted_string(&self) -> String {
         format_struct("SwitchCaseData")
-            .add_fields("meta", self.meta.to_formatted_string(script))
+            .add_fields("meta", self.meta.to_formatted_string())
             .add_fields(
                 "test",
-                format_option(&self.test, |o| o.to_formatted_string(script)),
+                format_option(&self.test, |o| o.to_formatted_string()),
             )
             .add_fields(
                 "consequent",
-                format_vec(&self.consequent, |p| p.to_formatted_string(script)),
+                format_vec(&self.consequent, |p| p.to_formatted_string()),
             )
             .to_string()
     }
 }
 
 #[derive(Debug)]
-pub struct FunctionData {
-    pub meta: Meta,
-    pub id: Option<IdentifierData>,
-    pub params: Vec<Box<PatternType>>,
-    pub body: FunctionBodyData,
+pub struct FunctionData<'code> {
+    pub meta: Meta<'code>,
+    pub id: Option<IdentifierData<'code>>,
+    pub params: Vec<Box<PatternType<'code>>>,
+    pub body: FunctionBodyData<'code>,
     pub generator: bool,
 }
-
-impl HasMeta for FunctionData {
+impl<'code> HasMeta for FunctionData<'code> {
     fn get_meta(&self) -> &Meta {
         &self.meta
     }
 
-    fn to_formatted_string(&self, script: &str) -> String {
+    fn to_formatted_string(&self) -> String {
         format_struct("FunctionData")
-            .add_fields("meta", self.meta.to_formatted_string(script))
-            .add_fields(
-                "id",
-                format_option(&self.id, |o| o.to_formatted_string(script)),
-            )
+            .add_fields("meta", self.meta.to_formatted_string())
+            .add_fields("id", format_option(&self.id, |o| o.to_formatted_string()))
             .add_fields(
                 "params",
-                format_vec(&self.params, |p| p.to_formatted_string(script)),
+                format_vec(&self.params, |p| p.to_formatted_string()),
             )
-            .add_fields("body", self.body.to_formatted_string(script))
+            .add_fields("body", self.body.to_formatted_string())
             .add_fields("generator", self.generator.to_string())
             .to_string()
     }
 }
 
 #[derive(Debug)]
-pub struct CatchClauseData {
-    pub meta: Meta,
-    pub param: Box<PatternType>,
-    pub body: BlockStatementData,
+pub struct CatchClauseData<'code> {
+    pub meta: Meta<'code>,
+    pub param: Box<PatternType<'code>>,
+    pub body: BlockStatementData<'code>,
 }
-
-impl HasMeta for CatchClauseData {
+impl<'code> HasMeta for CatchClauseData<'code> {
     fn get_meta(&self) -> &Meta {
         &self.meta
     }
 
-    fn to_formatted_string(&self, script: &str) -> String {
+    fn to_formatted_string(&self) -> String {
         format_struct("CatchClauseData")
-            .add_fields("meta", self.meta.to_formatted_string(script))
-            .add_fields("param", self.param.to_formatted_string(script))
-            .add_fields("body", self.body.to_formatted_string(script))
+            .add_fields("meta", self.meta.to_formatted_string())
+            .add_fields("param", self.param.to_formatted_string())
+            .add_fields("body", self.body.to_formatted_string())
             .to_string()
     }
 }
 
 #[derive(Debug)]
-pub struct VariableDeclaratorData {
-    pub meta: Meta,
-    pub id: Box<PatternType>,
-    pub init: Option<Box<ExpressionType>>,
+pub struct VariableDeclaratorData<'code> {
+    pub meta: Meta<'code>,
+    pub id: Box<PatternType<'code>>,
+    pub init: Option<Box<ExpressionType<'code>>>,
 }
-
-impl HasMeta for VariableDeclaratorData {
+impl<'code> HasMeta for VariableDeclaratorData<'code> {
     fn get_meta(&self) -> &Meta {
         &self.meta
     }
 
-    fn to_formatted_string(&self, script: &str) -> String {
+    fn to_formatted_string(&self) -> String {
         format_struct("VariableDeclaratorData")
-            .add_fields("meta", self.meta.to_formatted_string(script))
-            .add_fields("id", self.id.to_formatted_string(script))
+            .add_fields("meta", self.meta.to_formatted_string())
+            .add_fields("id", self.id.to_formatted_string())
             .add_fields(
                 "init",
-                format_option(&self.init, |o| o.to_formatted_string(script)),
+                format_option(&self.init, |o| o.to_formatted_string()),
             )
             .to_string()
     }
 }
 
 #[derive(Debug)]
-pub struct PropertyData<V> {
-    pub meta: Meta,
-    pub key: LiteralOrIdentifier,
+pub struct PropertyData<'code, V> {
+    pub meta: Meta<'code>,
+    pub key: LiteralOrIdentifier<'code>,
     pub value: V,
     pub kind: PropertyKind,
     pub method: bool,
     pub shorthand: bool,
     pub computed: bool,
 }
-
-impl HasMeta for PropertyData<Box<ExpressionType>> {
+impl<'code> HasMeta for PropertyData<'code, Box<ExpressionType<'code>>> {
     fn get_meta(&self) -> &Meta {
         &self.meta
     }
 
-    fn to_formatted_string(&self, script: &str) -> String {
+    fn to_formatted_string(&self) -> String {
         format_struct("PropertyData<for Expression>")
-            .add_fields("meta", self.meta.to_formatted_string(script))
-            .add_fields("key", self.key.to_formatted_string(script))
+            .add_fields("meta", self.meta.to_formatted_string())
+            .add_fields("key", self.key.to_formatted_string())
             .add_fields("kind", format!("{:?}", self.kind))
             .add_fields("method", self.method.to_string())
-            .add_fields("value", self.value.to_formatted_string(script))
+            .add_fields("value", self.value.to_formatted_string())
             .to_string()
     }
 }
-
-impl HasMeta for PropertyData<Box<PatternType>> {
+impl<'code> HasMeta for PropertyData<'code, Box<PatternType<'code>>> {
     fn get_meta(&self) -> &Meta {
         &self.meta
     }
 
-    fn to_formatted_string(&self, script: &str) -> String {
+    fn to_formatted_string(&self) -> String {
         format_struct("PropertyData<for Pattern>")
-            .add_fields("meta", self.meta.to_formatted_string(script))
-            .add_fields("key", self.key.to_formatted_string(script))
+            .add_fields("meta", self.meta.to_formatted_string())
+            .add_fields("key", self.key.to_formatted_string())
             .add_fields("kind", format!("{:?}", self.kind))
             .add_fields("method", self.method.to_string())
-            .add_fields("value", self.value.to_formatted_string(script))
+            .add_fields("value", self.value.to_formatted_string())
             .to_string()
     }
 }
 
 #[derive(Debug)]
-pub enum LiteralOrIdentifier {
-    Literal(LiteralData),
-    Identifier(IdentifierData),
+pub enum LiteralOrIdentifier<'code> {
+    Literal(LiteralData<'code>),
+    Identifier(IdentifierData<'code>),
 }
-
-impl HasMeta for LiteralOrIdentifier {
+impl<'code> HasMeta for LiteralOrIdentifier<'code> {
     fn get_meta(&self) -> &Meta {
         match self {
             LiteralOrIdentifier::Literal(d) => d.get_meta(),
@@ -1429,22 +1365,21 @@ impl HasMeta for LiteralOrIdentifier {
         }
     }
 
-    fn to_formatted_string(&self, script: &str) -> String {
+    fn to_formatted_string(&self) -> String {
         match self {
-            LiteralOrIdentifier::Literal(d) => d.to_formatted_string(script),
-            LiteralOrIdentifier::Identifier(d) => d.to_formatted_string(script),
+            LiteralOrIdentifier::Literal(d) => d.to_formatted_string(),
+            LiteralOrIdentifier::Identifier(d) => d.to_formatted_string(),
         }
     }
 }
 
 #[derive(Debug)]
-pub struct AssignmentPropertyData(pub PropertyData<Box<PatternType>>);
-
-impl AssignmentPropertyData {
+pub struct AssignmentPropertyData<'code>(pub PropertyData<'code, Box<PatternType<'code>>>);
+impl<'code> AssignmentPropertyData<'code> {
     fn new(
-        meta: Meta,
-        key: LiteralOrIdentifier,
-        value: Box<PatternType>,
+        meta: Meta<'code>,
+        key: LiteralOrIdentifier<'code>,
+        value: Box<PatternType<'code>>,
         shorthand: bool,
         computed: bool,
     ) -> Self {
@@ -1473,17 +1408,13 @@ impl AssignmentPropertyData {
     //     }
     // }
 }
-
-impl HasMeta for AssignmentPropertyData {
+impl<'code> HasMeta for AssignmentPropertyData<'code> {
     fn get_meta(&self) -> &Meta {
         &self.0.meta
     }
 
-    fn to_formatted_string(&self, script: &str) -> String {
-        format!(
-            "AssignmentPropertyData({})",
-            self.0.to_formatted_string(script)
-        )
+    fn to_formatted_string(&self) -> String {
+        format!("AssignmentPropertyData({})", self.0.to_formatted_string())
     }
 }
 
@@ -1495,73 +1426,67 @@ pub enum PropertyKind {
 }
 
 #[derive(Debug)]
-pub struct ClassData {
-    pub meta: Meta,
-    pub id: Option<IdentifierData>,
-    pub super_class: Option<Box<ExpressionType>>,
-    pub body: ClassBodyData,
+pub struct ClassData<'code> {
+    pub meta: Meta<'code>,
+    pub id: Option<IdentifierData<'code>>,
+    pub super_class: Option<Box<ExpressionType<'code>>>,
+    pub body: ClassBodyData<'code>,
 }
-
-impl HasMeta for ClassData {
+impl<'code> HasMeta for ClassData<'code> {
     fn get_meta(&self) -> &Meta {
         &self.meta
     }
 
-    fn to_formatted_string(&self, script: &str) -> String {
+    fn to_formatted_string(&self) -> String {
         format_struct("ClassData")
-            .add_fields("meta", self.meta.to_formatted_string(script))
-            .add_fields("id", format_has_meta_option(&self.id, script))
+            .add_fields("meta", self.meta.to_formatted_string())
+            .add_fields("id", format_has_meta_option(&self.id))
             .add_fields(
                 "super_class",
-                format_option(&self.super_class, |o| o.to_formatted_string(script)),
+                format_option(&self.super_class, |o| o.to_formatted_string()),
             )
-            .add_fields("body", self.body.to_formatted_string(script))
+            .add_fields("body", self.body.to_formatted_string())
             .to_string()
     }
 }
 
 #[derive(Debug)]
-pub struct ClassBodyData {
-    pub meta: Meta,
-    pub body: Vec<MethodDefinitionData>,
+pub struct ClassBodyData<'code> {
+    pub meta: Meta<'code>,
+    pub body: Vec<MethodDefinitionData<'code>>,
 }
-
-impl HasMeta for ClassBodyData {
+impl<'code> HasMeta for ClassBodyData<'code> {
     fn get_meta(&self) -> &Meta {
         &self.meta
     }
 
-    fn to_formatted_string(&self, script: &str) -> String {
+    fn to_formatted_string(&self) -> String {
         format_struct("ClassBodyData")
-            .add_fields("meta", self.meta.to_formatted_string(script))
-            .add_fields(
-                "body",
-                format_vec(&self.body, |p| p.to_formatted_string(script)),
-            )
+            .add_fields("meta", self.meta.to_formatted_string())
+            .add_fields("body", format_vec(&self.body, |p| p.to_formatted_string()))
             .to_string()
     }
 }
 
 #[derive(Debug)]
-pub struct MethodDefinitionData {
-    pub meta: Meta,
-    pub key: Box<ExpressionType>,
-    pub value: FunctionData,
+pub struct MethodDefinitionData<'code> {
+    pub meta: Meta<'code>,
+    pub key: Box<ExpressionType<'code>>,
+    pub value: FunctionData<'code>,
     pub kind: MethodDefinitionKind,
     pub computed: bool,
     pub static_flag: bool,
 }
-
-impl HasMeta for MethodDefinitionData {
+impl<'code> HasMeta for MethodDefinitionData<'code> {
     fn get_meta(&self) -> &Meta {
         &self.meta
     }
 
-    fn to_formatted_string(&self, script: &str) -> String {
+    fn to_formatted_string(&self) -> String {
         format_struct("MethodDefinitionData")
-            .add_fields("meta", self.meta.to_formatted_string(script))
-            .add_fields("key", self.key.to_formatted_string(script))
-            .add_fields("value", self.value.to_formatted_string(script))
+            .add_fields("meta", self.meta.to_formatted_string())
+            .add_fields("key", self.key.to_formatted_string())
+            .add_fields("value", self.value.to_formatted_string())
             .add_fields("kind", format!("{:?}", self.kind))
             .add_fields("computed", self.computed.to_string())
             .add_fields("static_flag", self.static_flag.to_string())

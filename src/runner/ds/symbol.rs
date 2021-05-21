@@ -1,5 +1,6 @@
 use std::fmt;
 use std::fmt::{Display, Formatter};
+use std::hash::{Hash, Hasher};
 use uuid::Uuid;
 
 pub struct SymbolData {
@@ -32,6 +33,11 @@ impl PartialEq for SymbolData {
 impl Display for SymbolData {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "Symbol({})", self.description)
+    }
+}
+impl Hash for SymbolData {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.description.hash(state)
     }
 }
 

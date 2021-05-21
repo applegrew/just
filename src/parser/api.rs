@@ -17,7 +17,7 @@ use std::time::Instant;
 #[grammar = "parser/js_grammar.pest"] // relative to src
 pub struct JsParser;
 
-type JsRuleError = JsError<Rule>;
+type JsRuleError<'code> = JsError<'code, Rule>;
 
 fn pair_to_string(pair: Pair<Rule>, level: usize) -> Vec<String> {
     let mut tree = vec![];
@@ -77,11 +77,11 @@ impl JsParser {
 
     pub fn parse_to_ast_string(script: &str) -> Result<String, JsRuleError> {
         let result = Self::parse_to_ast(script)?;
-        Ok(result.to_formatted_string(script))
+        Ok(result.to_formatted_string())
     }
 }
 
-fn get_unexpected_error(src: &'static str, pair: &Pair<Rule>) -> JsRuleError {
+fn get_unexpected_error<'code>(src: &'static str, pair: &Pair<Rule>) -> JsRuleError<'code> {
     let message = format!("Unexpected state reached in the parser at \"{:?}\". This indicates internal logic error in the parser.", pair.as_rule());
     JsRuleError {
         message,
@@ -89,7 +89,7 @@ fn get_unexpected_error(src: &'static str, pair: &Pair<Rule>) -> JsRuleError {
     }
 }
 
-fn get_validation_error(error: String, pair: &Pair<Rule>) -> JsRuleError {
+fn get_validation_error<'code>(error: String, pair: &'code Pair<Rule>) -> JsRuleError<'code> {
     let message = format!("Parsing error encountered: {}", error);
     JsRuleError {
         message,
@@ -97,22 +97,16 @@ fn get_validation_error(error: String, pair: &Pair<Rule>) -> JsRuleError {
     }
 }
 
-fn get_meta(pair: &Pair<Rule>) -> Meta {
+fn get_meta<'code>(pair: &'code Pair<Rule>) -> Meta<'code> {
     Meta {
-        start_index: pair.as_span().start(),
-        end_index: pair.as_span().end(),
-        script: Some(pair.as_str()),
+        script: vec![pair.as_str()],
     }
 }
 
 fn build_ast_from_script(pairs: Pairs<Rule>) -> Result<ProgramData, JsRuleError> {
+    let script = vec![pairs.as_str()];
     let mut instructions = vec![];
-    let mut end: usize = 0;
     for pair in pairs {
-        let meta = get_meta(&pair);
-        if meta.end_index > end {
-            end = meta.end_index;
-        }
         match pair.as_rule() {
             Rule::declaration => instructions.push(StatementType::DeclarationStatement(
                 build_ast_from_declaration(pair)?,
@@ -126,10 +120,7 @@ fn build_ast_from_script(pairs: Pairs<Rule>) -> Result<ProgramData, JsRuleError>
         };
     }
     Ok(ProgramData {
-        meta: Meta {
-            start_index: 0,
-            end_index: end,
-        },
+        meta: Meta { script },
         body: instructions,
     })
 }
@@ -950,17 +941,14 @@ fn build_ast_from_conditional_expression(
     }
 }
 
-fn get_ast_for_logical_expression(
-    left: Option<Box<ExpressionType>>,
-    right: Box<ExpressionType>,
+fn get_ast_for_logical_expression<'code>(
+    left: Option<Box<ExpressionType<'code>>>,
+    right: Box<ExpressionType<'code>>,
     operator: LogicalOperator,
-) -> Box<ExpressionType> {
+) -> Box<ExpressionType<'code>> {
     if let Some(actual_left) = left {
         Box::new(ExpressionType::LogicalExpression {
-            meta: Meta {
-                start_index: actual_left.get_meta().start_index,
-                end_index: right.get_meta().end_index,
-            },
+            meta: Meta::new_by_concat(vec![actual_left.get_meta(), right.get_meta()]),
             operator,
             left: actual_left,
             right,
@@ -970,17 +958,14 @@ fn get_ast_for_logical_expression(
     }
 }
 
-fn get_ast_for_binary_expression(
-    left: Option<Box<ExpressionType>>,
-    right: Box<ExpressionType>,
+fn get_ast_for_binary_expression<'code>(
+    left: Option<Box<ExpressionType<'code>>>,
+    right: Box<ExpressionType<'code>>,
     operator: Option<BinaryOperator>,
-) -> Box<ExpressionType> {
+) -> Box<ExpressionType<'code>> {
     if let Some(actual_left) = left {
         Box::new(ExpressionType::BinaryExpression {
-            meta: Meta {
-                start_index: actual_left.get_meta().start_index,
-                end_index: right.get_meta().end_index,
-            },
+            meta: Meta::new_by_concat(vec![actual_left.get_meta(), right.get_meta()]),
             operator: operator.unwrap(),
             left: actual_left,
             right,
@@ -990,9 +975,9 @@ fn get_ast_for_binary_expression(
     }
 }
 
-fn build_ast_from_logical_or_expression(
-    pair: Pair<Rule>,
-) -> Result<Box<ExpressionType>, JsRuleError> {
+fn build_ast_from_logical_or_expression<'code>(
+    pair: Pair<'code, Rule>,
+) -> Result<Box<ExpressionType<'code>>, JsRuleError> {
     let mut left = None;
     for inner_pair in pair.into_inner() {
         let right = build_ast_from_logical_and_expression(inner_pair)?;
@@ -1356,10 +1341,7 @@ fn build_ast_from_call_expression(pair: Pair<Rule>) -> Result<Box<ExpressionType
     );
     for pair in pair_iter {
         let second_meta = get_meta(&pair);
-        let meta = Meta {
-            start_index: obj.get_meta().start_index,
-            end_index: second_meta.end_index,
-        };
+        let meta = Meta::new_by_concat(vec![obj.get_meta(), &second_meta]);
         obj = match pair.as_rule() {
             Rule::expression__in_yield | Rule::expression__in => Box::new(
                 ExpressionPatternType::MemberExpression(
@@ -1485,27 +1467,21 @@ fn build_ast_from_member_expression(pair: Pair<Rule>) -> Result<Box<ExpressionTy
                         )
                     }
                 }
-                Rule::meta_property => {
-                    let start = meta.start_index;
-                    let end = meta.end_index;
-                    Box::new(ExpressionType::MetaProperty {
-                        meta,
-                        meta_object: IdentifierData {
-                            meta: Meta {
-                                start_index: start,
-                                end_index: start + 3,
-                            },
-                            name: "new".to_string(),
+                Rule::meta_property => Box::new(ExpressionType::MetaProperty {
+                    meta,
+                    meta_object: IdentifierData {
+                        meta: Meta {
+                            script: vec!["new"],
                         },
-                        property: IdentifierData {
-                            meta: Meta {
-                                start_index: start + 4,
-                                end_index: end,
-                            },
-                            name: "target".to_string(),
+                        name: "new".to_string(),
+                    },
+                    property: IdentifierData {
+                        meta: Meta {
+                            script: vec!["target"],
                         },
-                    })
-                }
+                        name: "target".to_string(),
+                    },
+                }),
                 Rule::primary_expression | Rule::primary_expression__yield => {
                     build_ast_from_primary_expression(pair_1)?
                 }
@@ -1518,10 +1494,7 @@ fn build_ast_from_member_expression(pair: Pair<Rule>) -> Result<Box<ExpressionTy
             };
             for pair in pair_iter {
                 let second_meta = get_meta(&pair);
-                let meta = Meta {
-                    start_index: obj.get_meta().start_index,
-                    end_index: second_meta.end_index,
-                };
+                let meta = Meta::new_by_concat(vec![obj.get_meta(), &second_meta]);
                 obj = match pair.as_rule() {
                     Rule::expression__in_yield | Rule::expression__in => Box::new(
                         ExpressionPatternType::MemberExpression(

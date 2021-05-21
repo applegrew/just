@@ -1,4 +1,4 @@
-use crate::runner::ds::object::{CallableObject, Object, ObjectType};
+use crate::runner::ds::object::ObjectType;
 use crate::runner::ds::operations::type_conversion::{TYPE_STR_NULL, TYPE_STR_UNDEFINED};
 use crate::runner::ds::symbol::SymbolData;
 use std::cell::RefCell;
@@ -6,17 +6,17 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::rc::Rc;
 
-pub enum JsValue {
+pub enum JsValue<'code> {
     Undefined,
     Null,
     Boolean(bool),
     String(String),
     Symbol(SymbolData),
     Number(JsNumberType),
-    Object(Rc<RefCell<ObjectType>>),
+    Object(Rc<RefCell<ObjectType<'code>>>),
     Error(JErrorType),
 }
-impl Clone for JsValue {
+impl<'code> Clone for JsValue<'code> {
     fn clone(&self) -> Self {
         match self {
             JsValue::Undefined => JsValue::Undefined,
@@ -30,7 +30,7 @@ impl Clone for JsValue {
         }
     }
 }
-impl Display for JsValue {
+impl<'code> Display for JsValue<'code> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
