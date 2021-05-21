@@ -1,10 +1,11 @@
-use crate::runner::ds::object::JsObject;
+use crate::runner::ds::object::{JsObject, ObjectType};
 use crate::runner::ds::operations::type_conversion::{
     get_type, TYPE_STR_BOOLEAN, TYPE_STR_FUNCTION, TYPE_STR_NULL, TYPE_STR_NUMBER, TYPE_STR_OBJECT,
     TYPE_STR_STRING, TYPE_STR_SYMBOL, TYPE_STR_UNDEFINED,
 };
 use crate::runner::ds::value::{JsNumberType, JsValue};
 use std::ops::Deref;
+use std::ptr;
 
 fn is_same_value<'a>(a: &'a JsValue, b: &'a JsValue, strict_mode: bool) -> bool {
     let type_a = get_type(a);
@@ -14,8 +15,8 @@ fn is_same_value<'a>(a: &'a JsValue, b: &'a JsValue, strict_mode: bool) -> bool 
             true
         } else {
             if type_a == TYPE_STR_NUMBER {
-                if let JsValue::Number(na) = type_a {
-                    if let JsValue::Number(nb) = type_b {
+                if let JsValue::Number(na) = a {
+                    if let JsValue::Number(nb) = b {
                         match na {
                             JsNumberType::NaN => {
                                 if strict_mode {
@@ -44,19 +45,23 @@ fn is_same_value<'a>(a: &'a JsValue, b: &'a JsValue, strict_mode: bool) -> bool 
                             }
                             _ => {
                                 let na_value = match na {
-                                    JsNumberType::Float(f) => f,
-                                    JsNumberType::Integer(i) => i,
-                                    _ => 0, // Not really possible
+                                    JsNumberType::Float(f) => *f,
+                                    JsNumberType::Integer(i) => *i as f64,
+                                    _ => 0 as f64, // Not really possible
                                 };
                                 let nb_value = match nb {
-                                    JsNumberType::Float(f) => f,
-                                    JsNumberType::Integer(i) => i,
+                                    JsNumberType::Float(f) => *f,
+                                    JsNumberType::Integer(i) => *i as f64,
                                     _ => return false,
                                 };
                                 na_value == nb_value
                             }
                         }
+                    } else {
+                        false
                     }
+                } else {
+                    false
                 }
             } else if type_a == TYPE_STR_STRING {
                 if let JsValue::String(a_value) = a {
@@ -97,6 +102,8 @@ fn is_same_value<'a>(a: &'a JsValue, b: &'a JsValue, strict_mode: bool) -> bool 
                     }
                 }
                 false
+            } else {
+                false
             }
         }
     } else {
@@ -104,8 +111,12 @@ fn is_same_value<'a>(a: &'a JsValue, b: &'a JsValue, strict_mode: bool) -> bool 
     }
 }
 
-pub fn same_object<'a>(a: &'a dyn JsObject, b: &'a dyn JsObject) -> bool {
+pub fn same_object<'a>(a: &'a ObjectType, b: &'a ObjectType) -> bool {
     a == b
+}
+
+pub fn same_js_object<'code, J: JsObject<'code> + ?Sized>(a: &J, b: &J) -> bool {
+    ptr::eq(a.get_object_base(), b.get_object_base())
 }
 
 pub fn same_value<'a>(a: &'a JsValue, b: &'a JsValue) -> bool {

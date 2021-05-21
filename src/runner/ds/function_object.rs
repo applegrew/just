@@ -159,12 +159,10 @@ impl JsObject for BoundFunctionObject {
     fn to_string(&self) -> String {
         format!(
             "function [bounded function] ({}) {{ [native code] }}",
-            self.get_function_object_base()
-                .formal_parameters
-                .borrow()
+            (*self.get_function_object_base().formal_parameters)
                 .iter()
                 .map(|a| { a.get_meta().to_formatted_code() })
-                .collect()
+                .collect::<Vec<String>>()
                 .join(",")
         )
     }
@@ -178,11 +176,11 @@ impl JsFunctionObject for BoundFunctionObject {
         &self.function_object
     }
 
-    fn call<'a>(&'a self, _this: &'a JsValue, args: Vec<JsValue>) -> JsValue {
+    fn call(&self, _this: &JsValue, args: Vec<JsValue>) -> JsValue {
         let mut input_args = args;
         let mut new_args = self.bound_arguments.clone();
         new_args.append(&mut input_args);
-        self.bound_target_function
+        (*self.bound_target_function)
             .borrow()
             .call(&self.bound_this, new_args)
     }

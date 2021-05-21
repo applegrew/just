@@ -1,4 +1,7 @@
 use crate::runner::ds::object::{JsObject, ObjectType};
+use crate::runner::ds::object_property::PropertyKey;
+use crate::runner::ds::operations::object::get_method;
+use crate::runner::ds::symbol::SYMBOL_TO_PRIMITIVE;
 use crate::runner::ds::value::{JErrorType, JsNumberType, JsValue};
 use std::borrow::Borrow;
 use std::cell::{Ref, RefCell};
@@ -44,21 +47,30 @@ pub fn to_primitive(v: &JsValue, preferred_type: PreferredType) -> JsValue {
         JsValue::String(_) => v.clone(),
         JsValue::Symbol(_) => v.clone(),
         JsValue::Number(_) => v.clone(),
-        JsValue::Object(_) => {}
+        JJsValue::Object(_) => {
+            let m = get_method(v, &PropertyKey::Sym(SYMBOL_TO_PRIMITIVE));
+            todo!()
+        }
         JsValue::Error(_) => v.clone(),
     }
 }
 
 pub fn to_object(v: &JsValue) -> JsValue {
     match v {
-        JsValue::Undefined =>
-        JsValue::Null => JsValue::Error(JErrorType::TypeError(format!("'{}' cannot be converted to object", v))),
-        JsValue::Boolean(_) => {}
-        JsValue::String(_) => {}
-        JsValue::Symbol(_) => {}
-        JsValue::Number(_) => {}
-        JsValue::Object(_) => {}
-        JsValue::Error(_) => {}
+        JsValue::Undefined => JsValue::Error(JErrorType::TypeError(format!(
+            "'{}' cannot be converted to object",
+            v
+        ))),
+        JsValue::Null => JsValue::Error(JErrorType::TypeError(format!(
+            "'{}' cannot be converted to object",
+            v
+        ))),
+        JsValue::Boolean(_) => todo!(),
+        JsValue::String(_) => todo!(),
+        JsValue::Symbol(_) => todo!(),
+        JsValue::Number(_) => todo!(),
+        JsValue::Object(_) => v.clone(),
+        JsValue::Error(_) => v.clone(),
     }
 }
 
@@ -70,15 +82,30 @@ pub fn to_number(v: &JsValue) -> JsValue {
             true => 1,
             false => 0,
         })),
-        JsValue::String(s) => {}
+        JsValue::String(s) => todo!(),
         JsValue::Symbol(s) => JsValue::Error(JErrorType::TypeError(format!(
             "'{}' symbol cannot be converted to number",
             s
         ))),
         JsValue::Number(_) => v.clone(),
-        JsValue::Object(o) => to_number(to_primitive(o)),
+        JsValue::Object(o) => to_number(&to_primitive(v, PreferredType::Default)),
         JsValue::Error(_) => v.clone(),
     }
 }
 
-pub fn to_unit_32(v: &JsValue) -> u32 {}
+pub fn to_unit_32(v: &JsValue) -> Result<u32, JErrorType> {
+    let n = to_number(v);
+    match n {
+        JsValue::Number(n) => match n {
+            JsNumberType::Integer(i) => Ok((i % (2 ^ 32)) as u32),
+            JsNumberType::Float(f) => Ok((f.floor() % (2 ^ 32) as f64) as u32),
+            JsNumberType::NaN => Ok(0),
+            JsNumberType::PositiveInfinity => Ok(0),
+            JsNumberType::NegativeInfinity => Ok(0),
+        },
+        JsValue::Error(e) => Err(e),
+        _ => Err(JErrorType::TypeError(
+            "Unexpected type received".to_string(),
+        )),
+    }
+}

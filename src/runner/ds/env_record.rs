@@ -1,15 +1,15 @@
 use crate::runner::ds::object::{JErrorType, JsFunctionObject, ObjectType};
-use crate::runner::ds::value::JsValue;
+use crate::runner::ds::value::{JErrorType, JsValue};
 use std::collections::HashMap;
 
 pub trait EnvironmentRecord {
     fn has_binding(&self, name: &String) -> bool;
     fn create_mutable_binding(&mut self, name: String, can_delete: bool);
     fn create_immutable_binding(&mut self, name: String);
-    fn initialize_binding(&mut self, name: String, value: JsValue);
-    fn set_mutable_binding(&mut self, name: String, value: JsValue);
-    fn get_binding_value(&self, name: String) -> Result<&JsValue, JErrorType>;
-    fn delete_binding(&mut self, name: String) -> bool;
+    fn initialize_binding(&mut self, name: String, value: JsValue) -> bool;
+    fn set_mutable_binding(&mut self, name: String, value: JsValue) -> Option<JErrorType>;
+    fn get_binding_value(&self, name: &String) -> Result<&JsValue, JErrorType>;
+    fn delete_binding(&mut self, name: &String) -> bool;
     fn has_this_binding(&self) -> bool;
     fn has_super_binding(&self) -> bool;
 }
@@ -75,7 +75,7 @@ impl EnvironmentRecord for DeclarativeEnvironmentRecord {
 
     fn initialize_binding(&mut self, id: String, value: JsValue) -> bool {
         if let Some(v) = self.bindings.get(&id) {
-            if None == v {
+            if v.is_none() {
                 self.bindings.insert(id, Some(value));
                 true
             } else {
@@ -88,7 +88,7 @@ impl EnvironmentRecord for DeclarativeEnvironmentRecord {
 
     fn set_mutable_binding(&mut self, id: String, value: JsValue) -> Option<JErrorType> {
         if let Some(v) = self.bindings.get(&id) {
-            if None != v {
+            if !v.is_none() {
                 if !self
                     .binding_flags
                     .get(&id)
@@ -179,19 +179,19 @@ impl EnvironmentRecord for ObjectEnvironmentRecord {
         todo!()
     }
 
-    fn initialize_binding(&mut self, name: String, value: JsValue) {
+    fn initialize_binding(&mut self, name: String, value: JsValue) -> bool {
         todo!()
     }
 
-    fn set_mutable_binding(&mut self, name: String, value: JsValue) {
+    fn set_mutable_binding(&mut self, name: String, value: JsValue) -> Option<JErrorType> {
         todo!()
     }
 
-    fn get_binding_value(&self, name: String) -> Result<&JsValue, JErrorType> {
+    fn get_binding_value(&self, name: &String) -> Result<&JsValue, JErrorType> {
         todo!()
     }
 
-    fn delete_binding(&mut self, name: String) -> bool {
+    fn delete_binding(&mut self, name: &String) -> bool {
         todo!()
     }
 
@@ -212,7 +212,6 @@ pub struct FunctionEnvironmentRecord {
     home_object: Option<ObjectType>,
     new_target: Option<Box<dyn JsFunctionObject>>,
 }
-
 impl FunctionEnvironmentRecord {
     pub fn new(o: Box<ObjectType>) -> Self {}
 
@@ -265,7 +264,6 @@ impl FunctionEnvironmentRecord {
         }
     }
 }
-
 impl EnvironmentRecord for FunctionEnvironmentRecord {
     fn has_binding(&self, name: &String) -> bool {
         todo!()
@@ -279,19 +277,19 @@ impl EnvironmentRecord for FunctionEnvironmentRecord {
         todo!()
     }
 
-    fn initialize_binding(&mut self, name: String, value: JsValue) {
+    fn initialize_binding(&mut self, name: String, value: JsValue) -> bool {
         todo!()
     }
 
-    fn set_mutable_binding(&mut self, name: String, value: JsValue) {
+    fn set_mutable_binding(&mut self, name: String, value: JsValue) -> Option<JErrorType> {
         todo!()
     }
 
-    fn get_binding_value(&self, name: String) -> Result<&JsValue, JErrorType> {
+    fn get_binding_value(&self, name: &String) -> Result<&JsValue, JErrorType> {
         todo!()
     }
 
-    fn delete_binding(&mut self, name: String) -> bool {
+    fn delete_binding(&mut self, name: &String) -> bool {
         todo!()
     }
 
@@ -351,7 +349,6 @@ impl GlobalEnvironmentRecord {
         todo!()
     }
 }
-
 impl EnvironmentRecord for GlobalEnvironmentRecord {
     fn has_binding(&self, name: &String) -> bool {
         todo!()
@@ -365,19 +362,19 @@ impl EnvironmentRecord for GlobalEnvironmentRecord {
         todo!()
     }
 
-    fn initialize_binding(&mut self, name: String, value: JsValue) {
+    fn initialize_binding(&mut self, name: String, value: JsValue) -> bool {
         todo!()
     }
 
-    fn set_mutable_binding(&mut self, name: String, value: JsValue) {
+    fn set_mutable_binding(&mut self, name: String, value: JsValue) -> Option<JErrorType> {
         todo!()
     }
 
-    fn get_binding_value(&self, name: String) -> Result<&JsValue, JErrorType> {
+    fn get_binding_value(&self, name: &String) -> Result<&JsValue, JErrorType> {
         todo!()
     }
 
-    fn delete_binding(&mut self, name: String) -> bool {
+    fn delete_binding(&mut self, name: &String) -> bool {
         todo!()
     }
 

@@ -1,6 +1,7 @@
 mod array_object;
 mod env_record;
 mod function_object;
+mod iterator_object;
 mod lex_env;
 mod misc;
 mod object;

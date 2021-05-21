@@ -2,12 +2,62 @@ use crate::runner::ds::function_object::JsFunctionObject;
 use crate::runner::ds::operations::test_and_comparison::same_value;
 use crate::runner::ds::symbol::SymbolData;
 use crate::runner::ds::value::JsValue;
+use std::fmt;
+use std::fmt::{Display, Formatter};
+use std::hash::{Hash, Hasher};
+use std::ops::Deref;
 
 pub enum PropertyKey {
     Str(String),
     Int(u32),
     Sym(SymbolData),
 }
+impl Display for PropertyKey {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            PropertyKey::Str(s) => write!(f, "\"{}\"", s),
+            PropertyKey::Int(i) => write!(f, "{}", i),
+            PropertyKey::Sym(s) => write!(f, "{}", s),
+        }
+    }
+}
+impl PartialEq for PropertyKey {
+    fn eq(&self, other: &Self) -> bool {
+        match self {
+            PropertyKey::Str(s) => {
+                if let PropertyKey::Str(s2) = other {
+                    s == s2
+                } else {
+                    false
+                }
+            }
+            PropertyKey::Int(i) => {
+                if let PropertyKey::Int(i2) = other {
+                    i == i2
+                } else {
+                    false
+                }
+            }
+            PropertyKey::Sym(s) => {
+                if let PropertyKey::Sym(s2) = other {
+                    s == s2
+                } else {
+                    false
+                }
+            }
+        }
+    }
+}
+impl Hash for PropertyKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            PropertyKey::Str(s) => s.hash(state),
+            PropertyKey::Int(i) => i.hash(state),
+            PropertyKey::Sym(s) => s.hash(state),
+        }
+    }
+}
+impl Eq for PropertyKey {}
 
 pub struct PropertyDescriptorSetter {
     pub honour_value: bool,
@@ -166,6 +216,8 @@ impl PropertyDescriptor {
             } else {
                 unreachable!()
             }
+        } else {
+            panic!("Unexpected code path reached in PropertyDescriptor::new_from_property_descriptor_setter")
         }
     }
 
@@ -234,10 +286,24 @@ impl PartialEq for PropertyDescriptor {
                     configurable: other_configurable,
                 } = other
                 {
-                    setter == other_setter
-                        && getter == other_getter
-                        && enumerable == other_enumerable
-                        && configurable == other_configurable
+                    if enumerable != other_enumerable {
+                        false
+                    } else if configurable != other_configurable {
+                        false
+                    } else if setter.is_none() && !other_setter.is_none() {
+                        false
+                    } else if !setter.is_none() && other_setter.is_none() {
+                        false
+                    } else if setter.is_none() && other_setter.is_none() {
+                        true
+                    } else {
+                        if let Some(s) = setter {
+                            if let Some(os) = other_setter {
+                                return same_js_object(s.deref(), os.deref());
+                            }
+                        }
+                        false
+                    }
                 } else {
                     false
                 }
