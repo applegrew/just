@@ -1,5 +1,5 @@
 use crate::runner::ds::function_object::JsFunctionObject;
-use crate::runner::ds::operations::test_and_comparison::same_value;
+use crate::runner::ds::operations::test_and_comparison::{same_js_object, same_value};
 use crate::runner::ds::symbol::SymbolData;
 use crate::runner::ds::value::JsValue;
 use std::fmt;

@@ -1,12 +1,9 @@
-use crate::runner::ds::object::{JsObject, ObjectType};
+use crate::runner::ds::object::ObjectType;
 use crate::runner::ds::object_property::PropertyKey;
 use crate::runner::ds::operations::object::get_method;
 use crate::runner::ds::symbol::SYMBOL_TO_PRIMITIVE;
 use crate::runner::ds::value::{JErrorType, JsNumberType, JsValue};
-use std::borrow::Borrow;
-use std::cell::{Ref, RefCell};
 use std::ops::Deref;
-use std::rc::Rc;
 
 pub const TYPE_STR_UNDEFINED: &str = "undefined";
 pub const TYPE_STR_NULL: &str = "null";
@@ -25,9 +22,10 @@ pub fn get_type(a: &JsValue) -> &'static str {
         JsValue::String(_) => TYPE_STR_STRING,
         JsValue::Symbol(_) => TYPE_STR_SYMBOL,
         JsValue::Number(_) => TYPE_STR_NUMBER,
-        JsValue::Object(o) => match o.as_ref().borrow().deref() {
+        JsValue::Object(o) => match *(**o).borrow() {
             ObjectType::Ordinary(_) => TYPE_STR_OBJECT,
             ObjectType::Function(_) => TYPE_STR_FUNCTION,
+            ObjectType::Array(_) => TYPE_STR_OBJECT,
         },
         JsValue::Error(_) => TYPE_STR_OBJECT,
     }

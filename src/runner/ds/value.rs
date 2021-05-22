@@ -1,4 +1,4 @@
-use crate::runner::ds::object::{CallableObject, Object, ObjectType};
+use crate::runner::ds::object::{JsObject, ObjectType};
 use crate::runner::ds::operations::type_conversion::{TYPE_STR_NULL, TYPE_STR_UNDEFINED};
 use crate::runner::ds::symbol::SymbolData;
 use std::cell::RefCell;
@@ -36,13 +36,13 @@ impl Display for JsValue {
             f,
             "{}",
             match self {
-                JsValue::Undefined => TYPE_STR_UNDEFINED,
-                JsValue::Null => TYPE_STR_NULL,
+                JsValue::Undefined => TYPE_STR_UNDEFINED.to_string(),
+                JsValue::Null => TYPE_STR_NULL.to_string(),
                 JsValue::Boolean(b) => format!("bool({})", b),
                 JsValue::String(s) => format!("\"{}\"", s),
                 JsValue::Symbol(s) => s.to_string(),
                 JsValue::Number(n) => n.to_string(),
-                JsValue::Object(o) => o.to_string(),
+                JsValue::Object(o) => (**o).borrow().to_string(),
                 JsValue::Error(e) => e.to_string(),
             }
         )
@@ -58,17 +58,13 @@ pub enum JsNumberType {
 }
 impl Display for JsNumberType {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                JsNumberType::Integer(i) => i,
-                JsNumberType::Float(f) => f,
-                JsNumberType::NaN => "NaN",
-                JsNumberType::PositiveInfinity => "+Infinity",
-                JsNumberType::NegativeInfinity => "-Infinity",
-            }
-        )
+        match self {
+            JsNumberType::Integer(i) => write!(f, "{}", i),
+            JsNumberType::Float(nf) => write!(f, "{}", nf),
+            JsNumberType::NaN => write!(f, "NaN"),
+            JsNumberType::PositiveInfinity => write!(f, "+Infinity"),
+            JsNumberType::NegativeInfinity => write!(f, "-Infinity"),
+        }
     }
 }
 

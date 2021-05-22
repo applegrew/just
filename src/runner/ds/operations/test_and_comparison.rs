@@ -115,7 +115,7 @@ pub fn same_object<'a>(a: &'a ObjectType, b: &'a ObjectType) -> bool {
     a == b
 }
 
-pub fn same_js_object<'code, J: JsObject<'code> + ?Sized>(a: &J, b: &J) -> bool {
+pub fn same_js_object<J: JsObject + ?Sized>(a: &J, b: &J) -> bool {
     ptr::eq(a.get_object_base(), b.get_object_base())
 }
 

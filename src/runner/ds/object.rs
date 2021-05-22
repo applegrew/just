@@ -1,18 +1,15 @@
-use crate::parser::ast::{FunctionBodyData, PatternType};
 use crate::runner::ds::array_object::JsArrayObject;
 use crate::runner::ds::function_object::JsFunctionObject;
-use crate::runner::ds::lex_env::LexEnvironment;
+use crate::runner::ds::iterator_object::JsIteratorObject;
 use crate::runner::ds::object_property::{
     PropertyDescriptor, PropertyDescriptorSetter, PropertyKey,
 };
-use crate::runner::ds::operations::test_and_comparison::{same_object, same_value};
-use crate::runner::ds::symbol::SymbolData;
+use crate::runner::ds::operations::test_and_comparison::{same_js_object, same_object, same_value};
 use crate::runner::ds::value::JsValue;
 use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::Deref;
-use std::ptr;
 use std::rc::Rc;
 
 pub enum ObjectType {
@@ -54,6 +51,14 @@ impl ObjectType {
             _ => false,
         }
     }
+
+    pub fn as_js_object(&self) -> &dyn JsObject {
+        match self {
+            ObjectType::Ordinary(o) => o.as_super_trait(),
+            ObjectType::Function(o) => o.as_super_trait(),
+            ObjectType::Array(o) => o.as_super_trait(),
+        }
+    }
 }
 impl JsObject for ObjectType {
     fn get_object_base_mut(&mut self) -> &mut ObjectBase {
@@ -70,6 +75,10 @@ impl JsObject for ObjectType {
             ObjectType::Function(o) => o.get_object_base(),
             ObjectType::Array(o) => o.get_object_base(),
         }
+    }
+
+    fn as_super_trait(&self) -> &dyn JsObject {
+        todo!()
     }
 }
 
@@ -92,6 +101,8 @@ pub trait JsObject {
     fn get_object_base_mut(&mut self) -> &mut ObjectBase;
 
     fn get_object_base(&self) -> &ObjectBase;
+
+    fn as_super_trait(&self) -> &dyn JsObject;
 
     fn get_prototype_of(&self) -> Option<Rc<RefCell<ObjectType>>> {
         match &self.get_object_base().prototype {
@@ -129,7 +140,7 @@ pub trait JsObject {
             let mut p = &new_value;
             loop {
                 if let Some(some_p) = p {
-                    if same_object(some_p.deref().borrow().deref(), self) {
+                    if same_js_object(self.as_super_trait(), (**some_p).borrow().deref()) {
                         // To prevent circular chain
                         return false;
                     } else {
@@ -173,7 +184,7 @@ pub trait JsObject {
         } else {
             match &self.get_object_base().prototype {
                 None => false,
-                Some(o) => o.borrow().has_property(property),
+                Some(o) => (**o).borrow().has_property(property),
             }
         }
     }
@@ -209,7 +220,7 @@ pub trait JsObject {
                     );
                     true
                 }
-                Some(p) => p.deref().borrow_mut().set(property, value, receiver),
+                Some(p) => (*p).borrow_mut().set(property, value, receiver),
             },
             Some(pd) => match pd {
                 PropertyDescriptor::Data {
@@ -218,7 +229,7 @@ pub trait JsObject {
                     if *writable {
                         match receiver {
                             JsValue::Object(o) => {
-                                let obj = o.deref().borrow().deref().as_js_object_mut();
+                                let mut obj = *(**o).borrow();
                                 match obj.get_own_property(&property) {
                                     None => {
                                         let desc_setter =
@@ -235,7 +246,7 @@ pub trait JsObject {
                                     }
                                     Some(pd) => match pd {
                                         PropertyDescriptor::Data { writable, .. } => {
-                                            if writable {
+                                            if *writable {
                                                 obj.define_own_property(
                                                     property,
                                                     PropertyDescriptorSetter {
@@ -316,9 +327,24 @@ pub trait JsObject {
         int_keys.sort();
 
         let mut result = vec![];
-        result.append(int_keys.into_iter().map(|v| PropertyKey::Int(v)).collect());
-        result.append(str_keys.into_iter().map(|v| PropertyKey::Str(v)).collect());
-        result.append(sym_keys.into_iter().map(|v| PropertyKey::Sym(v)).collect());
+        result.append(
+            &mut int_keys
+                .into_iter()
+                .map(|v| PropertyKey::Int(v))
+                .collect::<Vec<PropertyKey>>(),
+        );
+        result.append(
+            &mut str_keys
+                .into_iter()
+                .map(|v| PropertyKey::Str(v))
+                .collect::<Vec<PropertyKey>>(),
+        );
+        result.append(
+            &mut sym_keys
+                .into_iter()
+                .map(|v| PropertyKey::Sym(v))
+                .collect::<Vec<PropertyKey>>(),
+        );
         result
     }
 
@@ -395,10 +421,10 @@ pub fn ordinary_define_own_property<J: JsObject + ?Sized>(
                                 ..
                             } = &descriptor
                             {
-                                if !current_writable && desc_writable {
+                                if !*current_writable && *desc_writable {
                                     return false;
                                 }
-                                if !current_writable {
+                                if !*current_writable {
                                     if descriptor_setter.honour_value
                                         && !same_value(current_value, desc_value)
                                     {
@@ -428,9 +454,9 @@ pub fn ordinary_define_own_property<J: JsObject + ?Sized>(
                                     && descriptor_setter.honour_set
                                     && ((!current_set.is_none() && desc_set.is_none())
                                         || (current_set.is_none() && !desc_set.is_none())
-                                        || !same_object(
-                                            current_set.as_ref().unwrap().deref(),
-                                            desc_set.as_ref().unwrap().deref(),
+                                        || !same_js_object::<dyn JsFunctionObject>(
+                                            current_set.as_ref().unwrap().borrow(),
+                                            desc_set.as_ref().unwrap().borrow(),
                                         ))
                                 {
                                     return false;
@@ -440,9 +466,9 @@ pub fn ordinary_define_own_property<J: JsObject + ?Sized>(
                                     && descriptor_setter.honour_get
                                     && ((!current_get.is_none() && desc_get.is_none())
                                         || (current_get.is_none() && !desc_get.is_none())
-                                        || !same_object(
-                                            current_get.as_ref().unwrap().deref(),
-                                            desc_get.as_ref().unwrap().deref(),
+                                        || !same_js_object::<dyn JsFunctionObject>(
+                                            current_get.as_ref().unwrap().borrow(),
+                                            desc_get.as_ref().unwrap().borrow(),
                                         ))
                                 {
                                     return false;

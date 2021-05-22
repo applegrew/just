@@ -2,10 +2,7 @@ use crate::parser::ast::{FunctionBodyData, HasMeta, PatternType};
 use crate::runner::ds::lex_env::LexEnvironment;
 use crate::runner::ds::object::{JsObject, ObjectBase, ObjectType};
 use crate::runner::ds::value::{JErrorType, JsValue};
-use std::alloc::Global;
-use std::borrow::Borrow;
 use std::cell::RefCell;
-use std::ops::Deref;
 use std::rc::Rc;
 
 pub enum FunctionKind {
@@ -154,6 +151,10 @@ impl JsObject for BoundFunctionObject {
 
     fn get_object_base(&self) -> &ObjectBase {
         self.function_object.get_object_base()
+    }
+
+    fn as_super_trait(&self) -> &dyn JsObject {
+        self
     }
 
     fn to_string(&self) -> String {

@@ -1,4 +1,5 @@
-use crate::runner::ds::object::{JErrorType, JsFunctionObject, ObjectType};
+use crate::runner::ds::function_object::JsFunctionObject;
+use crate::runner::ds::object::ObjectType;
 use crate::runner::ds::value::{JErrorType, JsValue};
 use std::collections::HashMap;
 
@@ -32,6 +33,7 @@ impl EnvironmentRecordType {
     }
 }
 
+#[derive(PartialEq)]
 pub enum BindingFlag {
     NoDelete,
     IsImmutable,
@@ -213,7 +215,7 @@ pub struct FunctionEnvironmentRecord {
     new_target: Option<Box<dyn JsFunctionObject>>,
 }
 impl FunctionEnvironmentRecord {
-    pub fn new(o: Box<ObjectType>) -> Self {}
+    // pub fn new(o: Box<ObjectType>) -> Self {}
 
     pub fn bind_this_value(&mut self, this: JsValue) -> Result<&JsValue, JErrorType> {
         if !self.is_lexical_binding {
