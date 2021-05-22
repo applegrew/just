@@ -47,7 +47,7 @@ pub fn to_primitive(v: &JsValue, preferred_type: PreferredType) -> JsValue {
         JsValue::String(_) => v.clone(),
         JsValue::Symbol(_) => v.clone(),
         JsValue::Number(_) => v.clone(),
-        JJsValue::Object(_) => {
+        JsValue::Object(_) => {
             let m = get_method(v, &PropertyKey::Sym(SYMBOL_TO_PRIMITIVE));
             todo!()
         }
