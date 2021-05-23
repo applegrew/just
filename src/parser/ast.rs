@@ -21,7 +21,7 @@ pub enum JsErrorType<R> {
 pub struct Meta {
     pub start_index: usize,
     pub end_index: usize,
-    pub script: Option<Rc<String>>,
+    pub script: Rc<String>,
 }
 impl Meta {
     pub fn to_formatted_string(&self, script: &str) -> String {
@@ -32,9 +32,10 @@ impl Meta {
     }
 
     pub fn to_formatted_code(&self) -> String {
-        match &self.script {
-            None => "[unknown]",
-            Some(s) => (*s[self.start_index..self.end_index]).to_string(),
+        if self.script.len() <= self.end_index {
+            self.script[self.start_index..self.end_index].to_string()
+        } else {
+            "[unknown]".to_string()
         }
     }
 }
@@ -43,10 +44,7 @@ impl Clone for Meta {
         Meta {
             start_index: self.start_index,
             end_index: self.end_index,
-            script: match &self.script {
-                None => None,
-                Some(s) => s.clone(),
-            },
+            script: self.script.clone(),
         }
     }
 }

@@ -58,6 +58,15 @@ impl Hash for PropertyKey {
     }
 }
 impl Eq for PropertyKey {}
+impl Clone for PropertyKey {
+    fn clone(&self) -> Self {
+        match self {
+            PropertyKey::Str(s) => PropertyKey::Str(s.clone()),
+            PropertyKey::Int(i) => PropertyKey::Int(*i),
+            PropertyKey::Sym(s) => PropertyKey::Sym(s.clone()),
+        }
+    }
+}
 
 pub struct PropertyDescriptorSetter {
     pub honour_value: bool,
@@ -69,7 +78,7 @@ pub struct PropertyDescriptorSetter {
     pub descriptor: PropertyDescriptor,
 }
 impl PropertyDescriptorSetter {
-    pub(crate) fn new_from_property_descriptor(desc: PropertyDescriptor) -> Self {
+    pub fn new_from_property_descriptor(desc: PropertyDescriptor) -> Self {
         match desc {
             PropertyDescriptor::Data { .. } => PropertyDescriptorSetter {
                 honour_value: true,
@@ -92,7 +101,7 @@ impl PropertyDescriptorSetter {
         }
     }
 
-    pub(crate) fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         !self.honour_configurable
             && !self.honour_enumerable
             && !self.honour_get
@@ -101,7 +110,7 @@ impl PropertyDescriptorSetter {
             && !self.honour_writable
     }
 
-    pub(crate) fn are_all_fields_set(&self) -> bool {
+    pub fn are_all_fields_set(&self) -> bool {
         if self.descriptor.is_data_descriptor() {
             self.honour_configurable
                 && self.honour_enumerable
@@ -112,7 +121,7 @@ impl PropertyDescriptorSetter {
         }
     }
 
-    pub(crate) fn is_generic_descriptor(&self) -> bool {
+    pub fn is_generic_descriptor(&self) -> bool {
         !self.honour_get && !self.honour_set && !self.honour_value && !self.honour_writable
     }
 }
@@ -132,9 +141,7 @@ pub enum PropertyDescriptor {
     },
 }
 impl PropertyDescriptor {
-    pub(crate) fn new_from_property_descriptor_setter(
-        desc_setter: PropertyDescriptorSetter,
-    ) -> Self {
+    pub fn new_from_property_descriptor_setter(desc_setter: PropertyDescriptorSetter) -> Self {
         if desc_setter.is_generic_descriptor() {
             if desc_setter.descriptor.is_data_descriptor() {
                 PropertyDescriptor::Data {
@@ -170,16 +177,16 @@ impl PropertyDescriptor {
         } else if desc_setter.descriptor.is_data_descriptor() {
             if let PropertyDescriptor::Data {
                 writable, value, ..
-            } = desc_setter.descriptor
+            } = &desc_setter.descriptor
             {
                 PropertyDescriptor::Data {
                     value: if desc_setter.honour_value {
-                        value
+                        value.clone()
                     } else {
                         JsValue::Undefined
                     },
                     writable: if desc_setter.honour_writable {
-                        writable
+                        *writable
                     } else {
                         false
                     },
@@ -198,17 +205,19 @@ impl PropertyDescriptor {
                 unreachable!()
             }
         } else if desc_setter.descriptor.is_accessor_descriptor() {
+            let is_enumerable = desc_setter.descriptor.is_enumerable();
+            let is_configurable = desc_setter.descriptor.is_configurable();
             if let PropertyDescriptor::Accessor { set, get, .. } = desc_setter.descriptor {
                 PropertyDescriptor::Accessor {
                     set: if desc_setter.honour_set { set } else { None },
                     get: if desc_setter.honour_get { get } else { None },
                     enumerable: if desc_setter.honour_enumerable {
-                        desc_setter.descriptor.is_enumerable()
+                        is_enumerable
                     } else {
                         false
                     },
                     configurable: if desc_setter.honour_configurable {
-                        desc_setter.descriptor.is_configurable()
+                        is_configurable
                     } else {
                         false
                     },
@@ -221,28 +230,28 @@ impl PropertyDescriptor {
         }
     }
 
-    pub(crate) fn is_enumerable(&self) -> bool {
+    pub fn is_enumerable(&self) -> bool {
         match self {
             PropertyDescriptor::Data { enumerable, .. } => *enumerable,
             PropertyDescriptor::Accessor { enumerable, .. } => *enumerable,
         }
     }
 
-    pub(crate) fn is_configurable(&self) -> bool {
+    pub fn is_configurable(&self) -> bool {
         match self {
             PropertyDescriptor::Data { configurable, .. } => *configurable,
             PropertyDescriptor::Accessor { configurable, .. } => *configurable,
         }
     }
 
-    pub(crate) fn is_data_descriptor(&self) -> bool {
+    pub fn is_data_descriptor(&self) -> bool {
         match self {
             PropertyDescriptor::Data { .. } => true,
             PropertyDescriptor::Accessor { .. } => false,
         }
     }
 
-    pub(crate) fn is_accessor_descriptor(&self) -> bool {
+    pub fn is_accessor_descriptor(&self) -> bool {
         match self {
             PropertyDescriptor::Data { .. } => false,
             PropertyDescriptor::Accessor { .. } => true,

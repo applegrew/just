@@ -101,7 +101,7 @@ pub fn assert_parse(test_name: &str) {
     let start = Instant::now();
     let result = JsParser::parse_to_token_tree(unparsed_file.as_str()).unwrap();
     let end_1 = Instant::now();
-    let ast_result = JsParser::parse_to_ast_string(unparsed_file.as_str()).unwrap();
+    let ast_result = JsParser::parse_to_ast_formatted_string(unparsed_file.as_str()).unwrap();
     let end_2 = Instant::now();
     let total_time_1 = end_1.saturating_duration_since(start);
     let total_time_2 = end_2.saturating_duration_since(end_1);

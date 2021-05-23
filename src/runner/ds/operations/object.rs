@@ -7,15 +7,15 @@ use std::ops::Deref;
 use std::rc::Rc;
 
 pub fn get(o: &Rc<RefCell<ObjectType>>, p: &PropertyKey) -> JsValue {
-    let o1 = o.deref().borrow().deref();
-    o1.get(p, &JsValue::Object(o.clone()))
+    let o1 = (**o).borrow();
+    o1.as_js_object().get(p, &JsValue::Object(o.clone()))
 }
 
 pub fn get_v(v: &JsValue, p: &PropertyKey) -> JsValue {
     let o = to_object(v);
     if let JsValue::Object(o) = o {
         let o = (*o).borrow();
-        o.get(p, v)
+        o.as_js_object().get(p, v)
     } else {
         v.clone()
     }

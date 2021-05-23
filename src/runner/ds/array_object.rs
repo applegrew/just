@@ -5,7 +5,9 @@ use crate::runner::ds::object_property::{
 use crate::runner::ds::operations::type_conversion::to_unit_32;
 use crate::runner::ds::value::JErrorType;
 
-const ARRAY_LENGTH_PROP: PropertyKey = PropertyKey::Str("length".to_string());
+lazy_static! {
+    static ref ARRAY_LENGTH_PROP: PropertyKey = PropertyKey::Str("length".to_string());
+}
 
 pub trait JsArrayObject: JsObject {
     fn define_own_property(
@@ -25,7 +27,7 @@ pub fn array_set_length(
     if !descriptor_setter.honour_value {
         Ok(ordinary_define_own_property(
             array,
-            ARRAY_LENGTH_PROP,
+            ARRAY_LENGTH_PROP.clone(),
             descriptor_setter,
         ))
     } else {

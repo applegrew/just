@@ -59,26 +59,13 @@ impl ObjectType {
             ObjectType::Array(o) => o.as_super_trait(),
         }
     }
-}
-impl JsObject for ObjectType {
-    fn get_object_base_mut(&mut self) -> &mut ObjectBase {
-        match self {
-            ObjectType::Ordinary(o) => o.get_object_base_mut(),
-            ObjectType::Function(o) => o.get_object_base_mut(),
-            ObjectType::Array(o) => o.get_object_base_mut(),
-        }
-    }
 
-    fn get_object_base(&self) -> &ObjectBase {
+    pub fn as_js_object_mut(&mut self) -> &mut dyn JsObject {
         match self {
-            ObjectType::Ordinary(o) => o.get_object_base(),
-            ObjectType::Function(o) => o.get_object_base(),
-            ObjectType::Array(o) => o.get_object_base(),
+            ObjectType::Ordinary(o) => o.as_super_trait_mut(),
+            ObjectType::Function(o) => o.as_super_trait_mut(),
+            ObjectType::Array(o) => o.as_super_trait_mut(),
         }
-    }
-
-    fn as_super_trait(&self) -> &dyn JsObject {
-        todo!()
     }
 }
 
@@ -103,6 +90,8 @@ pub trait JsObject {
     fn get_object_base(&self) -> &ObjectBase;
 
     fn as_super_trait(&self) -> &dyn JsObject;
+
+    fn as_super_trait_mut(&mut self) -> &mut dyn JsObject;
 
     fn get_prototype_of(&self) -> Option<Rc<RefCell<ObjectType>>> {
         match &self.get_object_base().prototype {
@@ -137,20 +126,29 @@ pub trait JsObject {
             }
         };
         if self.is_extensible() {
-            let mut p = &new_value;
-            loop {
-                if let Some(some_p) = p {
-                    if same_js_object(self.as_super_trait(), (**some_p).borrow().deref()) {
-                        // To prevent circular chain
-                        return false;
+            if let Some(new_value) = new_value {
+                let mut p = Some(new_value.clone());
+                loop {
+                    if let Some(some_p) = p {
+                        if same_js_object(
+                            self.as_super_trait(),
+                            (*(*some_p).borrow()).as_js_object(),
+                        ) {
+                            // To prevent circular chain
+                            return false;
+                        } else {
+                            let t1 = (*some_p).borrow();
+                            let t2 = (*t1).as_js_object().get_prototype_of();
+                            p = t2;
+                        }
                     } else {
-                        p = some_p.deref().borrow().deref().get_prototype_of().borrow();
+                        break;
                     }
-                } else {
-                    break;
                 }
+                self.get_object_base_mut().prototype = Some(new_value);
+            } else {
+                self.get_object_base_mut().prototype = None;
             }
-            self.get_object_base_mut().prototype = new_value;
             true
         } else {
             false
@@ -173,7 +171,7 @@ pub trait JsObject {
     fn define_own_property(
         &mut self,
         property: PropertyKey,
-        mut descriptor_setter: PropertyDescriptorSetter,
+        descriptor_setter: PropertyDescriptorSetter,
     ) -> bool {
         ordinary_define_own_property(self, property, descriptor_setter)
     }
@@ -184,7 +182,7 @@ pub trait JsObject {
         } else {
             match &self.get_object_base().prototype {
                 None => false,
-                Some(o) => (**o).borrow().has_property(property),
+                Some(o) => (**o).borrow().as_js_object().has_property(property),
             }
         }
     }
@@ -193,7 +191,7 @@ pub trait JsObject {
         match self.get_own_property(property) {
             None => match self.get_prototype_of() {
                 None => JsValue::Undefined,
-                Some(p) => p.deref().borrow().deref().get(property, receiver),
+                Some(p) => (*(*p).borrow()).as_js_object().get(property, receiver),
             },
             Some(pd) => match pd {
                 PropertyDescriptor::Data { value, .. } => value.clone(),
@@ -220,7 +218,10 @@ pub trait JsObject {
                     );
                     true
                 }
-                Some(p) => (*p).borrow_mut().set(property, value, receiver),
+                Some(p) => (*p)
+                    .borrow_mut()
+                    .as_js_object_mut()
+                    .set(property, value, receiver),
             },
             Some(pd) => match pd {
                 PropertyDescriptor::Data {
@@ -229,7 +230,8 @@ pub trait JsObject {
                     if *writable {
                         match receiver {
                             JsValue::Object(o) => {
-                                let mut obj = *(**o).borrow();
+                                let mut ot_obj = (**o).borrow_mut();
+                                let obj = (*ot_obj).as_js_object_mut();
                                 match obj.get_own_property(&property) {
                                     None => {
                                         let desc_setter =

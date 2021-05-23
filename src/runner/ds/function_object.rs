@@ -157,6 +157,10 @@ impl JsObject for BoundFunctionObject {
         self
     }
 
+    fn as_super_trait_mut(&mut self) -> &mut dyn JsObject {
+        self
+    }
+
     fn to_string(&self) -> String {
         format!(
             "function [bounded function] ({}) {{ [native code] }}",

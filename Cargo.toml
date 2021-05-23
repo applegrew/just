@@ -12,3 +12,5 @@ pest_derive = "2.1.0"
 pest_consume = "1.0.6"
 pest_consume_macros = "1.0.6"
 uuid = { version = "0.8", features = ["v4"] }
+lazy_static = "1.4.0"
+

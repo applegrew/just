@@ -13,22 +13,23 @@ pub fn get_identifier_reference<'a>(
     lex: Option<Rc<RefCell<LexEnvironment>>>,
     name: String,
 ) -> IdentifierReference<'a> {
-    if let Some(lex) = lex {
-        let lex = *(*lex).borrow();
-        if lex.inner.resolve_to_env_record().has_binding(&name) {
-            IdentifierReference {
-                name,
-                value: Some(lex.inner.borrow()),
-            }
-        } else {
-            match &lex.outer {
-                None => get_identifier_reference(None, name),
-                Some(l) => get_identifier_reference(Some(l.clone()), name),
-            }
-        }
-    } else {
-        IdentifierReference { name, value: None }
-    }
+    // if let Some(lex) = lex {
+    //     let lex = (*lex).borrow();
+    //     if lex.inner.resolve_to_env_record().has_binding(&name) {
+    //         IdentifierReference {
+    //             name,
+    //             value: Some(lex.inner.borrow()),
+    //         }
+    //     } else {
+    //         match &lex.outer {
+    //             None => get_identifier_reference(None, name),
+    //             Some(l) => get_identifier_reference(Some(l.clone()), name),
+    //         }
+    //     }
+    // } else {
+    //     IdentifierReference { name, value: None }
+    // }
+    todo!()
 }
 
 pub fn new_declarative_environment(

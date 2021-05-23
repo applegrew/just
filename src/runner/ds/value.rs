@@ -42,7 +42,7 @@ impl Display for JsValue {
                 JsValue::String(s) => format!("\"{}\"", s),
                 JsValue::Symbol(s) => s.to_string(),
                 JsValue::Number(n) => n.to_string(),
-                JsValue::Object(o) => (**o).borrow().to_string(),
+                JsValue::Object(o) => (**o).borrow().as_js_object().to_string(),
                 JsValue::Error(e) => e.to_string(),
             }
         )

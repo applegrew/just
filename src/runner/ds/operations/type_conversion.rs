@@ -3,7 +3,6 @@ use crate::runner::ds::object_property::PropertyKey;
 use crate::runner::ds::operations::object::get_method;
 use crate::runner::ds::symbol::SYMBOL_TO_PRIMITIVE;
 use crate::runner::ds::value::{JErrorType, JsNumberType, JsValue};
-use std::ops::Deref;
 
 pub const TYPE_STR_UNDEFINED: &str = "undefined";
 pub const TYPE_STR_NULL: &str = "null";
@@ -46,7 +45,7 @@ pub fn to_primitive(v: &JsValue, preferred_type: PreferredType) -> JsValue {
         JsValue::Symbol(_) => v.clone(),
         JsValue::Number(_) => v.clone(),
         JsValue::Object(_) => {
-            let m = get_method(v, &PropertyKey::Sym(SYMBOL_TO_PRIMITIVE));
+            let m = get_method(v, &PropertyKey::Sym(SYMBOL_TO_PRIMITIVE.clone()));
             todo!()
         }
         JsValue::Error(_) => v.clone(),

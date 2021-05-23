@@ -217,7 +217,7 @@ pub struct FunctionEnvironmentRecord {
 impl FunctionEnvironmentRecord {
     // pub fn new(o: Box<ObjectType>) -> Self {}
 
-    pub fn bind_this_value(&mut self, this: JsValue) -> Result<&JsValue, JErrorType> {
+    pub fn bind_this_value(&mut self, this: JsValue) -> Result<bool, JErrorType> {
         if !self.is_lexical_binding {
             if let Some(_) = &self.this_value {
                 Err(JErrorType::ReferenceError(
@@ -225,7 +225,7 @@ impl FunctionEnvironmentRecord {
                 ))
             } else {
                 self.this_value = Some(this);
-                Ok(&this)
+                Ok(true)
             }
         } else {
             Err(JErrorType::TypeError(

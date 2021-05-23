@@ -42,14 +42,19 @@ impl Hash for SymbolData {
 }
 
 /* Well known symbols */
-pub const SYMBOL_HAS_INSTANCE: SymbolData = SymbolData::new("Symbol.hasInstance".to_string());
-pub const SYMBOL_IS_CONCAT_SPREADABLE: SymbolData =
-    SymbolData::new("Symbol.isConcatSpreadable".to_string());
-pub const SYMBOL_ITERATOR: SymbolData = SymbolData::new("Symbol.iterator".to_string());
-pub const SYMBOL_MATCH: SymbolData = SymbolData::new("Symbol.match".to_string());
-pub const SYMBOL_REPLACE: SymbolData = SymbolData::new("Symbol.replace".to_string());
-pub const SYMBOL_SEARCH: SymbolData = SymbolData::new("Symbol.search".to_string());
-pub const SYMBOL_SPECIES: SymbolData = SymbolData::new("Symbol.species".to_string());
-pub const SYMBOL_SPLIT: SymbolData = SymbolData::new("Symbol.split".to_string());
-pub const SYMBOL_TO_PRIMITIVE: SymbolData = SymbolData::new("Symbol.toPrimitive".to_string());
-pub const SYMBOL_TO_STRING_TAG: SymbolData = SymbolData::new("Symbol.toStringTag".to_string());
+lazy_static! {
+    pub static ref SYMBOL_HAS_INSTANCE: SymbolData =
+        SymbolData::new("Symbol.hasInstance".to_string());
+    pub static ref SYMBOL_IS_CONCAT_SPREADABLE: SymbolData =
+        SymbolData::new("Symbol.isConcatSpreadable".to_string());
+    pub static ref SYMBOL_ITERATOR: SymbolData = SymbolData::new("Symbol.iterator".to_string());
+    pub static ref SYMBOL_MATCH: SymbolData = SymbolData::new("Symbol.match".to_string());
+    pub static ref SYMBOL_REPLACE: SymbolData = SymbolData::new("Symbol.replace".to_string());
+    pub static ref SYMBOL_SEARCH: SymbolData = SymbolData::new("Symbol.search".to_string());
+    pub static ref SYMBOL_SPECIES: SymbolData = SymbolData::new("Symbol.species".to_string());
+    pub static ref SYMBOL_SPLIT: SymbolData = SymbolData::new("Symbol.split".to_string());
+    pub static ref SYMBOL_TO_PRIMITIVE: SymbolData =
+        SymbolData::new("Symbol.toPrimitive".to_string());
+    pub static ref SYMBOL_TO_STRING_TAG: SymbolData =
+        SymbolData::new("Symbol.toStringTag".to_string());
+}
