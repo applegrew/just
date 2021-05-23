@@ -1,9 +1,9 @@
+use crate::runner::ds::error::JErrorType;
 use crate::runner::ds::object::{ordinary_define_own_property, JsObject};
 use crate::runner::ds::object_property::{
     PropertyDescriptor, PropertyDescriptorSetter, PropertyKey,
 };
 use crate::runner::ds::operations::type_conversion::to_unit_32;
-use crate::runner::ds::value::JErrorType;
 
 lazy_static! {
     static ref ARRAY_LENGTH_PROP: PropertyKey = PropertyKey::Str("length".to_string());

@@ -1,4 +1,5 @@
 use crate::runner::ds::array_object::JsArrayObject;
+use crate::runner::ds::error::JErrorType;
 use crate::runner::ds::function_object::JsFunctionObject;
 use crate::runner::ds::iterator_object::JsIteratorObject;
 use crate::runner::ds::object_property::{
@@ -187,23 +188,32 @@ pub trait JsObject {
         }
     }
 
-    fn get<'a>(&'a self, property: &'a PropertyKey, receiver: &'a JsValue) -> JsValue {
+    fn get<'a>(
+        &'a self,
+        property: &'a PropertyKey,
+        receiver: &'a JsValue,
+    ) -> Result<JsValue, JErrorType> {
         match self.get_own_property(property) {
             None => match self.get_prototype_of() {
-                None => JsValue::Undefined,
+                None => Ok(JsValue::Undefined),
                 Some(p) => (*(*p).borrow()).as_js_object().get(property, receiver),
             },
             Some(pd) => match pd {
-                PropertyDescriptor::Data { value, .. } => value.clone(),
+                PropertyDescriptor::Data { value, .. } => Ok(value.clone()),
                 PropertyDescriptor::Accessor { get, .. } => match get {
-                    None => JsValue::Undefined,
+                    None => Ok(JsValue::Undefined),
                     Some(getter) => getter.call(receiver, Vec::new()),
                 },
             },
         }
     }
 
-    fn set<'a>(&'a mut self, property: PropertyKey, value: JsValue, receiver: &'a JsValue) -> bool {
+    fn set<'a>(
+        &'a mut self,
+        property: PropertyKey,
+        value: JsValue,
+        receiver: &'a JsValue,
+    ) -> Result<bool, JErrorType> {
         match self.get_own_property(&property) {
             None => match self.get_prototype_of() {
                 None => {
@@ -216,7 +226,7 @@ pub trait JsObject {
                             configurable: true,
                         },
                     );
-                    true
+                    Ok(true)
                 }
                 Some(p) => (*p)
                     .borrow_mut()
@@ -244,12 +254,12 @@ pub trait JsObject {
                                                 },
                                             );
                                         obj.define_own_property(property, desc_setter);
-                                        true
+                                        Ok(true)
                                     }
                                     Some(pd) => match pd {
                                         PropertyDescriptor::Data { writable, .. } => {
                                             if *writable {
-                                                obj.define_own_property(
+                                                Ok(obj.define_own_property(
                                                     property,
                                                     PropertyDescriptorSetter {
                                                         honour_value: true,
@@ -265,26 +275,26 @@ pub trait JsObject {
                                                             configurable: false,
                                                         },
                                                     },
-                                                )
+                                                ))
                                             } else {
-                                                false
+                                                Ok(false)
                                             }
                                         }
-                                        PropertyDescriptor::Accessor { .. } => false,
+                                        PropertyDescriptor::Accessor { .. } => Ok(false),
                                     },
                                 }
                             }
-                            _ => false,
+                            _ => Ok(false),
                         }
                     } else {
-                        false
+                        Ok(false)
                     }
                 }
                 PropertyDescriptor::Accessor { set, .. } => match set {
-                    None => false,
+                    None => Ok(false),
                     Some(setter) => {
-                        setter.call(receiver, vec![value]);
-                        true
+                        setter.call(receiver, vec![value])?;
+                        Ok(true)
                     }
                 },
             },

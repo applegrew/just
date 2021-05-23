@@ -1,7 +1,9 @@
+use std::collections::HashMap;
+
+use crate::runner::ds::error::JErrorType;
 use crate::runner::ds::function_object::JsFunctionObject;
 use crate::runner::ds::object::ObjectType;
-use crate::runner::ds::value::{JErrorType, JsValue};
-use std::collections::HashMap;
+use crate::runner::ds::value::JsValue;
 
 pub trait EnvironmentRecord {
     fn has_binding(&self, name: &String) -> bool;

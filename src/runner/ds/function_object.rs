@@ -1,9 +1,11 @@
-use crate::parser::ast::{FunctionBodyData, HasMeta, PatternType};
-use crate::runner::ds::lex_env::LexEnvironment;
-use crate::runner::ds::object::{JsObject, ObjectBase, ObjectType};
-use crate::runner::ds::value::{JErrorType, JsValue};
 use std::cell::RefCell;
 use std::rc::Rc;
+
+use crate::parser::ast::{FunctionBodyData, HasMeta, PatternType};
+use crate::runner::ds::error::JErrorType;
+use crate::runner::ds::lex_env::LexEnvironment;
+use crate::runner::ds::object::{JsObject, ObjectBase, ObjectType};
+use crate::runner::ds::value::JsValue;
 
 pub enum FunctionKind {
     Normal,
@@ -122,9 +124,9 @@ pub trait JsFunctionObject: JsObject {
 
     fn get_function_object_base(&self) -> &FunctionObjectBase;
 
-    fn call<'a>(&'a self, this: &'a JsValue, args: Vec<JsValue>) -> JsValue {
+    fn call(&self, this: &JsValue, args: Vec<JsValue>) -> Result<JsValue, JErrorType> {
         if let FunctionKind::ClassConstructor = self.get_function_object_base().function_kind {
-            JsValue::Error(JErrorType::TypeError(format!(
+            Err(JErrorType::TypeError(format!(
                 "'{}' is a class constructor",
                 self.get_function_object_base().name
             )))
@@ -133,7 +135,11 @@ pub trait JsFunctionObject: JsObject {
         }
     }
 
-    fn construct(&self, args: Vec<JsValue>, o: Rc<RefCell<ObjectType>>) -> JsValue {
+    fn construct(
+        &self,
+        args: Vec<JsValue>,
+        o: Rc<RefCell<ObjectType>>,
+    ) -> Result<JsValue, JErrorType> {
         todo!()
     }
 }
@@ -181,7 +187,7 @@ impl JsFunctionObject for BoundFunctionObject {
         &self.function_object
     }
 
-    fn call(&self, _this: &JsValue, args: Vec<JsValue>) -> JsValue {
+    fn call(&self, _this: &JsValue, args: Vec<JsValue>) -> Result<JsValue, JErrorType> {
         let mut input_args = args;
         let mut new_args = self.bound_arguments.clone();
         new_args.append(&mut input_args);
@@ -190,7 +196,11 @@ impl JsFunctionObject for BoundFunctionObject {
             .call(&self.bound_this, new_args)
     }
 
-    fn construct(&self, args: Vec<JsValue>, o: Rc<RefCell<ObjectType>>) -> JsValue {
+    fn construct(
+        &self,
+        args: Vec<JsValue>,
+        o: Rc<RefCell<ObjectType>>,
+    ) -> Result<JsValue, JErrorType> {
         todo!()
     }
 }
