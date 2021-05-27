@@ -16,4 +16,6 @@ To run unit tests run `cargo test --package just --lib parser::unit_tests`.
 To run all tests run `cargo test`.
 
 * Parser - Work in progress
-* Runner - Not started
+  * Lexical Parser - Work in progress
+  * AST builder - Work in progress
+* Runner - Work in progress
