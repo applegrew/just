@@ -206,3 +206,5 @@ pub fn array_set_length(
         }
     }
 }
+
+// pub fn array_create(length:u32, proto: Rc<RefCell<ObjectType>>)
