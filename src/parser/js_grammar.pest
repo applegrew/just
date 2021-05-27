@@ -20,21 +20,23 @@ whitespace = _{ WHITESPACE }
 line_terminator = _{ "\n" | "\r" }
 line_terminator_sequence = { "\n" | "\r\n" | "\r" }
 //Used by parseInt(string)
-string_numeric_literal = { str_white_space? ~ str_numeric_literal ~ str_white_space? | str_white_space? }
-str_white_space = { str_white_space_char ~ str_white_space? }
-str_white_space_char = { whitespace | line_terminator }
+string_numeric_literal = _{ str_white_space? ~ str_numeric_literal ~ str_white_space? | str_white_space? }
+str_white_space = _{ str_white_space_char+ }
+str_white_space_char = _{ whitespace | line_terminator }
 str_numeric_literal = { str_decimal_literal | binary_integer_literal | octal_integer_literal | hex_integer_literal }
-str_decimal_literal = @{ str_unsigned_decimal_literal | "+" ~ str_unsigned_decimal_literal | "-" ~ str_unsigned_decimal_literal }
-str_unsigned_decimal_literal = {
-    "Infinity"
-    | decimal_digits ~ "." ~ decimal_digits? ~ exponent_part?
+str_negative_op = @{ "-" }
+str_decimal_literal_infinity = @{ "Infinity" }
+str_decimal_literal = ${ ("+" | str_negative_op)? ~ str_unsigned_decimal_literal }
+str_unsigned_decimal_literal = ${
+    str_decimal_literal_infinity
+    | decimal_digits_integer_part ~ "." ~ decimal_digits? ~ exponent_part?
     | "." ~ decimal_digits ~ exponent_part?
-    | decimal_digits ~ exponent_part?
+    | decimal_digits_integer_part ~ exponent_part?
 }
+decimal_digits_integer_part = @{ decimal_digits }
 decimal_digits = @{ decimal_digit+ }
 decimal_digit = _{ ASCII_DIGIT }
-exponent_part = ${ exponent_indicator ~ signed_integer }
-exponent_indicator = _{ "e" | "E" }
+exponent_part = ${ ("e" | "E") ~ signed_integer }
 signed_integer = { ("+" | "-")? ~ decimal_digits }
 source_character = { ANY }
 //input_element_div = ${ whitespace | line_terminator | comment | common_token | div_punctuator | right_brace_punctuator }

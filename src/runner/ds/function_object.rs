@@ -159,11 +159,11 @@ impl JsObject for BoundFunctionObject {
         self.function_object.get_object_base()
     }
 
-    fn as_super_trait(&self) -> &dyn JsObject {
+    fn as_js_object(&self) -> &dyn JsObject {
         self
     }
 
-    fn as_super_trait_mut(&mut self) -> &mut dyn JsObject {
+    fn as_js_object_mut(&mut self) -> &mut dyn JsObject {
         self
     }
 

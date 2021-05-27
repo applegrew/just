@@ -1,11 +1,11 @@
 use crate::parser::ast::{
     AssignmentOperator, BinaryOperator, BlockStatementData, DeclarationType,
     ExpressionOrSpreadElement, ExpressionOrSuper, ExpressionPatternType, ExpressionType,
-    ForIteratorData, FunctionBodyData, FunctionData, HasMeta, IdentifierData, JsError, JsErrorType,
-    LiteralData, LiteralType, LogicalOperator, MemberExpressionType, Meta, NumberLiteralType,
-    PatternOrExpression, PatternType, ProgramData, StatementType, UnaryOperator, UpdateOperator,
-    VariableDeclarationData, VariableDeclarationKind, VariableDeclarationOrExpression,
-    VariableDeclaratorData,
+    ExtendedNumberLiteralType, ForIteratorData, FunctionBodyData, FunctionData, HasMeta,
+    IdentifierData, JsError, JsErrorType, LiteralData, LiteralType, LogicalOperator,
+    MemberExpressionType, Meta, NumberLiteralType, PatternOrExpression, PatternType, ProgramData,
+    StatementType, UnaryOperator, UpdateOperator, VariableDeclarationData, VariableDeclarationKind,
+    VariableDeclarationOrExpression, VariableDeclaratorData,
 };
 use crate::parser::util::TAB_WIDTH;
 use pest::iterators::{Pair, Pairs};
@@ -83,6 +83,38 @@ impl JsParser {
     pub fn parse_to_ast_formatted_string(script: &str) -> Result<String, JsRuleError> {
         let result = Self::parse_to_ast_from_str(script)?;
         Ok(result.to_formatted_string(script))
+    }
+
+    pub fn parse_numeric_string(
+        s: &String,
+        is_error_on_empty: bool,
+    ) -> Result<ExtendedNumberLiteralType, JsRuleError> {
+        let result = Self::parse(Rule::string_numeric_literal, s);
+        Ok(match result {
+            Ok(mut pairs) => {
+                if let Some(pair) = pairs.next() {
+                    match pair.as_rule() {
+                        Rule::str_numeric_literal => build_ast_from_str_numeric_literal(pair)?,
+                        _ => return Err(get_unexpected_error("parse_numeric_string", &pair)),
+                    }
+                } else {
+                    if is_error_on_empty {
+                        return Err(JsRuleError {
+                            kind: JsErrorType::ParserGeneralError,
+                            message: "Got empty string".to_string(),
+                        });
+                    } else {
+                        ExtendedNumberLiteralType::Std(NumberLiteralType::IntegerLiteral(0))
+                    }
+                }
+            }
+            Err(err) => {
+                return Err(JsRuleError {
+                    kind: JsErrorType::ParserValidation(err.clone()),
+                    message: format!("Parse error due to \n{}", err),
+                });
+            }
+        })
     }
 }
 
@@ -1770,54 +1802,144 @@ fn build_ast_from_string_literal(
     })
 }
 
+fn build_ast_from_str_numeric_literal(
+    pair: Pair<Rule>,
+) -> Result<ExtendedNumberLiteralType, JsRuleError> {
+    let inner_pair = pair.into_inner().next().unwrap();
+    Ok(match inner_pair.as_rule() {
+        Rule::binary_integer_literal => {
+            ExtendedNumberLiteralType::Std(get_ast_for_binary_integer_literal(inner_pair))
+        }
+        Rule::octal_integer_literal => {
+            ExtendedNumberLiteralType::Std(get_ast_for_octal_integer_literal(inner_pair))
+        }
+        Rule::hex_integer_literal => {
+            ExtendedNumberLiteralType::Std(get_ast_for_hex_integer_literal(inner_pair))
+        }
+        Rule::str_decimal_literal => build_ast_str_decimal_literal(inner_pair)?,
+        _ => {
+            return Err(get_unexpected_error(
+                "build_ast_from_str_numeric_literal",
+                &inner_pair,
+            ))
+        }
+    })
+}
+
+fn build_ast_str_decimal_literal(
+    pair: Pair<Rule>,
+) -> Result<ExtendedNumberLiteralType, JsRuleError> {
+    let mut pair_iter = pair.into_inner();
+    let mut inner_pair = pair_iter.next().unwrap();
+    let is_negative = if inner_pair.as_rule() == Rule::str_negative_op {
+        inner_pair = pair_iter.next().unwrap();
+        true
+    } else {
+        false
+    };
+    build_ast_str_unsigned_decimal_literal(inner_pair, is_negative)
+}
+
+fn build_ast_str_unsigned_decimal_literal(
+    pair: Pair<Rule>,
+    is_negative: bool,
+) -> Result<ExtendedNumberLiteralType, JsRuleError> {
+    let mut num: f64 = 0.0;
+    let mut is_float = false;
+    for decimal_pair in pair.into_inner() {
+        num = match decimal_pair.as_rule() {
+            Rule::str_decimal_literal_infinity => {
+                return Ok(if is_negative {
+                    ExtendedNumberLiteralType::NegativeInfinity
+                } else {
+                    ExtendedNumberLiteralType::Infinity
+                });
+            }
+            Rule::decimal_digits_integer_part => parse_decimal_integer_literal(decimal_pair),
+            Rule::decimal_digits => {
+                is_float = true;
+                num + parse_decimal_digits(decimal_pair)
+            }
+            Rule::exponent_part => num * parse_exponent_part(decimal_pair),
+            _ => {
+                return Err(get_unexpected_error(
+                    "build_ast_str_unsigned_decimal_literal",
+                    &decimal_pair,
+                ))
+            }
+        }
+    }
+    if is_negative {
+        num *= -1.0;
+    }
+    Ok(if !is_float {
+        ExtendedNumberLiteralType::Std(NumberLiteralType::IntegerLiteral(num as i64))
+    } else {
+        ExtendedNumberLiteralType::Std(NumberLiteralType::FloatLiteral(num))
+    })
+}
+
+fn get_ast_for_binary_integer_literal(pair: Pair<Rule>) -> NumberLiteralType {
+    NumberLiteralType::IntegerLiteral(isize::from_str_radix(&pair.as_str()[2..], 2).unwrap() as i64)
+}
+
+fn get_ast_for_octal_integer_literal(pair: Pair<Rule>) -> NumberLiteralType {
+    NumberLiteralType::IntegerLiteral(isize::from_str_radix(&pair.as_str()[2..], 8).unwrap() as i64)
+}
+
+fn get_ast_for_hex_integer_literal(pair: Pair<Rule>) -> NumberLiteralType {
+    NumberLiteralType::IntegerLiteral(isize::from_str_radix(&pair.as_str()[2..], 16).unwrap() as i64)
+}
+
+fn parse_decimal_integer_literal(decimal_pair: Pair<Rule>) -> f64 {
+    isize::from_str_radix(decimal_pair.as_str(), 10).unwrap() as f64
+}
+
+fn parse_decimal_digits(decimal_pair: Pair<Rule>) -> f64 {
+    let d = decimal_pair.as_str();
+    isize::from_str_radix(d, 10).unwrap() as f64 / 10_f64.powf(d.len() as f64)
+}
+
+fn parse_exponent_part(decimal_pair: Pair<Rule>) -> f64 {
+    10_f64.powf(isize::from_str_radix(&decimal_pair.as_str()[1..], 10).unwrap() as f64)
+}
+
+fn build_ast_decimal_literal(pair: Pair<Rule>) -> Result<NumberLiteralType, JsRuleError> {
+    let mut num: f64 = 0.0;
+    let mut is_float = false;
+    for decimal_pair in pair.into_inner() {
+        num = match decimal_pair.as_rule() {
+            Rule::decimal_integer_literal => parse_decimal_integer_literal(decimal_pair),
+            Rule::decimal_digits => {
+                is_float = true;
+                num + parse_decimal_digits(decimal_pair)
+            }
+            Rule::exponent_part => num * parse_exponent_part(decimal_pair),
+            _ => {
+                return Err(get_unexpected_error(
+                    "build_ast_decimal_literal",
+                    &decimal_pair,
+                ))
+            }
+        }
+    }
+    Ok(if !is_float {
+        NumberLiteralType::IntegerLiteral(num as i64)
+    } else {
+        NumberLiteralType::FloatLiteral(num)
+    })
+}
+
 fn build_ast_from_numeric_literal(pair: Pair<Rule>) -> Result<NumberLiteralType, JsRuleError> {
     let inner_pair = pair.into_inner().next().unwrap();
     Ok(match inner_pair.as_rule() {
-        Rule::binary_integer_literal => NumberLiteralType::IntegerLiteral(
-            isize::from_str_radix(&inner_pair.as_str()[2..], 2).unwrap() as i32,
-        ),
-        Rule::octal_integer_literal => NumberLiteralType::IntegerLiteral(
-            isize::from_str_radix(&inner_pair.as_str()[2..], 8).unwrap() as i32,
-        ),
-        Rule::hex_integer_literal => NumberLiteralType::IntegerLiteral(
-            isize::from_str_radix(&inner_pair.as_str()[2..], 16).unwrap() as i32,
-        ),
-        Rule::decimal_literal => {
-            let mut num: f64 = 0.0;
-            let mut is_float = false;
-            for decimal_pair in inner_pair.into_inner() {
-                num = match decimal_pair.as_rule() {
-                    Rule::decimal_integer_literal => {
-                        isize::from_str_radix(decimal_pair.as_str(), 10).unwrap() as f64
-                    }
-                    Rule::decimal_digits => {
-                        is_float = true;
-                        let d = decimal_pair.as_str();
-                        num + isize::from_str_radix(d, 10).unwrap() as f64
-                            / 10_f64.powf(d.len() as f64)
-                    }
-                    Rule::exponent_part => {
-                        num * 10_f64.powf(
-                            isize::from_str_radix(&decimal_pair.as_str()[1..], 10).unwrap() as f64,
-                        )
-                    }
-                    _ => {
-                        return Err(get_unexpected_error(
-                            "build_ast_from_numeric_literal:1",
-                            &decimal_pair,
-                        ))
-                    }
-                }
-            }
-            if !is_float {
-                NumberLiteralType::IntegerLiteral(num as i32)
-            } else {
-                NumberLiteralType::FloatLiteral(num)
-            }
-        }
+        Rule::binary_integer_literal => get_ast_for_binary_integer_literal(inner_pair),
+        Rule::octal_integer_literal => get_ast_for_octal_integer_literal(inner_pair),
+        Rule::hex_integer_literal => get_ast_for_hex_integer_literal(inner_pair),
+        Rule::decimal_literal => build_ast_decimal_literal(inner_pair)?,
         _ => {
             return Err(get_unexpected_error(
-                "build_ast_from_numeric_literal:2",
+                "build_ast_from_numeric_literal",
                 &inner_pair,
             ))
         }

@@ -65,3 +65,14 @@ impl Display for JsNumberType {
         }
     }
 }
+impl Clone for JsNumberType {
+    fn clone(&self) -> Self {
+        match self {
+            JsNumberType::Integer(i) => JsNumberType::Integer(*i),
+            JsNumberType::Float(nf) => JsNumberType::Float(*nf),
+            JsNumberType::NaN => JsNumberType::NaN,
+            JsNumberType::PositiveInfinity => JsNumberType::PositiveInfinity,
+            JsNumberType::NegativeInfinity => JsNumberType::NegativeInfinity,
+        }
+    }
+}

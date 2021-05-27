@@ -3,9 +3,13 @@ use crate::runner::ds::error::JErrorType;
 use crate::runner::ds::function_object::JsFunctionObject;
 use crate::runner::ds::iterator_object::JsIteratorObject;
 use crate::runner::ds::object_property::{
-    PropertyDescriptor, PropertyDescriptorSetter, PropertyKey,
+    PropertyDescriptor, PropertyDescriptorAccessor, PropertyDescriptorData,
+    PropertyDescriptorSetter, PropertyKey,
 };
 use crate::runner::ds::operations::test_and_comparison::{same_js_object, same_object, same_value};
+use crate::runner::ds::operations::type_conversion::{
+    canonical_numeric_index_string, to_string_int,
+};
 use crate::runner::ds::value::JsValue;
 use std::borrow::Borrow;
 use std::cell::RefCell;
@@ -55,17 +59,17 @@ impl ObjectType {
 
     pub fn as_js_object(&self) -> &dyn JsObject {
         match self {
-            ObjectType::Ordinary(o) => o.as_super_trait(),
-            ObjectType::Function(o) => o.as_super_trait(),
-            ObjectType::Array(o) => o.as_super_trait(),
+            ObjectType::Ordinary(o) => o.as_js_object(),
+            ObjectType::Function(o) => o.as_js_object(),
+            ObjectType::Array(o) => o.as_js_object(),
         }
     }
 
     pub fn as_js_object_mut(&mut self) -> &mut dyn JsObject {
         match self {
-            ObjectType::Ordinary(o) => o.as_super_trait_mut(),
-            ObjectType::Function(o) => o.as_super_trait_mut(),
-            ObjectType::Array(o) => o.as_super_trait_mut(),
+            ObjectType::Ordinary(o) => o.as_js_object_mut(),
+            ObjectType::Function(o) => o.as_js_object_mut(),
+            ObjectType::Array(o) => o.as_js_object_mut(),
         }
     }
 }
@@ -90,9 +94,9 @@ pub trait JsObject {
 
     fn get_object_base(&self) -> &ObjectBase;
 
-    fn as_super_trait(&self) -> &dyn JsObject;
+    fn as_js_object(&self) -> &dyn JsObject;
 
-    fn as_super_trait_mut(&mut self) -> &mut dyn JsObject;
+    fn as_js_object_mut(&mut self) -> &mut dyn JsObject;
 
     fn get_prototype_of(&self) -> Option<Rc<RefCell<ObjectType>>> {
         match &self.get_object_base().prototype {
@@ -131,10 +135,8 @@ pub trait JsObject {
                 let mut p = Some(new_value.clone());
                 loop {
                     if let Some(some_p) = p {
-                        if same_js_object(
-                            self.as_super_trait(),
-                            (*(*some_p).borrow()).as_js_object(),
-                        ) {
+                        if same_js_object(self.as_js_object(), (*(*some_p).borrow()).as_js_object())
+                        {
                             // To prevent circular chain
                             return false;
                         } else {
@@ -173,8 +175,12 @@ pub trait JsObject {
         &mut self,
         property: PropertyKey,
         descriptor_setter: PropertyDescriptorSetter,
-    ) -> bool {
-        ordinary_define_own_property(self, property, descriptor_setter)
+    ) -> Result<bool, JErrorType> {
+        Ok(ordinary_define_own_property(
+            self,
+            property,
+            descriptor_setter,
+        ))
     }
 
     fn has_property(&self, property: &PropertyKey) -> bool {
@@ -199,8 +205,8 @@ pub trait JsObject {
                 Some(p) => (*(*p).borrow()).as_js_object().get(property, receiver),
             },
             Some(pd) => match pd {
-                PropertyDescriptor::Data { value, .. } => Ok(value.clone()),
-                PropertyDescriptor::Accessor { get, .. } => match get {
+                PropertyDescriptor::Data(PropertyDescriptorData { value, .. }) => Ok(value.clone()),
+                PropertyDescriptor::Accessor(PropertyDescriptorAccessor { get, .. }) => match get {
                     None => Ok(JsValue::Undefined),
                     Some(getter) => getter.call(receiver, Vec::new()),
                 },
@@ -219,12 +225,12 @@ pub trait JsObject {
                 None => {
                     self.get_object_base_mut().properties.insert(
                         property,
-                        PropertyDescriptor::Data {
+                        PropertyDescriptor::Data(PropertyDescriptorData {
                             value,
                             writable: true,
                             enumerable: true,
                             configurable: true,
-                        },
+                        }),
                     );
                     Ok(true)
                 }
@@ -234,9 +240,9 @@ pub trait JsObject {
                     .set(property, value, receiver),
             },
             Some(pd) => match pd {
-                PropertyDescriptor::Data {
+                PropertyDescriptor::Data(PropertyDescriptorData {
                     value, writable, ..
-                } => {
+                }) => {
                     if *writable {
                         match receiver {
                             JsValue::Object(o) => {
@@ -246,20 +252,23 @@ pub trait JsObject {
                                     None => {
                                         let desc_setter =
                                             PropertyDescriptorSetter::new_from_property_descriptor(
-                                                PropertyDescriptor::Data {
+                                                PropertyDescriptor::Data(PropertyDescriptorData {
                                                     value: value.clone(),
                                                     writable: true,
                                                     enumerable: true,
                                                     configurable: true,
-                                                },
+                                                }),
                                             );
                                         obj.define_own_property(property, desc_setter);
                                         Ok(true)
                                     }
                                     Some(pd) => match pd {
-                                        PropertyDescriptor::Data { writable, .. } => {
+                                        PropertyDescriptor::Data(PropertyDescriptorData {
+                                            writable,
+                                            ..
+                                        }) => {
                                             if *writable {
-                                                Ok(obj.define_own_property(
+                                                obj.define_own_property(
                                                     property,
                                                     PropertyDescriptorSetter {
                                                         honour_value: true,
@@ -268,14 +277,16 @@ pub trait JsObject {
                                                         honour_get: false,
                                                         honour_enumerable: false,
                                                         honour_configurable: false,
-                                                        descriptor: PropertyDescriptor::Data {
-                                                            value: value.clone(),
-                                                            writable: false,
-                                                            enumerable: false,
-                                                            configurable: false,
-                                                        },
+                                                        descriptor: PropertyDescriptor::Data(
+                                                            PropertyDescriptorData {
+                                                                value: value.clone(),
+                                                                writable: false,
+                                                                enumerable: false,
+                                                                configurable: false,
+                                                            },
+                                                        ),
                                                     },
-                                                ))
+                                                )
                                             } else {
                                                 Ok(false)
                                             }
@@ -290,7 +301,7 @@ pub trait JsObject {
                         Ok(false)
                     }
                 }
-                PropertyDescriptor::Accessor { set, .. } => match set {
+                PropertyDescriptor::Accessor(PropertyDescriptorAccessor { set, .. }) => match set {
                     None => Ok(false),
                     Some(setter) => {
                         setter.call(receiver, vec![value])?;
@@ -326,10 +337,11 @@ pub trait JsObject {
         for (key, _) in &self.get_object_base().properties {
             match key {
                 PropertyKey::Str(d) => {
-                    str_keys.push(d.to_string());
-                }
-                PropertyKey::Int(d) => {
-                    int_keys.push(d.clone());
+                    if let Some(idx) = canonical_numeric_index_string(d) {
+                        int_keys.push(idx);
+                    } else {
+                        str_keys.push(d.to_string());
+                    }
                 }
                 PropertyKey::Sym(d) => {
                     sym_keys.push(d.clone());
@@ -342,7 +354,7 @@ pub trait JsObject {
         result.append(
             &mut int_keys
                 .into_iter()
-                .map(|v| PropertyKey::Int(v))
+                .map(|v| PropertyKey::Str(to_string_int(v as i64)))
                 .collect::<Vec<PropertyKey>>(),
         );
         result.append(
@@ -399,39 +411,41 @@ pub fn ordinary_define_own_property<J: JsObject + ?Sized>(
                         return false;
                     }
                     descriptor_setter.descriptor = match descriptor_setter.descriptor {
-                        PropertyDescriptor::Data {
-                            value, writable, ..
-                        } => PropertyDescriptor::Data {
+                        PropertyDescriptor::Data(PropertyDescriptorData {
+                            value,
+                            writable,
+                            ..
+                        }) => PropertyDescriptor::Data(PropertyDescriptorData {
                             value,
                             writable,
                             enumerable: current_descriptor.is_enumerable(),
                             configurable: current_descriptor.is_configurable(),
-                        },
-                        PropertyDescriptor::Accessor {
+                        }),
+                        PropertyDescriptor::Accessor(PropertyDescriptorAccessor {
                             set: setter,
                             get: getter,
                             ..
-                        } => PropertyDescriptor::Accessor {
+                        }) => PropertyDescriptor::Accessor(PropertyDescriptorAccessor {
                             set: setter,
                             get: getter,
                             enumerable: current_descriptor.is_enumerable(),
                             configurable: current_descriptor.is_configurable(),
-                        },
+                        }),
                     };
                 } else if current_descriptor.is_data_descriptor() && descriptor.is_data_descriptor()
                 {
                     if !current_descriptor.is_configurable() {
-                        if let PropertyDescriptor::Data {
+                        if let PropertyDescriptor::Data(PropertyDescriptorData {
                             writable: current_writable,
                             value: current_value,
                             ..
-                        } = current_descriptor
+                        }) = current_descriptor
                         {
-                            if let PropertyDescriptor::Data {
+                            if let PropertyDescriptor::Data(PropertyDescriptorData {
                                 writable: desc_writable,
                                 value: desc_value,
                                 ..
-                            } = &descriptor
+                            }) = &descriptor
                             {
                                 if !*current_writable && *desc_writable {
                                     return false;
@@ -450,17 +464,17 @@ pub fn ordinary_define_own_property<J: JsObject + ?Sized>(
                     && descriptor.is_accessor_descriptor()
                 {
                     if !current_descriptor.is_configurable() {
-                        if let PropertyDescriptor::Accessor {
+                        if let PropertyDescriptor::Accessor(PropertyDescriptorAccessor {
                             set: current_set,
                             get: current_get,
                             ..
-                        } = current_descriptor
+                        }) = current_descriptor
                         {
-                            if let PropertyDescriptor::Accessor {
+                            if let PropertyDescriptor::Accessor(PropertyDescriptorAccessor {
                                 set: desc_set,
                                 get: desc_get,
                                 ..
-                            } = &descriptor
+                            }) = &descriptor
                             {
                                 if !(current_set.is_none() && desc_set.is_none())
                                     && descriptor_setter.honour_set

@@ -15,6 +15,7 @@ pub enum JsErrorType<R> {
     Unexpected(&'static str),
     ParserValidation(Error<R>),
     AstBuilderValidation(Meta),
+    ParserGeneralError,
 }
 
 #[derive(Debug)]
@@ -812,8 +813,57 @@ pub struct RegExpLiteralData {
 
 #[derive(Debug)]
 pub enum NumberLiteralType {
-    IntegerLiteral(i32),
+    IntegerLiteral(i64),
     FloatLiteral(f64),
+}
+
+#[derive(Debug)]
+pub enum ExtendedNumberLiteralType {
+    Std(NumberLiteralType),
+    Infinity,
+    NegativeInfinity,
+}
+impl ExtendedNumberLiteralType {
+    pub(crate) fn exactly_eq(&self, other: &Self) -> bool {
+        match self {
+            ExtendedNumberLiteralType::Std(n) => {
+                if let ExtendedNumberLiteralType::Std(other_n) = other {
+                    match n {
+                        NumberLiteralType::IntegerLiteral(i) => {
+                            if let NumberLiteralType::IntegerLiteral(other_i) = other_n {
+                                i == other_i
+                            } else {
+                                false
+                            }
+                        }
+                        NumberLiteralType::FloatLiteral(f) => {
+                            if let NumberLiteralType::FloatLiteral(other_f) = other_n {
+                                f == other_f
+                            } else {
+                                false
+                            }
+                        }
+                    }
+                } else {
+                    false
+                }
+            }
+            ExtendedNumberLiteralType::Infinity => {
+                if let ExtendedNumberLiteralType::Infinity = other {
+                    true
+                } else {
+                    false
+                }
+            }
+            ExtendedNumberLiteralType::NegativeInfinity => {
+                if let ExtendedNumberLiteralType::NegativeInfinity = other {
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug)]

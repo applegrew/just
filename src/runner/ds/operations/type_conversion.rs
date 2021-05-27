@@ -1,3 +1,5 @@
+use crate::parser::ast::{ExtendedNumberLiteralType, NumberLiteralType};
+use crate::parser::JsParser;
 use crate::runner::ds::error::JErrorType;
 use crate::runner::ds::object::ObjectType;
 use crate::runner::ds::object_property::PropertyKey;
@@ -8,11 +10,15 @@ use crate::runner::ds::value::{JsNumberType, JsValue};
 pub const TYPE_STR_UNDEFINED: &str = "undefined";
 pub const TYPE_STR_NULL: &str = "null";
 pub const TYPE_STR_BOOLEAN: &str = "boolean";
+pub const TYPE_STR_BOOLEAN_TRUE: &str = "true";
+pub const TYPE_STR_BOOLEAN_FALSE: &str = "false";
 pub const TYPE_STR_STRING: &str = "string";
 pub const TYPE_STR_SYMBOL: &str = "symbol";
 pub const TYPE_STR_NUMBER: &str = "number";
 pub const TYPE_STR_OBJECT: &str = "object";
 pub const TYPE_STR_FUNCTION: &str = "function";
+pub const TYPE_STR_NUMBER_NAN: &str = "NaN";
+pub const TYPE_STR_NUMBER_INFINITY: &str = "Infinity";
 
 pub fn get_type(a: &JsValue) -> &'static str {
     match a {
@@ -69,20 +75,20 @@ pub fn to_object(v: &JsValue) -> Result<JsValue, JErrorType> {
     }
 }
 
-pub fn to_number(v: &JsValue) -> Result<JsValue, JErrorType> {
+pub fn to_number(v: &JsValue) -> Result<JsNumberType, JErrorType> {
     match v {
-        JsValue::Undefined => Ok(JsValue::Number(JsNumberType::NaN)),
-        JsValue::Null => Ok(JsValue::Number(JsNumberType::Integer(0))),
-        JsValue::Boolean(b) => Ok(JsValue::Number(JsNumberType::Integer(match *b {
+        JsValue::Undefined => Ok(JsNumberType::NaN),
+        JsValue::Null => Ok(JsNumberType::Integer(0)),
+        JsValue::Boolean(b) => Ok(JsNumberType::Integer(match *b {
             true => 1,
             false => 0,
-        }))),
-        JsValue::String(s) => todo!(),
+        })),
+        JsValue::String(s) => Ok(parse_string_to_number(s, false)),
         JsValue::Symbol(s) => Err(JErrorType::TypeError(format!(
             "'{}' symbol cannot be converted to number",
             s
         ))),
-        JsValue::Number(_) => Ok(v.clone()),
+        JsValue::Number(n) => Ok(n.clone()),
         JsValue::Object(o) => {
             let pv = to_primitive(v, PreferredType::Default)?;
             to_number(&pv)
@@ -90,18 +96,81 @@ pub fn to_number(v: &JsValue) -> Result<JsValue, JErrorType> {
     }
 }
 
+fn parse_string_to_number(s: &String, is_nan_mode: bool) -> JsNumberType {
+    let res = JsParser::parse_numeric_string(s, is_nan_mode);
+    match res {
+        Ok(e) => match e {
+            ExtendedNumberLiteralType::Std(n) => match n {
+                NumberLiteralType::IntegerLiteral(i) => JsNumberType::Integer(i),
+                NumberLiteralType::FloatLiteral(f) => JsNumberType::Float(f),
+            },
+            ExtendedNumberLiteralType::Infinity => JsNumberType::PositiveInfinity,
+            ExtendedNumberLiteralType::NegativeInfinity => JsNumberType::NegativeInfinity,
+        },
+        Err(_) => {
+            if is_nan_mode {
+                JsNumberType::NaN
+            } else {
+                JsNumberType::Integer(0)
+            }
+        }
+    }
+}
+
 pub fn to_unit_32(v: &JsValue) -> Result<u32, JErrorType> {
     let n = to_number(v)?;
+    Ok(to_unit32_from_js_number_type(&n))
+}
+
+fn to_unit32_from_js_number_type(n: &JsNumberType) -> u32 {
     match n {
-        JsValue::Number(n) => match n {
-            JsNumberType::Integer(i) => Ok((i % (2 ^ 32)) as u32),
-            JsNumberType::Float(f) => Ok((f.floor() % (2 ^ 32) as f64) as u32),
-            JsNumberType::NaN => Ok(0),
-            JsNumberType::PositiveInfinity => Ok(0),
-            JsNumberType::NegativeInfinity => Ok(0),
-        },
-        _ => Err(JErrorType::TypeError(
-            "Unexpected type received".to_string(),
-        )),
+        JsNumberType::Integer(i) => (*i % (2 ^ 32)) as u32,
+        JsNumberType::Float(f) => (f.floor() % (2 ^ 32) as f64) as u32,
+        JsNumberType::NaN => 0,
+        JsNumberType::PositiveInfinity => 0,
+        JsNumberType::NegativeInfinity => 0,
+    }
+}
+
+pub fn to_string(v: &JsValue) -> Result<String, JErrorType> {
+    match v {
+        JsValue::Undefined => Ok(TYPE_STR_UNDEFINED.to_string()),
+        JsValue::Null => Ok(TYPE_STR_NULL.to_string()),
+        JsValue::Boolean(b) => Ok(if *b {
+            TYPE_STR_BOOLEAN_TRUE.to_string()
+        } else {
+            TYPE_STR_BOOLEAN_FALSE.to_string()
+        }),
+        JsValue::String(s) => Ok(s.to_string()),
+        JsValue::Symbol(s) => Err(JErrorType::TypeError(format!("'{}' is a symbol", s))),
+        JsValue::Number(n) => Ok(match n {
+            JsNumberType::Integer(i) => to_string_int(*i),
+            JsNumberType::Float(f) => format!("{}", f),
+            JsNumberType::NaN => TYPE_STR_NUMBER_NAN.to_string(),
+            JsNumberType::PositiveInfinity => TYPE_STR_NUMBER_INFINITY.to_string(),
+            JsNumberType::NegativeInfinity => format!("-{}", TYPE_STR_NUMBER_INFINITY),
+        }),
+        JsValue::Object(_) => to_string(&to_primitive(v, PreferredType::String)?),
+    }
+}
+
+pub fn to_string_int(i: i64) -> String {
+    format!("{}", i)
+}
+
+pub fn canonical_numeric_index_string(s: &String) -> Option<u32> {
+    if s == "-0" {
+        Some(0)
+    } else {
+        let n = parse_string_to_number(s, false);
+        let v = JsValue::Number(n);
+        if let Ok(in_s) = to_string(&v) {
+            if &in_s == s {
+                if let JsValue::Number(n) = v {
+                    return Some(to_unit32_from_js_number_type(&n));
+                }
+            }
+        }
+        None
     }
 }

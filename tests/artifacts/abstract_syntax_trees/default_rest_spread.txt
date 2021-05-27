@@ -1,0 +1,351 @@
+ProgramData {
+  meta: Meta { "// When an argument is not passed (or passed as undefined)░// in a function call the default value░function f(x, y=12) {░    // y is 12 if not passed (or passed as undefined)░    return x + y;░}░░console.log( f(3) );░░// The remaining passed arguments can be bound through the rest argument (...)Id░function g(x, ...y) {░    // y is an Array░    return x * y.length;░}░░console.log( g(3, "hello", true) );░░function h(x, y, z) {░    return x + y + z;░}░░// The spread operator can be used to pass each░// element of an array as a separate argument░console.log( h(...[1,2,3],4,5,6) );░// The spread operator can also be used with Strings░console.log( Math.max( ..."1234" ) );░" },
+  body: [
+    StatementType::DeclarationStatement(DeclarationType::FunctionDeclaration(FunctionData {
+      meta: Meta { "function f(x, y=12) {░    // y is 12 if not passed (or passed as undefined)░    return x + y;░}" },
+      id: IdentifierData {
+        meta: Meta { "f" },
+        name: f,
+      },
+      params: [
+        PatternType::PatternWhichCanBeExpression(ExpressionPatternType::Identifier(IdentifierData {
+          meta: Meta { "x" },
+          name: x,
+        })),
+        ExpressionType::AssignmentPattern {
+          meta: Meta { "y=12" },
+          left: PatternType::PatternWhichCanBeExpression(ExpressionPatternType::Identifier(IdentifierData {
+            meta: Meta { "y" },
+            name: y,
+          })),
+          right: ExpressionType::Literal(LiteralData {
+            meta: Meta { "12" },
+            value: NumberLiteral(IntegerLiteral(12)),
+          }),
+        },
+      ],
+      body: FunctionBodyData {
+        meta: Meta { "return x + y;░" },
+        body: [
+          StatementType::ReturnStatement {
+            meta: Meta { "return x + y;░" },
+            argument: ExpressionType::SequenceExpression {
+              meta: Meta { "x + y" },
+              expressions: [
+                ExpressionType::BinaryExpression {
+                  meta: Meta { "x + y" },
+                  operator: Add,
+                  left: ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
+                    meta: Meta { "x" },
+                    name: x,
+                  })),
+                  right: ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
+                    meta: Meta { "y" },
+                    name: y,
+                  })),
+                },
+              ],
+            },
+          },
+        ],
+      },
+      generator: false,
+    })),
+    StatementType::ExpressionStatement {
+      meta: Meta { "console.log( f(3) );░" },
+      expression: ExpressionType::SequenceExpression {
+        meta: Meta { "console.log( f(3) )" },
+        expressions: [
+          ExpressionType::CallExpression {
+            meta: Meta { "console.log" },
+            callee: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::MemberExpression(MemberExpressionType::SimpleMemberExpression {
+              meta: Meta { "console.log" },
+              object: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
+                meta: Meta { "console" },
+                name: console,
+              }))),
+              property: IdentifierData {
+                meta: Meta { "log" },
+                name: log,
+              },
+            }))),
+            arguments: [
+              ExpressionOrSpreadElement::Expression(ExpressionType::CallExpression {
+                meta: Meta { "f" },
+                callee: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
+                  meta: Meta { "f" },
+                  name: f,
+                }))),
+                arguments: [
+                  ExpressionOrSpreadElement::Expression(ExpressionType::Literal(LiteralData {
+                    meta: Meta { "3" },
+                    value: NumberLiteral(IntegerLiteral(3)),
+                  })),
+                ],
+              }),
+            ],
+          },
+        ],
+      },
+    },
+    StatementType::DeclarationStatement(DeclarationType::FunctionDeclaration(FunctionData {
+      meta: Meta { "function g(x, ...y) {░    // y is an Array░    return x * y.length;░}" },
+      id: IdentifierData {
+        meta: Meta { "g" },
+        name: g,
+      },
+      params: [
+        PatternType::PatternWhichCanBeExpression(ExpressionPatternType::Identifier(IdentifierData {
+          meta: Meta { "x" },
+          name: x,
+        })),
+        PatternType::RestElement {
+          meta: Meta { "...y" },
+          argument: PatternType::PatternWhichCanBeExpression(ExpressionPatternType::Identifier(IdentifierData {
+            meta: Meta { "y" },
+            name: y,
+          })),
+        },
+      ],
+      body: FunctionBodyData {
+        meta: Meta { "return x * y.length;░" },
+        body: [
+          StatementType::ReturnStatement {
+            meta: Meta { "return x * y.length;░" },
+            argument: ExpressionType::SequenceExpression {
+              meta: Meta { "x * y.length" },
+              expressions: [
+                ExpressionType::BinaryExpression {
+                  meta: Meta { "x * y.length" },
+                  operator: Multiply,
+                  left: ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
+                    meta: Meta { "x" },
+                    name: x,
+                  })),
+                  right: ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::MemberExpression(MemberExpressionType::SimpleMemberExpression {
+                    meta: Meta { "y.length" },
+                    object: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
+                      meta: Meta { "y" },
+                      name: y,
+                    }))),
+                    property: IdentifierData {
+                      meta: Meta { "length" },
+                      name: length,
+                    },
+                  })),
+                },
+              ],
+            },
+          },
+        ],
+      },
+      generator: false,
+    })),
+    StatementType::ExpressionStatement {
+      meta: Meta { "console.log( g(3, "hello", true) );░" },
+      expression: ExpressionType::SequenceExpression {
+        meta: Meta { "console.log( g(3, "hello", true) )" },
+        expressions: [
+          ExpressionType::CallExpression {
+            meta: Meta { "console.log" },
+            callee: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::MemberExpression(MemberExpressionType::SimpleMemberExpression {
+              meta: Meta { "console.log" },
+              object: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
+                meta: Meta { "console" },
+                name: console,
+              }))),
+              property: IdentifierData {
+                meta: Meta { "log" },
+                name: log,
+              },
+            }))),
+            arguments: [
+              ExpressionOrSpreadElement::Expression(ExpressionType::CallExpression {
+                meta: Meta { "g" },
+                callee: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
+                  meta: Meta { "g" },
+                  name: g,
+                }))),
+                arguments: [
+                  ExpressionOrSpreadElement::Expression(ExpressionType::Literal(LiteralData {
+                    meta: Meta { "3" },
+                    value: NumberLiteral(IntegerLiteral(3)),
+                  })),
+                  ExpressionOrSpreadElement::Expression(ExpressionType::Literal(LiteralData {
+                    meta: Meta { ""hello"" },
+                    value: StringLiteral("hello"),
+                  })),
+                  ExpressionOrSpreadElement::Expression(ExpressionType::Literal(LiteralData {
+                    meta: Meta { "true" },
+                    value: BooleanLiteral(true),
+                  })),
+                ],
+              }),
+            ],
+          },
+        ],
+      },
+    },
+    StatementType::DeclarationStatement(DeclarationType::FunctionDeclaration(FunctionData {
+      meta: Meta { "function h(x, y, z) {░    return x + y + z;░}" },
+      id: IdentifierData {
+        meta: Meta { "h" },
+        name: h,
+      },
+      params: [
+        PatternType::PatternWhichCanBeExpression(ExpressionPatternType::Identifier(IdentifierData {
+          meta: Meta { "x" },
+          name: x,
+        })),
+        PatternType::PatternWhichCanBeExpression(ExpressionPatternType::Identifier(IdentifierData {
+          meta: Meta { "y" },
+          name: y,
+        })),
+        PatternType::PatternWhichCanBeExpression(ExpressionPatternType::Identifier(IdentifierData {
+          meta: Meta { "z" },
+          name: z,
+        })),
+      ],
+      body: FunctionBodyData {
+        meta: Meta { "return x + y + z;░" },
+        body: [
+          StatementType::ReturnStatement {
+            meta: Meta { "return x + y + z;░" },
+            argument: ExpressionType::SequenceExpression {
+              meta: Meta { "x + y + z" },
+              expressions: [
+                ExpressionType::BinaryExpression {
+                  meta: Meta { "x + y + z" },
+                  operator: Add,
+                  left: ExpressionType::BinaryExpression {
+                    meta: Meta { "x + y" },
+                    operator: Add,
+                    left: ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
+                      meta: Meta { "x" },
+                      name: x,
+                    })),
+                    right: ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
+                      meta: Meta { "y" },
+                      name: y,
+                    })),
+                  },
+                  right: ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
+                    meta: Meta { "z" },
+                    name: z,
+                  })),
+                },
+              ],
+            },
+          },
+        ],
+      },
+      generator: false,
+    })),
+    StatementType::ExpressionStatement {
+      meta: Meta { "console.log( h(...[1,2,3],4,5,6) );░" },
+      expression: ExpressionType::SequenceExpression {
+        meta: Meta { "console.log( h(...[1,2,3],4,5,6) )" },
+        expressions: [
+          ExpressionType::CallExpression {
+            meta: Meta { "console.log" },
+            callee: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::MemberExpression(MemberExpressionType::SimpleMemberExpression {
+              meta: Meta { "console.log" },
+              object: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
+                meta: Meta { "console" },
+                name: console,
+              }))),
+              property: IdentifierData {
+                meta: Meta { "log" },
+                name: log,
+              },
+            }))),
+            arguments: [
+              ExpressionOrSpreadElement::Expression(ExpressionType::CallExpression {
+                meta: Meta { "h" },
+                callee: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
+                  meta: Meta { "h" },
+                  name: h,
+                }))),
+                arguments: [
+                  ExpressionOrSpreadElement::SpreadElement(ExpressionType::ArrayExpression {
+                    meta: Meta { "[1,2,3]" },
+                    elements: [
+                      ExpressionOrSpreadElement::Expression(ExpressionType::Literal(LiteralData {
+                        meta: Meta { "1" },
+                        value: NumberLiteral(IntegerLiteral(1)),
+                      })),
+                      ExpressionOrSpreadElement::Expression(ExpressionType::Literal(LiteralData {
+                        meta: Meta { "2" },
+                        value: NumberLiteral(IntegerLiteral(2)),
+                      })),
+                      ExpressionOrSpreadElement::Expression(ExpressionType::Literal(LiteralData {
+                        meta: Meta { "3" },
+                        value: NumberLiteral(IntegerLiteral(3)),
+                      })),
+                    ],
+                  }),
+                  ExpressionOrSpreadElement::Expression(ExpressionType::Literal(LiteralData {
+                    meta: Meta { "4" },
+                    value: NumberLiteral(IntegerLiteral(4)),
+                  })),
+                  ExpressionOrSpreadElement::Expression(ExpressionType::Literal(LiteralData {
+                    meta: Meta { "5" },
+                    value: NumberLiteral(IntegerLiteral(5)),
+                  })),
+                  ExpressionOrSpreadElement::Expression(ExpressionType::Literal(LiteralData {
+                    meta: Meta { "6" },
+                    value: NumberLiteral(IntegerLiteral(6)),
+                  })),
+                ],
+              }),
+            ],
+          },
+        ],
+      },
+    },
+    StatementType::ExpressionStatement {
+      meta: Meta { "console.log( Math.max( ..."1234" ) );░" },
+      expression: ExpressionType::SequenceExpression {
+        meta: Meta { "console.log( Math.max( ..."1234" ) )" },
+        expressions: [
+          ExpressionType::CallExpression {
+            meta: Meta { "console.log" },
+            callee: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::MemberExpression(MemberExpressionType::SimpleMemberExpression {
+              meta: Meta { "console.log" },
+              object: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
+                meta: Meta { "console" },
+                name: console,
+              }))),
+              property: IdentifierData {
+                meta: Meta { "log" },
+                name: log,
+              },
+            }))),
+            arguments: [
+              ExpressionOrSpreadElement::Expression(ExpressionType::CallExpression {
+                meta: Meta { "Math.max" },
+                callee: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::MemberExpression(MemberExpressionType::SimpleMemberExpression {
+                  meta: Meta { "Math.max" },
+                  object: ExpressionOrSuper::Expression(ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(IdentifierData {
+                    meta: Meta { "Math" },
+                    name: Math,
+                  }))),
+                  property: IdentifierData {
+                    meta: Meta { "max" },
+                    name: max,
+                  },
+                }))),
+                arguments: [
+                  ExpressionOrSpreadElement::SpreadElement(ExpressionType::Literal(LiteralData {
+                    meta: Meta { ""1234"" },
+                    value: StringLiteral("1234"),
+                  })),
+                ],
+              }),
+            ],
+          },
+        ],
+      },
+    },
+  ],
+}
