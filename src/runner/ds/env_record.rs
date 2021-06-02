@@ -2,17 +2,24 @@ use std::collections::HashMap;
 
 use crate::runner::ds::error::JErrorType;
 use crate::runner::ds::function_object::JsFunctionObject;
-use crate::runner::ds::object::ObjectType;
+use crate::runner::ds::lex_env::{JsLexEnvironmentType, LexEnvironment};
+use crate::runner::ds::object::{JsObjectType, ObjectType};
+use crate::runner::ds::object_property::{
+    PropertyDescriptor, PropertyDescriptorData, PropertyDescriptorSetter, PropertyKey,
+};
+use crate::runner::ds::operations::object::{define_property_or_throw, get, has_own_property, set};
 use crate::runner::ds::value::JsValue;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 pub trait EnvironmentRecord {
     fn has_binding(&self, name: &String) -> bool;
-    fn create_mutable_binding(&mut self, name: String, can_delete: bool);
-    fn create_immutable_binding(&mut self, name: String);
-    fn initialize_binding(&mut self, name: String, value: JsValue) -> bool;
-    fn set_mutable_binding(&mut self, name: String, value: JsValue) -> Option<JErrorType>;
-    fn get_binding_value(&self, name: &String) -> Result<&JsValue, JErrorType>;
-    fn delete_binding(&mut self, name: &String) -> bool;
+    fn create_mutable_binding(&mut self, name: String, can_delete: bool) -> Result<(), JErrorType>;
+    fn create_immutable_binding(&mut self, name: String) -> Result<(), JErrorType>;
+    fn initialize_binding(&mut self, name: String, value: JsValue) -> Result<bool, JErrorType>;
+    fn set_mutable_binding(&mut self, name: String, value: JsValue) -> Result<(), JErrorType>;
+    fn get_binding_value(&self, name: &String) -> Result<JsValue, JErrorType>;
+    fn delete_binding(&mut self, name: &String) -> Result<bool, JErrorType>;
     fn has_this_binding(&self) -> bool;
     fn has_super_binding(&self) -> bool;
 }
@@ -23,9 +30,8 @@ pub enum EnvironmentRecordType {
     Function(FunctionEnvironmentRecord),
     Global(GlobalEnvironmentRecord),
 }
-
 impl EnvironmentRecordType {
-    pub fn resolve_to_env_record(&self) -> &dyn EnvironmentRecord {
+    pub fn as_env_record(&self) -> &dyn EnvironmentRecord {
         match self {
             EnvironmentRecordType::Declarative(d) => d,
             EnvironmentRecordType::Object(d) => d,
@@ -45,52 +51,52 @@ pub struct DeclarativeEnvironmentRecord {
     bindings: HashMap<String, Option<JsValue>>,
     binding_flags: HashMap<String, Vec<BindingFlag>>,
 }
-
 impl DeclarativeEnvironmentRecord {
-    pub(crate) fn new() -> Self {
+    fn new() -> Self {
         DeclarativeEnvironmentRecord {
             bindings: HashMap::new(),
             binding_flags: HashMap::new(),
         }
     }
 }
-
 impl EnvironmentRecord for DeclarativeEnvironmentRecord {
     fn has_binding(&self, id: &String) -> bool {
         self.bindings.contains_key(id)
     }
 
-    fn create_mutable_binding(&mut self, id: String, can_delete: bool) {
+    fn create_mutable_binding(&mut self, id: String, can_delete: bool) -> Result<(), JErrorType> {
         if !self.has_binding(&id) {
             self.bindings.insert(id.to_string(), None);
             if !can_delete {
                 self.binding_flags.insert(id, vec![BindingFlag::NoDelete]);
             }
         }
+        Ok(())
     }
 
-    fn create_immutable_binding(&mut self, id: String) {
+    fn create_immutable_binding(&mut self, id: String) -> Result<(), JErrorType> {
         if !self.has_binding(&id) {
             self.bindings.insert(id.to_string(), None);
             self.binding_flags
                 .insert(id, vec![BindingFlag::IsImmutable]);
         }
+        Ok(())
     }
 
-    fn initialize_binding(&mut self, id: String, value: JsValue) -> bool {
+    fn initialize_binding(&mut self, id: String, value: JsValue) -> Result<bool, JErrorType> {
         if let Some(v) = self.bindings.get(&id) {
             if v.is_none() {
                 self.bindings.insert(id, Some(value));
-                true
+                Ok(true)
             } else {
-                false
+                Ok(false)
             }
         } else {
-            false
+            Ok(false)
         }
     }
 
-    fn set_mutable_binding(&mut self, id: String, value: JsValue) -> Option<JErrorType> {
+    fn set_mutable_binding(&mut self, id: String, value: JsValue) -> Result<(), JErrorType> {
         if let Some(v) = self.bindings.get(&id) {
             if !v.is_none() {
                 if !self
@@ -100,28 +106,28 @@ impl EnvironmentRecord for DeclarativeEnvironmentRecord {
                     .contains(&BindingFlag::IsImmutable)
                 {
                     self.bindings.insert(id, Some(value));
-                    None
+                    Ok(())
                 } else {
-                    Some(JErrorType::TypeError(format!(
+                    Err(JErrorType::TypeError(format!(
                         "'{}' is set and immutable",
                         id
                     )))
                 }
             } else {
-                Some(JErrorType::ReferenceError(format!(
+                Err(JErrorType::ReferenceError(format!(
                     "'{}' is not initialized",
                     id
                 )))
             }
         } else {
-            Some(JErrorType::ReferenceError(format!(
+            Err(JErrorType::ReferenceError(format!(
                 "'{}' is not defined",
                 id
             )))
         }
     }
 
-    fn get_binding_value(&self, id: &String) -> Result<&JsValue, JErrorType> {
+    fn get_binding_value(&self, id: &String) -> Result<JsValue, JErrorType> {
         match self.bindings.get(id) {
             None => Err(JErrorType::ReferenceError(format!(
                 "'{}' is not defined",
@@ -132,13 +138,13 @@ impl EnvironmentRecord for DeclarativeEnvironmentRecord {
                     "'{}' is not initialized",
                     id
                 ))),
-                Some(v) => Ok(v),
+                Some(v) => Ok(v.clone()),
             },
         }
     }
 
-    fn delete_binding(&mut self, id: &String) -> bool {
-        if let Some(flags) = self.binding_flags.get(id) {
+    fn delete_binding(&mut self, id: &String) -> Result<bool, JErrorType> {
+        Ok(if let Some(flags) = self.binding_flags.get(id) {
             if flags.contains(&BindingFlag::NoDelete) {
                 false
             } else {
@@ -148,7 +154,7 @@ impl EnvironmentRecord for DeclarativeEnvironmentRecord {
             }
         } else {
             false
-        }
+        })
     }
 
     fn has_this_binding(&self) -> bool {
@@ -161,50 +167,75 @@ impl EnvironmentRecord for DeclarativeEnvironmentRecord {
 }
 
 pub struct ObjectEnvironmentRecord {
-    binding_object: Box<ObjectType>,
+    binding_object: JsObjectType,
 }
-
 impl ObjectEnvironmentRecord {
-    pub fn new(o: Box<ObjectType>) -> Self {
+    fn new(o: JsObjectType) -> Self {
         ObjectEnvironmentRecord { binding_object: o }
     }
 }
-
 impl EnvironmentRecord for ObjectEnvironmentRecord {
     fn has_binding(&self, name: &String) -> bool {
-        todo!()
+        self.binding_object
+            .borrow()
+            .as_js_object()
+            .has_property(&PropertyKey::Str(name.to_string()))
     }
 
-    fn create_mutable_binding(&mut self, name: String, can_delete: bool) {
-        todo!()
+    fn create_mutable_binding(&mut self, name: String, can_delete: bool) -> Result<(), JErrorType> {
+        define_property_or_throw(
+            &mut self.binding_object,
+            PropertyKey::Str(name),
+            PropertyDescriptorSetter::new_from_property_descriptor(PropertyDescriptor::Data(
+                PropertyDescriptorData {
+                    value: JsValue::Undefined,
+                    writable: true,
+                    enumerable: true,
+                    configurable: can_delete,
+                },
+            )),
+        )
     }
 
-    fn create_immutable_binding(&mut self, name: String) {
-        todo!()
+    fn create_immutable_binding(&mut self, name: String) -> Result<(), JErrorType> {
+        panic!("Not supported")
     }
 
-    fn initialize_binding(&mut self, name: String, value: JsValue) -> bool {
-        todo!()
+    fn initialize_binding(&mut self, name: String, value: JsValue) -> Result<bool, JErrorType> {
+        self.set_mutable_binding(name, value)?;
+        Ok(true)
     }
 
-    fn set_mutable_binding(&mut self, name: String, value: JsValue) -> Option<JErrorType> {
-        todo!()
+    fn set_mutable_binding(&mut self, name: String, value: JsValue) -> Result<(), JErrorType> {
+        set(&mut self.binding_object, PropertyKey::Str(name), value)?;
+        Ok(())
     }
 
-    fn get_binding_value(&self, name: &String) -> Result<&JsValue, JErrorType> {
-        todo!()
+    fn get_binding_value(&self, name: &String) -> Result<JsValue, JErrorType> {
+        let p = PropertyKey::Str(name.to_string());
+        if self.binding_object.borrow().as_js_object().has_property(&p) {
+            get(&self.binding_object, &p)
+        } else {
+            Err(JErrorType::ReferenceError(format!(
+                "'{}' reference is undefined",
+                name
+            )))
+        }
     }
 
-    fn delete_binding(&mut self, name: &String) -> bool {
-        todo!()
+    fn delete_binding(&mut self, name: &String) -> Result<bool, JErrorType> {
+        self.binding_object
+            .borrow_mut()
+            .as_js_object_mut()
+            .delete(&PropertyKey::Str(name.to_string()))
     }
 
     fn has_this_binding(&self) -> bool {
-        todo!()
+        false
     }
 
     fn has_super_binding(&self) -> bool {
-        todo!()
+        false
     }
 }
 
@@ -212,12 +243,25 @@ pub struct FunctionEnvironmentRecord {
     base_env: DeclarativeEnvironmentRecord,
     this_value: Option<JsValue>,
     is_lexical_binding: bool,
-    function_object: Box<dyn JsFunctionObject>,
-    home_object: Option<ObjectType>,
-    new_target: Option<Box<dyn JsFunctionObject>>,
+    function_object: JsObjectType,
+    home_object: Option<JsObjectType>,
+    new_target: Option<JsObjectType>,
 }
 impl FunctionEnvironmentRecord {
-    // pub fn new(o: Box<ObjectType>) -> Self {}
+    fn new(f: JsObjectType, new_target: Option<JsObjectType>) -> Self {
+        let func = (*f).borrow().as_js_function_object();
+        FunctionEnvironmentRecord {
+            base_env: DeclarativeEnvironmentRecord::new(),
+            this_value: None,
+            is_lexical_binding: func.get_function_object_base().is_lexical,
+            function_object: f,
+            home_object: match &func.get_function_object_base().home_object {
+                None => None,
+                Some(ho) => Some(ho.clone()),
+            },
+            new_target,
+        }
+    }
 
     pub fn bind_this_value(&mut self, this: JsValue) -> Result<bool, JErrorType> {
         if !self.is_lexical_binding {
@@ -252,57 +296,53 @@ impl FunctionEnvironmentRecord {
         }
     }
 
-    pub fn get_super_base(&self) -> Option<&ObjectType> {
-        todo!()
-    }
-
-    pub fn has_this_binding(&self) -> bool {
-        !self.is_lexical_binding
-    }
-
-    pub fn has_super_binding(&self) -> bool {
-        if self.is_lexical_binding {
-            false
+    pub fn get_super_base(&self) -> Option<JsObjectType> {
+        if let Some(ho) = &self.home_object {
+            ho.borrow().as_js_object().get_prototype_of()
         } else {
-            self.home_object.is_some()
+            None
         }
     }
 }
 impl EnvironmentRecord for FunctionEnvironmentRecord {
     fn has_binding(&self, name: &String) -> bool {
-        todo!()
+        self.base_env.has_binding(name)
     }
 
-    fn create_mutable_binding(&mut self, name: String, can_delete: bool) {
-        todo!()
+    fn create_mutable_binding(&mut self, name: String, can_delete: bool) -> Result<(), JErrorType> {
+        self.base_env.create_mutable_binding(name, can_delete)
     }
 
-    fn create_immutable_binding(&mut self, name: String) {
-        todo!()
+    fn create_immutable_binding(&mut self, name: String) -> Result<(), JErrorType> {
+        self.base_env.create_immutable_binding(name)
     }
 
-    fn initialize_binding(&mut self, name: String, value: JsValue) -> bool {
-        todo!()
+    fn initialize_binding(&mut self, name: String, value: JsValue) -> Result<bool, JErrorType> {
+        self.base_env.initialize_binding(name, value)
     }
 
-    fn set_mutable_binding(&mut self, name: String, value: JsValue) -> Option<JErrorType> {
-        todo!()
+    fn set_mutable_binding(&mut self, name: String, value: JsValue) -> Result<(), JErrorType> {
+        self.base_env.set_mutable_binding(name, value)
     }
 
-    fn get_binding_value(&self, name: &String) -> Result<&JsValue, JErrorType> {
-        todo!()
+    fn get_binding_value(&self, name: &String) -> Result<JsValue, JErrorType> {
+        self.base_env.get_binding_value(name)
     }
 
-    fn delete_binding(&mut self, name: &String) -> bool {
-        todo!()
+    fn delete_binding(&mut self, name: &String) -> Result<bool, JErrorType> {
+        self.base_env.delete_binding(name)
     }
 
     fn has_this_binding(&self) -> bool {
-        todo!()
+        !self.is_lexical_binding
     }
 
     fn has_super_binding(&self) -> bool {
-        todo!()
+        if self.is_lexical_binding {
+            false
+        } else {
+            self.home_object.is_some()
+        }
     }
 }
 
@@ -311,9 +351,8 @@ pub struct GlobalEnvironmentRecord {
     declarative_record: DeclarativeEnvironmentRecord,
     var_names: Vec<String>,
 }
-
 impl GlobalEnvironmentRecord {
-    pub fn new(global_object: Box<ObjectType>) -> Self {
+    fn new(global_object: JsObjectType) -> Self {
         GlobalEnvironmentRecord {
             object_record: ObjectEnvironmentRecord::new(global_object),
             declarative_record: DeclarativeEnvironmentRecord::new(),
@@ -321,7 +360,7 @@ impl GlobalEnvironmentRecord {
         }
     }
 
-    pub fn get_this_binding(&self) -> &ObjectType {
+    pub fn get_this_binding(&self) -> &JsObjectType {
         &self.object_record.binding_object
     }
 
@@ -333,60 +372,305 @@ impl GlobalEnvironmentRecord {
         self.declarative_record.has_binding(name)
     }
 
-    pub fn has_restricted_global_property(&self, name: &String) -> bool {
-        todo!()
+    pub fn has_restricted_global_property(&self, name: &String) -> Result<bool, JErrorType> {
+        Ok(
+            if let Some(desc) = self
+                .object_record
+                .binding_object
+                .borrow()
+                .as_js_object()
+                .get_own_property(&PropertyKey::Str(name.to_string()))?
+            {
+                !desc.is_configurable()
+            } else {
+                false
+            },
+        )
     }
 
     pub fn can_declare_global_var(&self, name: &String) -> bool {
-        todo!()
+        if has_own_property(
+            &self.object_record.binding_object,
+            &PropertyKey::Str(name.to_string()),
+        )? {
+            true
+        } else {
+            self.object_record
+                .binding_object
+                .borrow()
+                .as_js_object()
+                .is_extensible()
+        }
     }
 
     pub fn can_declare_global_function(&self, name: &String) -> bool {
-        todo!()
+        if let Some(desc) = self
+            .object_record
+            .binding_object
+            .borrow()
+            .as_js_object()
+            .get_own_property(&PropertyKey::Str(name.to_string()))?
+        {
+            if desc.is_configurable() {
+                true
+            } else if desc.is_data_descriptor() && desc.is_enumerable() {
+                if let PropertyDescriptor::Data(PropertyDescriptorData { writable, .. }) = desc {
+                    if *writable {
+                        return true;
+                    }
+                }
+                false
+            }
+        } else {
+            self.object_record
+                .binding_object
+                .borrow()
+                .as_js_object()
+                .is_extensible()
+        }
     }
 
-    pub fn create_global_var_binding(&self, name: String, can_delete: bool) {
-        todo!()
+    pub fn create_global_var_binding(
+        &mut self,
+        name: String,
+        can_delete: bool,
+    ) -> Result<(), JErrorType> {
+        let has_property = has_own_property(
+            &self.object_record.binding_object,
+            &PropertyKey::Str(name.to_string()),
+        )?;
+        let is_extensible = self
+            .object_record
+            .binding_object
+            .borrow()
+            .as_js_object()
+            .is_extensible();
+        if !has_property && is_extensible {
+            self.object_record
+                .create_mutable_binding(name.to_string(), can_delete)?;
+            self.object_record
+                .initialize_binding(name.to_string(), JsValue::Undefined)?;
+        }
+        if !self.var_names.contains(&name) {
+            self.var_names.push(name);
+        }
+        Ok(())
     }
 
-    pub fn create_global_function_binding(&self, name: String, f: JsValue, can_delete: bool) {
-        todo!()
+    pub fn create_global_function_binding(
+        &mut self,
+        name: String,
+        f: JsValue,
+        can_delete: bool,
+    ) -> Result<(), JErrorType> {
+        let set_new_desc = if let Some(desc) = self
+            .object_record
+            .binding_object
+            .borrow()
+            .as_js_object()
+            .get_own_property(&PropertyKey::Str(name.to_string()))?
+        {
+            desc.is_configurable()
+        } else {
+            true
+        };
+        // let f_clone = f.clone();
+        let new_desc = if set_new_desc {
+            PropertyDescriptorSetter::new_from_property_descriptor(PropertyDescriptor::Data(
+                PropertyDescriptorData {
+                    value: f,
+                    writable: true,
+                    enumerable: true,
+                    configurable: can_delete,
+                },
+            ))
+        } else {
+            PropertyDescriptorSetter {
+                honour_value: true,
+                honour_writable: false,
+                honour_set: false,
+                honour_get: false,
+                honour_enumerable: false,
+                honour_configurable: false,
+                descriptor: PropertyDescriptor::Data(PropertyDescriptorData {
+                    value: f,
+                    writable: false,
+                    enumerable: false,
+                    configurable: false,
+                }),
+            }
+        };
+        define_property_or_throw(
+            &mut self.object_record.binding_object,
+            PropertyKey::Str(name.to_string()),
+            new_desc,
+        )?;
+        // Commenting out this code. The specs (on Pg. 89) requires this but not sure why, seems redundant.
+        // set(
+        //     &mut self.object_record.binding_object,
+        //     PropertyKey::Str(name.to_string()),
+        //     f_clone,
+        // )?;
+        if !self.var_names.contains(&name) {
+            self.var_names.push(name);
+        }
+        Ok(())
     }
 }
 impl EnvironmentRecord for GlobalEnvironmentRecord {
     fn has_binding(&self, name: &String) -> bool {
-        todo!()
+        if self.declarative_record.has_binding(name) {
+            true
+        } else {
+            self.object_record.has_binding(name)
+        }
     }
 
-    fn create_mutable_binding(&mut self, name: String, can_delete: bool) {
-        todo!()
+    fn create_mutable_binding(&mut self, name: String, can_delete: bool) -> Result<(), JErrorType> {
+        if self.declarative_record.has_binding(&name) {
+            Err(JErrorType::TypeError(format!(
+                "'{}' binding is already present",
+                name
+            )))
+        } else {
+            self.declarative_record
+                .create_mutable_binding(name, can_delete)
+        }
     }
 
-    fn create_immutable_binding(&mut self, name: String) {
-        todo!()
+    fn create_immutable_binding(&mut self, name: String) -> Result<(), JErrorType> {
+        if self.declarative_record.has_binding(&name) {
+            Err(JErrorType::TypeError(format!(
+                "'{}' binding is already present",
+                name
+            )))
+        } else {
+            self.declarative_record.create_immutable_binding(name)
+        }
     }
 
-    fn initialize_binding(&mut self, name: String, value: JsValue) -> bool {
-        todo!()
+    fn initialize_binding(&mut self, name: String, value: JsValue) -> Result<bool, JErrorType> {
+        if self.declarative_record.has_binding(&name) {
+            self.declarative_record.initialize_binding(name, value)
+        } else if self.object_record.has_binding(&name) {
+            self.object_record.initialize_binding(name, value)
+        } else {
+            Ok(false)
+        }
     }
 
-    fn set_mutable_binding(&mut self, name: String, value: JsValue) -> Option<JErrorType> {
-        todo!()
+    fn set_mutable_binding(&mut self, name: String, value: JsValue) -> Result<(), JErrorType> {
+        if self.declarative_record.has_binding(&name) {
+            self.declarative_record.set_mutable_binding(name, value)
+        } else if self.object_record.has_binding(&name) {
+            self.object_record.set_mutable_binding(name, value)
+        } else {
+            Ok(())
+        }
     }
 
-    fn get_binding_value(&self, name: &String) -> Result<&JsValue, JErrorType> {
-        todo!()
+    fn get_binding_value(&self, name: &String) -> Result<JsValue, JErrorType> {
+        if self.declarative_record.has_binding(name) {
+            self.declarative_record.get_binding_value(name)
+        } else {
+            self.object_record.get_binding_value(name)
+        }
     }
 
-    fn delete_binding(&mut self, name: &String) -> bool {
-        todo!()
+    fn delete_binding(&mut self, name: &String) -> Result<bool, JErrorType> {
+        if self.declarative_record.has_binding(name) {
+            self.declarative_record.delete_binding(name)
+        } else {
+            Ok(
+                if has_own_property(
+                    &self.object_record.binding_object,
+                    &PropertyKey::Str(name.to_string()),
+                )? {
+                    if self.object_record.delete_binding(name)? {
+                        self.var_names = self
+                            .var_names
+                            .into_iter()
+                            .filter(|n| n != name)
+                            .collect::<Vec<String>>();
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    true
+                },
+            )
+        }
     }
 
     fn has_this_binding(&self) -> bool {
-        todo!()
+        true
     }
 
     fn has_super_binding(&self) -> bool {
-        todo!()
+        false
     }
+}
+
+pub fn new_declarative_environment(
+    outer_lex: Option<JsLexEnvironmentType>,
+) -> JsLexEnvironmentType {
+    Rc::new(RefCell::new(LexEnvironment {
+        inner: Box::new(EnvironmentRecordType::Declarative(
+            DeclarativeEnvironmentRecord::new(),
+        )),
+        outer: match outer_lex {
+            None => None,
+            Some(o) => Some(o.clone()),
+        },
+    }))
+}
+
+pub fn new_object_environment(
+    o: JsObjectType,
+    outer_lex: Option<JsLexEnvironmentType>,
+) -> JsLexEnvironmentType {
+    Rc::new(RefCell::new(LexEnvironment {
+        inner: Box::new(EnvironmentRecordType::Object(ObjectEnvironmentRecord::new(
+            o,
+        ))),
+        outer: match outer_lex {
+            None => None,
+            Some(o) => Some(o.clone()),
+        },
+    }))
+}
+
+pub fn new_function_environment(
+    f: JsObjectType,
+    new_target: Option<JsObjectType>,
+) -> JsLexEnvironmentType {
+    assert!((*f).borrow().is_callable(), "f needs to be callable");
+    if let Some(new_target) = &new_target {
+        assert!(
+            (**new_target).borrow().is_callable(),
+            "new_target needs to be callable"
+        );
+    }
+    let outer_lex = (*f)
+        .borrow()
+        .as_js_function_object()
+        .get_function_object_base()
+        .environment
+        .clone();
+    Rc::new(RefCell::new(LexEnvironment {
+        inner: Box::new(EnvironmentRecordType::Function(
+            FunctionEnvironmentRecord::new(f, new_target),
+        )),
+        outer: Some(outer_lex),
+    }))
+}
+
+pub fn new_global_environment(global_object: JsObjectType) -> JsLexEnvironmentType {
+    Rc::new(RefCell::new(LexEnvironment {
+        inner: Box::new(EnvironmentRecordType::Global(GlobalEnvironmentRecord::new(
+            global_object,
+        ))),
+        outer: None,
+    }))
 }

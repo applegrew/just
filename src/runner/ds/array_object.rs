@@ -1,5 +1,7 @@
 use crate::runner::ds::error::JErrorType;
-use crate::runner::ds::object::{ordinary_define_own_property, JsObject};
+use crate::runner::ds::object::{
+    ordinary_define_own_property, JsObject, JsObjectType, ObjectBase, ObjectType,
+};
 use crate::runner::ds::object_property::{
     PropertyDescriptor, PropertyDescriptorData, PropertyDescriptorSetter, PropertyKey,
 };
@@ -7,9 +9,12 @@ use crate::runner::ds::operations::type_conversion::{
     canonical_numeric_index_string, to_number, to_string, to_string_int, to_unit_32,
 };
 use crate::runner::ds::value::{JsNumberType, JsValue};
+use std::borrow::BorrowMut;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 lazy_static! {
-    static ref ARRAY_LENGTH_PROP: PropertyKey = PropertyKey::Str("length".to_string());
+    pub static ref ARRAY_LENGTH_PROP: PropertyKey = PropertyKey::Str("length".to_string());
 }
 
 pub trait JsArrayObject: JsObject {
@@ -17,10 +22,10 @@ pub trait JsArrayObject: JsObject {
 
     fn as_js_array_object_mut(&mut self) -> &mut dyn JsArrayObject;
 
-    fn get_own_length_property(&self) -> &PropertyDescriptorData {
-        if let Some(len_desc) = self.get_own_property(&*ARRAY_LENGTH_PROP) {
+    fn get_own_length_property(&self) -> Result<&PropertyDescriptorData, JErrorType> {
+        if let Some(len_desc) = self.get_own_property(&*ARRAY_LENGTH_PROP)? {
             if let PropertyDescriptor::Data(d) = len_desc {
-                d
+                Ok(d)
             } else {
                 panic!("Array.length should have been data descriptor");
             }
@@ -42,7 +47,7 @@ pub trait JsArrayObject: JsObject {
                     descriptor_setter,
                 );
             } else if let Some(idx) = canonical_numeric_index_string(s) {
-                let len_desc = self.get_own_length_property();
+                let len_desc = self.get_own_length_property()?;
                 let old_len = to_unit_32(&len_desc.value)?;
                 if idx >= old_len && !len_desc.writable {
                     return Ok(false);
@@ -51,11 +56,11 @@ pub trait JsArrayObject: JsObject {
                     self.as_js_object_mut(),
                     property,
                     descriptor_setter,
-                ) {
+                )? {
                     return Ok(false);
                 }
-                if idx >= old_len {
-                    return Ok(ordinary_define_own_property(
+                return if idx >= old_len {
+                    ordinary_define_own_property(
                         self.as_js_object_mut(),
                         ARRAY_LENGTH_PROP.clone(),
                         PropertyDescriptorSetter {
@@ -72,17 +77,52 @@ pub trait JsArrayObject: JsObject {
                                 configurable: false,
                             }),
                         },
-                    ));
+                    )
                 } else {
-                    return Ok(true);
-                }
+                    Ok(true)
+                };
             }
         }
-        Ok(ordinary_define_own_property(
-            self.as_js_object_mut(),
-            property,
-            descriptor_setter,
-        ))
+        ordinary_define_own_property(self.as_js_object_mut(), property, descriptor_setter)
+    }
+}
+
+pub struct CoreArrayObject {
+    base: ObjectBase,
+}
+impl CoreArrayObject {
+    fn new(length: u32, proto: Option<JsObjectType>) -> Self {
+        let mut obj = CoreArrayObject {
+            base: ObjectBase::new(),
+        };
+        finish_array_create(&mut obj, length, proto);
+        obj
+    }
+}
+impl JsArrayObject for CoreArrayObject {
+    fn as_js_array_object(&self) -> &dyn JsArrayObject {
+        self
+    }
+
+    fn as_js_array_object_mut(&mut self) -> &mut dyn JsArrayObject {
+        self
+    }
+}
+impl JsObject for CoreArrayObject {
+    fn get_object_base_mut(&mut self) -> &mut ObjectBase {
+        &mut self.base
+    }
+
+    fn get_object_base(&self) -> &ObjectBase {
+        &self.base
+    }
+
+    fn as_js_object(&self) -> &dyn JsObject {
+        self
+    }
+
+    fn as_js_object_mut(&mut self) -> &mut dyn JsObject {
+        self
     }
 }
 
@@ -92,11 +132,7 @@ pub fn array_set_length(
     mut descriptor_setter: PropertyDescriptorSetter,
 ) -> Result<bool, JErrorType> {
     if !descriptor_setter.honour_value {
-        Ok(ordinary_define_own_property(
-            array,
-            ARRAY_LENGTH_PROP.clone(),
-            descriptor_setter,
-        ))
+        ordinary_define_own_property(array, ARRAY_LENGTH_PROP.clone(), descriptor_setter)
     } else {
         if let PropertyDescriptor::Data(new_descriptor) = &mut descriptor_setter.descriptor {
             let new_length = to_unit_32(&new_descriptor.value)?;
@@ -111,7 +147,7 @@ pub fn array_set_length(
                 return Err(JErrorType::RangeError(new_length_in_js_number.to_string()));
             }
 
-            let old_descriptor = array.get_own_length_property();
+            let old_descriptor = array.get_own_length_property()?;
 
             new_descriptor.value = JsValue::Number(JsNumberType::Integer(new_length as i64));
             descriptor_setter.honour_value = true;
@@ -120,11 +156,7 @@ pub fn array_set_length(
 
             let old_length = to_unit_32(&old_descriptor.value)?;
             if new_length >= old_length {
-                Ok(ordinary_define_own_property(
-                    array,
-                    ARRAY_LENGTH_PROP.clone(),
-                    descriptor_setter,
-                ))
+                ordinary_define_own_property(array, ARRAY_LENGTH_PROP.clone(), descriptor_setter)
             } else {
                 if old_descriptor.writable {
                     if !new_writable {
@@ -136,12 +168,12 @@ pub fn array_set_length(
                         array,
                         ARRAY_LENGTH_PROP.clone(),
                         descriptor_setter,
-                    ) {
+                    )? {
                         if new_length < old_length {
                             let mut idx = old_length;
                             loop {
                                 idx -= 1;
-                                if !array.delete(&PropertyKey::Str(to_string_int(idx as i64))) {
+                                if !array.delete(&PropertyKey::Str(to_string_int(idx as i64)))? {
                                     ordinary_define_own_property(
                                         array,
                                         ARRAY_LENGTH_PROP.clone(),
@@ -173,7 +205,7 @@ pub fn array_set_length(
                             }
                         }
                         if !new_writable {
-                            Ok(ordinary_define_own_property(
+                            ordinary_define_own_property(
                                 array,
                                 ARRAY_LENGTH_PROP.clone(),
                                 PropertyDescriptorSetter {
@@ -190,7 +222,7 @@ pub fn array_set_length(
                                         configurable: false,
                                     }),
                                 },
-                            ))
+                            )
                         } else {
                             Ok(true)
                         }
@@ -207,4 +239,32 @@ pub fn array_set_length(
     }
 }
 
-// pub fn array_create(length:u32, proto: Rc<RefCell<ObjectType>>)
+pub fn finish_array_create(
+    array_obj: &mut dyn JsArrayObject,
+    length: u32,
+    proto: Option<JsObjectType>,
+) {
+    let final_proto = if let Some(proto) = proto {
+        proto
+    } else {
+        IntrinsicArrayPrototype
+    };
+    array_obj.get_object_base_mut().prototype = Some(final_proto);
+    array_obj.get_object_base_mut().is_extensible = true;
+    ordinary_define_own_property(
+        array_obj,
+        ARRAY_LENGTH_PROP.clone(),
+        PropertyDescriptorSetter::new_from_property_descriptor(PropertyDescriptor::Data(
+            PropertyDescriptorData {
+                value: JsValue::Number(JsNumberType::Integer(length as i64)),
+                writable: true,
+                enumerable: false,
+                configurable: false,
+            },
+        )),
+    );
+}
+
+pub fn array_create(length: u32, proto: Option<JsObjectType>) -> impl JsArrayObject {
+    CoreArrayObject::new(length, proto)
+}

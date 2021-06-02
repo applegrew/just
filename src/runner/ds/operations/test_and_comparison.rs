@@ -1,11 +1,14 @@
+use crate::runner::ds::function_object::ConstructorKind;
 use crate::runner::ds::object::{JsObject, ObjectType};
 use crate::runner::ds::operations::type_conversion::{
-    get_type, TYPE_STR_BOOLEAN, TYPE_STR_FUNCTION, TYPE_STR_NULL, TYPE_STR_NUMBER, TYPE_STR_OBJECT,
-    TYPE_STR_STRING, TYPE_STR_SYMBOL, TYPE_STR_UNDEFINED,
+    get_js_object_from_js_value, get_type, TYPE_STR_BOOLEAN, TYPE_STR_FUNCTION, TYPE_STR_NULL,
+    TYPE_STR_NUMBER, TYPE_STR_OBJECT, TYPE_STR_STRING, TYPE_STR_SYMBOL, TYPE_STR_UNDEFINED,
 };
 use crate::runner::ds::value::{JsNumberType, JsValue};
+use std::cell::RefCell;
 use std::ops::Deref;
 use std::ptr;
+use std::rc::Rc;
 
 fn is_same_value<'a>(a: &'a JsValue, b: &'a JsValue, strict_mode: bool) -> bool {
     let type_a = get_type(a);
@@ -115,6 +118,13 @@ pub fn same_object<'a>(a: &'a ObjectType, b: &'a ObjectType) -> bool {
     a == b
 }
 
+pub fn same_value_with_js_object<J: JsObject + ?Sized>(a: &JsValue, b: &J) -> bool {
+    match get_js_object_from_js_value(a) {
+        None => false,
+        Some(o) => same_js_object(o, b),
+    }
+}
+
 pub fn same_js_object<J: JsObject + ?Sized>(a: &J, b: &J) -> bool {
     ptr::eq(a.get_object_base(), b.get_object_base())
 }
@@ -125,4 +135,16 @@ pub fn same_value<'a>(a: &'a JsValue, b: &'a JsValue) -> bool {
 
 pub fn strict_equality_comparison<'a>(a: &'a JsValue, b: &'a JsValue) -> bool {
     is_same_value(a, b, true)
+}
+
+pub fn is_constructor(obj: &ObjectType) -> bool {
+    if let ObjectType::Function(f) = obj {
+        if let ConstructorKind::None = f.get_function_object_base().constructor_kind {
+            false
+        } else {
+            true
+        }
+    } else {
+        false
+    }
 }

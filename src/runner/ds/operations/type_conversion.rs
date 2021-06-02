@@ -1,7 +1,7 @@
 use crate::parser::ast::{ExtendedNumberLiteralType, NumberLiteralType};
 use crate::parser::JsParser;
 use crate::runner::ds::error::JErrorType;
-use crate::runner::ds::object::ObjectType;
+use crate::runner::ds::object::{JsObject, ObjectType};
 use crate::runner::ds::object_property::PropertyKey;
 use crate::runner::ds::operations::object::get_method;
 use crate::runner::ds::symbol::SYMBOL_TO_PRIMITIVE;
@@ -172,5 +172,12 @@ pub fn canonical_numeric_index_string(s: &String) -> Option<u32> {
             }
         }
         None
+    }
+}
+
+pub fn get_js_object_from_js_value(v: &JsValue) -> Option<&dyn JsObject> {
+    match v {
+        JsValue::Object(o) => Some((**o).borrow().as_js_object()),
+        _ => None,
     }
 }

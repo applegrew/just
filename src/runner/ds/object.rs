@@ -6,21 +6,72 @@ use crate::runner::ds::object_property::{
     PropertyDescriptor, PropertyDescriptorAccessor, PropertyDescriptorData,
     PropertyDescriptorSetter, PropertyKey,
 };
-use crate::runner::ds::operations::test_and_comparison::{same_js_object, same_object, same_value};
+use crate::runner::ds::operations::object::{get, get_function_realm};
+use crate::runner::ds::operations::test_and_comparison::{
+    is_constructor, same_js_object, same_object, same_value,
+};
 use crate::runner::ds::operations::type_conversion::{
     canonical_numeric_index_string, to_string_int,
 };
-use crate::runner::ds::value::JsValue;
+use crate::runner::ds::realm::WellKnownIntrinsics;
+use crate::runner::ds::value::{JsValue, JsValueOrSelf};
 use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::fmt;
+use std::fmt::{Display, Formatter};
 use std::ops::Deref;
 use std::rc::Rc;
+
+lazy_static! {
+    pub static ref OBJECT_PROTOTYPE_PROP: PropertyKey = PropertyKey::Str("prototype".to_string());
+}
+
+pub type JsObjectType = Rc<RefCell<ObjectType>>;
 
 pub enum ObjectType {
     Ordinary(Box<dyn JsObject>),
     Function(Box<dyn JsFunctionObject>),
-    Array(Box<dyn JsArrayObject>),
+}
+impl ObjectType {
+    pub fn is_callable(&self) -> bool {
+        match self {
+            ObjectType::Function(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_constructor(&self) -> bool {
+        is_constructor(self)
+    }
+
+    pub fn as_js_object(&self) -> &dyn JsObject {
+        match self {
+            ObjectType::Ordinary(o) => o.as_js_object(),
+            ObjectType::Function(o) => o.as_js_object(),
+        }
+    }
+
+    pub fn as_js_object_mut(&mut self) -> &mut dyn JsObject {
+        match self {
+            ObjectType::Ordinary(o) => o.as_js_object_mut(),
+            ObjectType::Function(o) => o.as_js_object_mut(),
+        }
+    }
+
+    pub fn as_js_function_object(&self) -> &dyn JsFunctionObject {
+        match self {
+            ObjectType::Ordinary(o) => panic!("Not callable hence cannot get as JsFunctionObject"),
+            ObjectType::Function(o) => o.as_js,
+        }
+    }
+
+    pub fn as_js_function_object_mut(&mut self) -> &mut dyn JsFunctionObject {
+        match self {
+            ObjectType::Ordinary(o) => o.as_js_object_mut(),
+            ObjectType::Function(o) => o.as_js_object_mut(),
+        }
+    }
 }
 impl PartialEq for ObjectType {
     fn eq(&self, other: &Self) -> bool {
@@ -39,45 +90,19 @@ impl PartialEq for ObjectType {
                     false
                 }
             }
-            ObjectType::Array(o) => {
-                if let ObjectType::Array(o1) = other {
-                    same_js_object(o.deref(), o1.deref())
-                } else {
-                    false
-                }
-            }
         }
     }
 }
-impl ObjectType {
-    pub fn is_callable(&self) -> bool {
-        match self {
-            ObjectType::Function(_) => true,
-            _ => false,
-        }
-    }
-
-    pub fn as_js_object(&self) -> &dyn JsObject {
-        match self {
-            ObjectType::Ordinary(o) => o.as_js_object(),
-            ObjectType::Function(o) => o.as_js_object(),
-            ObjectType::Array(o) => o.as_js_object(),
-        }
-    }
-
-    pub fn as_js_object_mut(&mut self) -> &mut dyn JsObject {
-        match self {
-            ObjectType::Ordinary(o) => o.as_js_object_mut(),
-            ObjectType::Function(o) => o.as_js_object_mut(),
-            ObjectType::Array(o) => o.as_js_object_mut(),
-        }
+impl Display for ObjectType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_js_object().to_string())
     }
 }
 
 pub struct ObjectBase {
-    properties: HashMap<PropertyKey, PropertyDescriptor>,
-    is_extensible: bool,
-    prototype: Option<Rc<RefCell<ObjectType>>>,
+    pub properties: HashMap<PropertyKey, PropertyDescriptor>,
+    pub is_extensible: bool,
+    pub prototype: Option<JsObjectType>,
 }
 impl ObjectBase {
     pub fn new() -> Self {
@@ -98,16 +123,16 @@ pub trait JsObject {
 
     fn as_js_object_mut(&mut self) -> &mut dyn JsObject;
 
-    fn get_prototype_of(&self) -> Option<Rc<RefCell<ObjectType>>> {
+    fn get_prototype_of(&self) -> Option<JsObjectType> {
         match &self.get_object_base().prototype {
             None => None,
             Some(j) => Some(j.clone()),
         }
     }
 
-    fn set_prototype_of(&mut self, prototype: Option<Rc<RefCell<ObjectType>>>) -> bool {
+    fn set_prototype_of(&mut self, prototype: Option<JsObjectType>) -> bool {
         let current_value = &self.get_object_base().prototype;
-        let new_value: Option<Rc<RefCell<ObjectType>>> = match prototype {
+        let new_value: Option<JsObjectType> = match prototype {
             None => {
                 if current_value.is_none() {
                     return true;
@@ -167,8 +192,11 @@ pub trait JsObject {
         true
     }
 
-    fn get_own_property(&self, property: &PropertyKey) -> Option<&PropertyDescriptor> {
-        self.get_object_base().properties.get(property)
+    fn get_own_property(
+        &self,
+        property: &PropertyKey,
+    ) -> Result<Option<&PropertyDescriptor>, JErrorType> {
+        Ok(self.get_object_base().properties.get(property))
     }
 
     fn define_own_property(
@@ -176,11 +204,7 @@ pub trait JsObject {
         property: PropertyKey,
         descriptor_setter: PropertyDescriptorSetter,
     ) -> Result<bool, JErrorType> {
-        Ok(ordinary_define_own_property(
-            self,
-            property,
-            descriptor_setter,
-        ))
+        ordinary_define_own_property(self, property, descriptor_setter)
     }
 
     fn has_property(&self, property: &PropertyKey) -> bool {
@@ -194,12 +218,8 @@ pub trait JsObject {
         }
     }
 
-    fn get<'a>(
-        &'a self,
-        property: &'a PropertyKey,
-        receiver: &'a JsValue,
-    ) -> Result<JsValue, JErrorType> {
-        match self.get_own_property(property) {
+    fn get(&self, property: &PropertyKey, receiver: JsValueOrSelf) -> Result<JsValue, JErrorType> {
+        match self.get_own_property(property)? {
             None => match self.get_prototype_of() {
                 None => Ok(JsValue::Undefined),
                 Some(p) => (*(*p).borrow()).as_js_object().get(property, receiver),
@@ -214,13 +234,13 @@ pub trait JsObject {
         }
     }
 
-    fn set<'a>(
-        &'a mut self,
+    fn set(
+        &mut self,
         property: PropertyKey,
         value: JsValue,
-        receiver: &'a JsValue,
+        receiver: JsValueOrSelf,
     ) -> Result<bool, JErrorType> {
-        match self.get_own_property(&property) {
+        match self.get_own_property(&property)? {
             None => match self.get_prototype_of() {
                 None => {
                     self.get_object_base_mut().properties.insert(
@@ -245,57 +265,19 @@ pub trait JsObject {
                 }) => {
                     if *writable {
                         match receiver {
-                            JsValue::Object(o) => {
-                                let mut ot_obj = (**o).borrow_mut();
-                                let obj = (*ot_obj).as_js_object_mut();
-                                match obj.get_own_property(&property) {
-                                    None => {
-                                        let desc_setter =
-                                            PropertyDescriptorSetter::new_from_property_descriptor(
-                                                PropertyDescriptor::Data(PropertyDescriptorData {
-                                                    value: value.clone(),
-                                                    writable: true,
-                                                    enumerable: true,
-                                                    configurable: true,
-                                                }),
-                                            );
-                                        obj.define_own_property(property, desc_setter);
-                                        Ok(true)
-                                    }
-                                    Some(pd) => match pd {
-                                        PropertyDescriptor::Data(PropertyDescriptorData {
-                                            writable,
-                                            ..
-                                        }) => {
-                                            if *writable {
-                                                obj.define_own_property(
-                                                    property,
-                                                    PropertyDescriptorSetter {
-                                                        honour_value: true,
-                                                        honour_writable: false,
-                                                        honour_set: false,
-                                                        honour_get: false,
-                                                        honour_enumerable: false,
-                                                        honour_configurable: false,
-                                                        descriptor: PropertyDescriptor::Data(
-                                                            PropertyDescriptorData {
-                                                                value: value.clone(),
-                                                                writable: false,
-                                                                enumerable: false,
-                                                                configurable: false,
-                                                            },
-                                                        ),
-                                                    },
-                                                )
-                                            } else {
-                                                Ok(false)
-                                            }
-                                        }
-                                        PropertyDescriptor::Accessor { .. } => Ok(false),
-                                    },
+                            JsValueOrSelf::ValueRef(value_ref) => match value_ref {
+                                JsValue::Object(o) => {
+                                    let mut ot_obj = (**o).borrow_mut();
+                                    let obj = (*ot_obj).as_js_object_mut();
+                                    set_or_update_data_descriptor(obj, property, value)
                                 }
-                            }
-                            _ => Ok(false),
+                                _ => Ok(false),
+                            },
+                            JsValueOrSelf::SelfValue => set_or_update_data_descriptor(
+                                self.as_js_object_mut(),
+                                property,
+                                value,
+                            ),
                         }
                     } else {
                         Ok(false)
@@ -312,8 +294,8 @@ pub trait JsObject {
         }
     }
 
-    fn delete(&mut self, property: &PropertyKey) -> bool {
-        match self.get_own_property(property) {
+    fn delete(&mut self, property: &PropertyKey) -> Result<bool, JErrorType> {
+        Ok(match self.get_own_property(property)? {
             None => true,
             Some(pd) => {
                 if pd.is_configurable() {
@@ -323,7 +305,7 @@ pub trait JsObject {
                     false
                 }
             }
-        }
+        })
     }
 
     fn enumerate(&self) -> JsIteratorObject {
@@ -377,13 +359,54 @@ pub trait JsObject {
     }
 }
 
+pub struct CoreObject {
+    base: ObjectBase,
+}
+impl CoreObject {
+    fn new(proto: Option<JsObjectType>) -> Self {
+        let mut o = CoreObject {
+            base: ObjectBase::new(),
+        };
+        finish_object_create(&mut o, proto);
+        o
+    }
+
+    fn new_from_constructor(
+        constructor: JsObjectType,
+        intrinsic_default_proto: &WellKnownIntrinsics,
+    ) -> Result<Self, JErrorType> {
+        let mut o = CoreObject {
+            base: ObjectBase::new(),
+        };
+        finish_object_create_from_constructor(&mut o, constructor, intrinsic_default_proto)?;
+        Ok(o)
+    }
+}
+impl JsObject for CoreObject {
+    fn get_object_base_mut(&mut self) -> &mut ObjectBase {
+        &mut self.base
+    }
+
+    fn get_object_base(&self) -> &ObjectBase {
+        &self.base
+    }
+
+    fn as_js_object(&self) -> &dyn JsObject {
+        self
+    }
+
+    fn as_js_object_mut(&mut self) -> &mut dyn JsObject {
+        self
+    }
+}
+
 pub fn ordinary_define_own_property<J: JsObject + ?Sized>(
     o: &mut J,
     property: PropertyKey,
     mut descriptor_setter: PropertyDescriptorSetter,
-) -> bool {
-    let current_descriptor = o.get_own_property(&property);
-    if let Some(current_descriptor) = current_descriptor {
+) -> Result<bool, JErrorType> {
+    let current_descriptor = o.get_own_property(&property)?;
+    Ok(if let Some(current_descriptor) = current_descriptor {
         if descriptor_setter.is_empty() {
             true
         } else if descriptor_setter.are_all_fields_set()
@@ -394,12 +417,12 @@ pub fn ordinary_define_own_property<J: JsObject + ?Sized>(
             let descriptor = &descriptor_setter.descriptor;
             if !current_descriptor.is_configurable() {
                 if descriptor.is_configurable() {
-                    return false;
+                    return Ok(false);
                 } else {
                     if (current_descriptor.is_enumerable() && !descriptor.is_enumerable())
                         || (!current_descriptor.is_enumerable() && descriptor.is_enumerable())
                     {
-                        return false;
+                        return Ok(false);
                     }
                 }
             }
@@ -408,7 +431,7 @@ pub fn ordinary_define_own_property<J: JsObject + ?Sized>(
                     || (!current_descriptor.is_data_descriptor() && descriptor.is_data_descriptor())
                 {
                     if !current_descriptor.is_configurable() {
-                        return false;
+                        return Ok(false);
                     }
                     descriptor_setter.descriptor = match descriptor_setter.descriptor {
                         PropertyDescriptor::Data(PropertyDescriptorData {
@@ -448,13 +471,13 @@ pub fn ordinary_define_own_property<J: JsObject + ?Sized>(
                             }) = &descriptor
                             {
                                 if !*current_writable && *desc_writable {
-                                    return false;
+                                    return Ok(false);
                                 }
                                 if !*current_writable {
                                     if descriptor_setter.honour_value
                                         && !same_value(current_value, desc_value)
                                     {
-                                        return false;
+                                        return Ok(false);
                                     }
                                 }
                             }
@@ -485,7 +508,7 @@ pub fn ordinary_define_own_property<J: JsObject + ?Sized>(
                                             desc_set.as_ref().unwrap().borrow(),
                                         ))
                                 {
-                                    return false;
+                                    return Ok(false);
                                 }
 
                                 if !(current_get.is_none() && desc_get.is_none())
@@ -497,7 +520,7 @@ pub fn ordinary_define_own_property<J: JsObject + ?Sized>(
                                             desc_get.as_ref().unwrap().borrow(),
                                         ))
                                 {
-                                    return false;
+                                    return Ok(false);
                                 }
                             }
                         }
@@ -520,5 +543,94 @@ pub fn ordinary_define_own_property<J: JsObject + ?Sized>(
         } else {
             false
         }
+    })
+}
+
+fn set_or_update_data_descriptor(
+    obj: &mut dyn JsObject,
+    property: PropertyKey,
+    value: &JsValue,
+) -> Result<bool, JErrorType> {
+    match obj.get_own_property(&property)? {
+        None => {
+            let desc_setter = PropertyDescriptorSetter::new_from_property_descriptor(
+                PropertyDescriptor::Data(PropertyDescriptorData {
+                    value: value.clone(),
+                    writable: true,
+                    enumerable: true,
+                    configurable: true,
+                }),
+            );
+            obj.define_own_property(property, desc_setter)?;
+            Ok(true)
+        }
+        Some(pd) => match pd {
+            PropertyDescriptor::Data(PropertyDescriptorData { writable, .. }) => {
+                if *writable {
+                    obj.define_own_property(
+                        property,
+                        PropertyDescriptorSetter {
+                            honour_value: true,
+                            honour_writable: false,
+                            honour_set: false,
+                            honour_get: false,
+                            honour_enumerable: false,
+                            honour_configurable: false,
+                            descriptor: PropertyDescriptor::Data(PropertyDescriptorData {
+                                value: value.clone(),
+                                writable: false,
+                                enumerable: false,
+                                configurable: false,
+                            }),
+                        },
+                    )
+                } else {
+                    Ok(false)
+                }
+            }
+            PropertyDescriptor::Accessor { .. } => Ok(false),
+        },
+    }
+}
+
+pub fn object_create(proto: Option<JsObjectType>) -> impl JsObject {
+    CoreObject::new(proto)
+}
+
+pub fn object_create_from_constructor(
+    constructor: JsObjectType,
+    intrinsic_default_proto: &WellKnownIntrinsics,
+) -> Result<impl JsObject, JErrorType> {
+    CoreObject::new_from_constructor(constructor, intrinsic_default_proto)
+}
+
+pub fn finish_object_create(obj: &mut dyn JsObject, proto: Option<JsObjectType>) {
+    obj.get_object_base_mut().prototype = proto;
+    obj.get_object_base_mut().is_extensible = true;
+}
+
+pub fn finish_object_create_from_constructor(
+    obj: &mut dyn JsObject,
+    constructor: JsObjectType,
+    intrinsic_default_proto: &WellKnownIntrinsics,
+) -> Result<(), JErrorType> {
+    let proto = get_prototype_from_constructor(constructor, intrinsic_default_proto)?;
+    finish_object_create(obj, Some(proto));
+    Ok(())
+}
+
+pub fn get_prototype_from_constructor(
+    constructor: JsObjectType,
+    intrinsic_default_proto: &WellKnownIntrinsics,
+) -> Result<JsObjectType, JErrorType> {
+    let proto = get(&constructor, &*OBJECT_PROTOTYPE_PROP)?;
+    if let JsValue::Object(o) = proto {
+        Ok(o)
+    } else {
+        let realm = get_function_realm(&*(*constructor).borrow())?;
+        let proto = (*realm)
+            .borrow()
+            .get_intrinsics_value(intrinsic_default_proto);
+        Ok(proto.clone())
     }
 }

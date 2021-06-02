@@ -244,7 +244,7 @@ fn build_ast_from_generator_declaration(
     let args = build_ast_from_formal_parameters(formal_parameters, script)?;
     // We first have generator_body then function_body__yield in it
     let function_body_pair = pair_iter.next().unwrap().into_inner().next().unwrap();
-    let body = build_ast_from_function_body(function_body_pair, script)?;
+    let body = Rc::new(build_ast_from_function_body(function_body_pair, script)?);
     Ok(FunctionData {
         meta,
         id: Some(f_name),
@@ -271,7 +271,7 @@ fn build_ast_from_function_declaration_or_function_expression(
     };
     let args = build_ast_from_formal_parameters(formal_parameters, script)?;
     let function_body_pair = pair_iter.next().unwrap();
-    let body = build_ast_from_function_body(function_body_pair, script)?;
+    let body = Rc::new(build_ast_from_function_body(function_body_pair, script)?);
     Ok(FunctionData {
         meta,
         id: f_name,
@@ -284,15 +284,15 @@ fn build_ast_from_function_declaration_or_function_expression(
 fn build_ast_from_formal_parameters(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<Vec<Box<PatternType>>, JsRuleError> {
-    let mut args: Vec<Box<PatternType>> = vec![];
+) -> Result<Vec<Rc<PatternType>>, JsRuleError> {
+    let mut args: Vec<Rc<PatternType>> = vec![];
     for param in pair.into_inner() {
         let meta = get_meta(&param, script);
         args.push(match param.as_rule() {
             Rule::function_rest_parameter | Rule::function_rest_parameter__yield => {
                 let binding_rest_element = param.into_inner().next().unwrap();
                 let binding_identifier = binding_rest_element.into_inner().next().unwrap();
-                Box::new(PatternType::RestElement {
+                Rc::new(PatternType::RestElement {
                     meta,
                     argument: Box::new(
                         ExpressionPatternType::Identifier(get_identifier_data(
@@ -320,7 +320,7 @@ fn build_ast_from_formal_parameters(
 fn build_ast_from_binding_element(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<Box<PatternType>, JsRuleError> {
+) -> Result<Rc<PatternType>, JsRuleError> {
     let binding_element = pair.into_inner().next().unwrap();
     let mut binding_element_inner_iter = binding_element.into_inner();
     let binding_element_inner = binding_element_inner_iter.next().unwrap();
@@ -333,7 +333,7 @@ fn build_ast_from_binding_element(
                 script,
             ));
             if let Some(initializer) = single_name_binding_iter.next() {
-                Box::new(PatternType::AssignmentPattern {
+                Rc::new(PatternType::AssignmentPattern {
                     meta,
                     left: Box::new(binding_identifier.convert_to_pattern()),
                     right: build_ast_from_assignment_expression(
@@ -342,7 +342,7 @@ fn build_ast_from_binding_element(
                     )?,
                 })
             } else {
-                Box::new(binding_identifier.convert_to_pattern())
+                Rc::new(binding_identifier.convert_to_pattern())
             }
         } else if binding_element_inner.as_rule() == Rule::binding_pattern {
             unimplemented!();

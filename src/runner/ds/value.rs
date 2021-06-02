@@ -3,7 +3,7 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::rc::Rc;
 
-use crate::runner::ds::object::{JsObject, ObjectType};
+use crate::runner::ds::object::{JsObject, JsObjectType, ObjectType};
 use crate::runner::ds::operations::type_conversion::{TYPE_STR_NULL, TYPE_STR_UNDEFINED};
 use crate::runner::ds::symbol::SymbolData;
 
@@ -14,7 +14,7 @@ pub enum JsValue {
     String(String),
     Symbol(SymbolData),
     Number(JsNumberType),
-    Object(Rc<RefCell<ObjectType>>),
+    Object(JsObjectType),
 }
 impl Clone for JsValue {
     fn clone(&self) -> Self {
@@ -75,4 +75,9 @@ impl Clone for JsNumberType {
             JsNumberType::NegativeInfinity => JsNumberType::NegativeInfinity,
         }
     }
+}
+
+pub enum JsValueOrSelf<'a> {
+    ValueRef(&'a JsValue),
+    SelfValue,
 }

@@ -2,24 +2,45 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::runner::ds::error::JErrorType;
-use crate::runner::ds::object::{JsObject, ObjectType};
-use crate::runner::ds::object_property::PropertyKey;
+use crate::runner::ds::object::{JsObject, JsObjectType, ObjectType};
+use crate::runner::ds::object_property::{
+    PropertyDescriptor, PropertyDescriptorData, PropertyDescriptorSetter, PropertyKey,
+};
 use crate::runner::ds::operations::type_conversion::to_object;
-use crate::runner::ds::value::JsValue;
+use crate::runner::ds::realm::CodeRealm;
+use crate::runner::ds::realm::WellKnownIntrinsics::JSON;
+use crate::runner::ds::value::{JsValue, JsValueOrSelf};
 
-pub fn get(o: &Rc<RefCell<ObjectType>>, p: &PropertyKey) -> Result<JsValue, JErrorType> {
+pub fn get(o: &JsObjectType, p: &PropertyKey) -> Result<JsValue, JErrorType> {
     let o1 = (**o).borrow();
-    o1.as_js_object().get(p, &JsValue::Object(o.clone()))
+    get_from_js_object(o1.as_js_object(), p)
+}
+
+pub fn get_from_js_object(o: &dyn JsObject, p: &PropertyKey) -> Result<JsValue, JErrorType> {
+    o.get(p, JsValueOrSelf::SelfValue)
 }
 
 pub fn get_v(v: &JsValue, p: &PropertyKey) -> Result<JsValue, JErrorType> {
     let o = to_object(v)?;
     if let JsValue::Object(o) = o {
         let o = (*o).borrow();
-        o.as_js_object().get(p, v)
+        o.as_js_object().get(p, JsValueOrSelf::ValueRef(v))
     } else {
         Ok(v.clone())
     }
+}
+
+pub fn set(o: &JsObjectType, p: PropertyKey, v: JsValue) -> Result<bool, JErrorType> {
+    let mut o1 = (**o).borrow_mut();
+    set_from_js_object(o1.as_js_object_mut(), p, v)
+}
+
+pub fn set_from_js_object(
+    o: &mut dyn JsObject,
+    p: PropertyKey,
+    v: JsValue,
+) -> Result<bool, JErrorType> {
+    o.set(p, v, JsValueOrSelf::SelfValue)
 }
 
 pub fn get_method(v: &JsValue, p: &PropertyKey) -> Result<JsValue, JErrorType> {
@@ -35,5 +56,78 @@ pub fn get_method(v: &JsValue, p: &PropertyKey) -> Result<JsValue, JErrorType> {
             }
         }
         _ => Err(JErrorType::TypeError(format!("'{}' is not a function", p))),
+    }
+}
+
+pub fn get_function_realm(obj: &ObjectType) -> Result<Rc<RefCell<CodeRealm>>, JErrorType> {
+    if let ObjectType::Function(f) = obj {
+        Ok(f.get_function_object_base().realm.clone())
+    } else {
+        Err(JErrorType::TypeError(format!(
+            "The object \"{}\" is not callable",
+            obj
+        )))
+    }
+}
+
+pub fn has_own_property(obj: &JsObjectType, property: &PropertyKey) -> Result<bool, JErrorType> {
+    has_own_property_from_js_object((**obj).borrow().as_js_object(), property)
+}
+
+pub fn has_own_property_from_js_object(
+    obj: &dyn JsObject,
+    property: &PropertyKey,
+) -> Result<bool, JErrorType> {
+    let desc = obj.get_own_property(property)?;
+    Ok(if let Some(_) = desc { true } else { false })
+}
+
+pub fn define_property_or_throw(
+    o: &mut dyn JsObject,
+    p: PropertyKey,
+    desc: PropertyDescriptorSetter,
+) -> Result<(), JErrorType> {
+    let r = o.define_own_property(p, desc)?;
+    if r {
+        Ok(())
+    } else {
+        Err(JErrorType::TypeError(format!(
+            "Defining property \"{}\" failed",
+            p
+        )))
+    }
+}
+
+pub fn create_data_property(
+    o: &mut dyn JsObject,
+    p: PropertyKey,
+    v: JsValue,
+) -> Result<bool, JErrorType> {
+    o.define_own_property(
+        p,
+        PropertyDescriptorSetter::new_from_property_descriptor(PropertyDescriptor::Data(
+            PropertyDescriptorData {
+                value: v,
+                writable: true,
+                enumerable: true,
+                configurable: true,
+            },
+        )),
+    )
+}
+
+pub fn create_data_property_or_throw(
+    o: &mut dyn JsObject,
+    p: PropertyKey,
+    v: JsValue,
+) -> Result<(), JErrorType> {
+    let r = create_data_property(o, p, v)?;
+    if r {
+        Ok(())
+    } else {
+        Err(JErrorType::TypeError(format!(
+            "Defining data property \"{}\" failed",
+            p
+        )))
     }
 }

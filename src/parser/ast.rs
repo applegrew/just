@@ -1348,8 +1348,8 @@ impl HasMeta for SwitchCaseData {
 pub struct FunctionData {
     pub meta: Meta,
     pub id: Option<IdentifierData>,
-    pub params: Vec<Box<PatternType>>,
-    pub body: FunctionBodyData,
+    pub params: Vec<Rc<PatternType>>,
+    pub body: Rc<FunctionBodyData>,
     pub generator: bool,
 }
 

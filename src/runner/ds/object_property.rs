@@ -1,7 +1,9 @@
 use crate::runner::ds::function_object::JsFunctionObject;
+use crate::runner::ds::object::{JsObjectType, ObjectType};
 use crate::runner::ds::operations::test_and_comparison::{same_js_object, same_value};
 use crate::runner::ds::symbol::SymbolData;
 use crate::runner::ds::value::JsValue;
+use std::cell::RefCell;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
@@ -137,7 +139,7 @@ pub struct PropertyDescriptorData {
 }
 
 pub struct PropertyDescriptorAccessor {
-    pub set: Option<Rc<dyn JsFunctionObject>>,
+    pub set: Option<JsObjectType>,
     pub get: Option<Rc<dyn JsFunctionObject>>,
     pub enumerable: bool,
     pub configurable: bool,
