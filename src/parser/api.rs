@@ -239,7 +239,7 @@ fn build_ast_from_generator_declaration(
 ) -> Result<FunctionData, JsRuleError> {
     let meta = get_meta(&pair, script);
     let mut pair_iter = pair.into_inner();
-    let f_name = get_identifier_data(pair_iter.next().unwrap(), script);
+    let f_name = get_binding_identifier_data(pair_iter.next().unwrap(), script)?;
     let formal_parameters = pair_iter.next().unwrap();
     let args = build_ast_from_formal_parameters(formal_parameters, script)?;
     // We first have generator_body then function_body__yield in it
@@ -263,7 +263,7 @@ fn build_ast_from_function_declaration_or_function_expression(
     let first_pair = pair_iter.next().unwrap();
     let (f_name, formal_parameters) = if first_pair.as_rule() == Rule::binding_identifier {
         (
-            Some(get_identifier_data(first_pair, script)),
+            Some(get_binding_identifier_data(first_pair, script)?),
             pair_iter.next().unwrap(),
         )
     } else {
@@ -295,10 +295,10 @@ fn build_ast_from_formal_parameters(
                 Rc::new(PatternType::RestElement {
                     meta,
                     argument: Box::new(
-                        ExpressionPatternType::Identifier(get_identifier_data(
+                        ExpressionPatternType::Identifier(get_binding_identifier_data(
                             binding_identifier,
                             script,
-                        ))
+                        )?)
                         .convert_to_pattern(),
                     ),
                 })
@@ -328,10 +328,9 @@ fn build_ast_from_binding_element(
         if binding_element_inner.as_rule() == Rule::single_name_binding {
             let meta = get_meta(&binding_element_inner, script);
             let mut single_name_binding_iter = binding_element_inner.into_inner();
-            let binding_identifier = ExpressionPatternType::Identifier(get_identifier_data(
-                single_name_binding_iter.next().unwrap(),
-                script,
-            ));
+            let binding_identifier = ExpressionPatternType::Identifier(
+                get_binding_identifier_data(single_name_binding_iter.next().unwrap(), script)?,
+            );
             if let Some(initializer) = single_name_binding_iter.next() {
                 Rc::new(PatternType::AssignmentPattern {
                     meta,
@@ -687,7 +686,7 @@ fn build_ast_from_for_binding(
     Ok(match inner_pair.as_rule() {
         Rule::binding_identifier | Rule::binding_identifier__yield => {
             let id: Box<PatternType> = Box::new(
-                ExpressionPatternType::Identifier(get_identifier_data(inner_pair, script))
+                ExpressionPatternType::Identifier(get_binding_identifier_data(inner_pair, script)?)
                     .convert_to_pattern(),
             );
             id
@@ -814,7 +813,7 @@ fn build_ast_from_lexical_binding_or_variable_declaration_or_binding_element(
             || inner_pair.as_rule() == Rule::binding_identifier__yield
         {
             let id = Box::new(
-                ExpressionPatternType::Identifier(get_identifier_data(inner_pair, script))
+                ExpressionPatternType::Identifier(get_binding_identifier_data(inner_pair, script)?)
                     .convert_to_pattern(),
             );
             if let Some(initializer) = inner_iter.next() {
@@ -864,8 +863,11 @@ fn build_ast_from_single_name_binding(
     let meta = get_meta(&pair, script);
     let mut inner_iter = pair.into_inner();
     let id = Box::new(
-        ExpressionPatternType::Identifier(get_identifier_data(inner_iter.next().unwrap(), script))
-            .convert_to_pattern(),
+        ExpressionPatternType::Identifier(get_binding_identifier_data(
+            inner_iter.next().unwrap(),
+            script,
+        )?)
+        .convert_to_pattern(),
     );
     Ok(if let Some(initializer) = inner_iter.next() {
         VariableDeclaratorData {
@@ -1556,10 +1558,27 @@ fn build_ast_from_call_expression(
     Ok(obj)
 }
 
+fn get_binding_identifier_data(
+    pair: Pair<Rule>,
+    script: &Rc<String>,
+) -> Result<IdentifierData, JsRuleError> {
+    let mut id = get_identifier_data(pair, script);
+    if id.name == "arguments" || id.name == "eval" {
+        Err(JsRuleError {
+            kind: JsErrorType::ParserGeneralError,
+            message: format!("Invalid binding identifier: {}", id.name),
+        })
+    } else {
+        id.is_binding_identifier = true;
+        Ok(id)
+    }
+}
+
 fn get_identifier_data(pair: Pair<Rule>, script: &Rc<String>) -> IdentifierData {
     IdentifierData {
         meta: get_meta(&pair, script),
         name: pair.as_str().trim().to_string(),
+        is_binding_identifier: false,
     }
 }
 
@@ -1662,6 +1681,7 @@ fn build_ast_from_member_expression(
                                 script: script.clone(),
                             },
                             name: "new".to_string(),
+                            is_binding_identifier: false,
                         },
                         property: IdentifierData {
                             meta: Meta {
@@ -1670,6 +1690,7 @@ fn build_ast_from_member_expression(
                                 script: script.clone(),
                             },
                             name: "target".to_string(),
+                            is_binding_identifier: false,
                         },
                     })
                 }

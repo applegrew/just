@@ -59,6 +59,7 @@ pub trait HasMeta {
 pub struct IdentifierData {
     pub name: String,
     pub meta: Meta,
+    pub is_binding_identifier: bool,
 }
 
 impl HasMeta for IdentifierData {
@@ -1345,10 +1346,17 @@ impl HasMeta for SwitchCaseData {
 }
 
 #[derive(Debug)]
+pub struct FormalParameters {
+    pub list: Vec<Rc<PatternType>>,
+    pub bound_names: Vec<String>,
+    pub contains_expression: bool,
+}
+
+#[derive(Debug)]
 pub struct FunctionData {
     pub meta: Meta,
     pub id: Option<IdentifierData>,
-    pub params: Vec<Rc<PatternType>>,
+    pub params: Rc<FormalParameters>,
     pub body: Rc<FunctionBodyData>,
     pub generator: bool,
 }
