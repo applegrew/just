@@ -260,6 +260,17 @@ pub fn ordinary_call_bind_this(
     Ok(false)
 }
 
+///
+/// When an execution context is established for evaluating an ECMAScript function a new
+/// function Environment Record is created and bindings for each formal parameter are instantiated
+/// in that Environment Record. Each declaration in the function body is also instantiated. If the
+/// function’s formal parameters do not include any default value initializers then the body
+/// declarations are instantiated in the same Environment Record as the parameters. If default
+/// value parameter initializers exist, a second Environment Record is created for the body
+/// declarations. Formal parameters and functions are initialized as part of
+/// function_declaration_instantiation. All other bindings are initialized during evaluation of the
+/// function body.
+///
 pub fn function_declaration_instantiation(
     f: &dyn JsFunctionObject,
     callee_context: &ExecutionContext,

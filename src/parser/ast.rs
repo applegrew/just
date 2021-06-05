@@ -2,6 +2,7 @@ use crate::parser::util::{format_has_meta_option, format_option, format_struct, 
 use pest::error::Error;
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
+use std::intrinsics::fabsf32;
 use std::rc::Rc;
 
 #[derive(Debug)]
@@ -61,7 +62,6 @@ pub struct IdentifierData {
     pub meta: Meta,
     pub is_binding_identifier: bool,
 }
-
 impl HasMeta for IdentifierData {
     fn get_meta(&self) -> &Meta {
         &self.meta
@@ -74,25 +74,31 @@ impl HasMeta for IdentifierData {
             .to_string()
     }
 }
-
 impl PartialEq for IdentifierData {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name
     }
 }
-
 impl Eq for IdentifierData {}
-
 impl Hash for IdentifierData {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.name.hash(state)
+    }
+}
+impl Clone for IdentifierData {
+    fn clone(&self) -> Self {
+        IdentifierData {
+            name: self.name.to_string(),
+            meta: self.meta.clone(),
+            is_binding_identifier: self.is_binding_identifier,
+        }
     }
 }
 
 #[derive(Debug)]
 pub enum ExpressionPatternType {
     Identifier(IdentifierData),
-    MemberExpression(MemberExpressionType),
+    // MemberExpression(MemberExpressionType),
 }
 
 impl ExpressionPatternType {
@@ -104,12 +110,11 @@ impl ExpressionPatternType {
         ExpressionType::ExpressionWhichCanBePattern(self)
     }
 }
-
 impl HasMeta for ExpressionPatternType {
     fn get_meta(&self) -> &Meta {
         match self {
             ExpressionPatternType::Identifier(data) => &data.meta,
-            ExpressionPatternType::MemberExpression(data) => data.get_meta(),
+            // ExpressionPatternType::MemberExpression(data) => data.get_meta(),
         }
     }
 
@@ -121,10 +126,10 @@ impl HasMeta for ExpressionPatternType {
                     data.to_formatted_string(script)
                 )
             }
-            ExpressionPatternType::MemberExpression(data) => format!(
-                "ExpressionPatternType::MemberExpression({})",
-                data.to_formatted_string(script)
-            ),
+            // ExpressionPatternType::MemberExpression(data) => format!(
+            //     "ExpressionPatternType::MemberExpression({})",
+            //     data.to_formatted_string(script)
+            // ),
         }
     }
 }
@@ -133,6 +138,7 @@ impl HasMeta for ExpressionPatternType {
 pub enum ExpressionType {
     ExpressionWhichCanBePattern(ExpressionPatternType),
     Literal(LiteralData),
+    MemberExpression(MemberExpressionType),
     ThisExpression {
         meta: Meta,
     },
@@ -245,6 +251,7 @@ impl HasMeta for ExpressionType {
             ExpressionType::ClassExpression(data) => &data.meta,
             ExpressionType::MetaProperty { meta, .. } => &meta,
             ExpressionType::ExpressionWhichCanBePattern(d) => d.get_meta(),
+            ExpressionType::MemberExpression(data) => data.get_meta(),
         }
     }
 
@@ -426,6 +433,10 @@ impl HasMeta for ExpressionType {
             ExpressionType::ExpressionWhichCanBePattern(d) => format!(
                 "ExpressionType::ExpressionWhichCanBePattern({})",
                 d.to_formatted_string(script)
+            ),
+            ExpressionType::MemberExpression(data) => format!(
+                "ExpressionType::MemberExpression({})",
+                data.to_formatted_string(script)
             ),
         }
     }
@@ -894,7 +905,6 @@ pub struct BlockStatementData {
     pub meta: Meta,
     pub body: Box<Vec<StatementType>>,
 }
-
 impl HasMeta for BlockStatementData {
     fn get_meta(&self) -> &Meta {
         &self.meta
@@ -1255,7 +1265,7 @@ impl HasMeta for VariableDeclarationOrPattern {
 
 #[derive(Debug)]
 pub enum DeclarationType {
-    FunctionDeclaration(FunctionData), //id is mandatory here
+    FunctionOrGeneratorDeclaration(FunctionData), //id is mandatory here
     VariableDeclaration(VariableDeclarationData),
     ClassDeclaration(ClassData),
 }
@@ -1263,7 +1273,7 @@ pub enum DeclarationType {
 impl HasMeta for DeclarationType {
     fn get_meta(&self) -> &Meta {
         match self {
-            DeclarationType::FunctionDeclaration(data) => data.get_meta(),
+            DeclarationType::FunctionOrGeneratorDeclaration(data) => data.get_meta(),
             DeclarationType::VariableDeclaration(data) => data.get_meta(),
             DeclarationType::ClassDeclaration(data) => data.get_meta(),
         }
@@ -1271,7 +1281,7 @@ impl HasMeta for DeclarationType {
 
     fn to_formatted_string(&self, script: &str) -> String {
         match self {
-            DeclarationType::FunctionDeclaration(data) => format!(
+            DeclarationType::FunctionOrGeneratorDeclaration(data) => format!(
                 "DeclarationType::FunctionDeclaration({})",
                 data.to_formatted_string(script)
             ),
@@ -1350,6 +1360,30 @@ pub struct FormalParameters {
     pub list: Vec<Rc<PatternType>>,
     pub bound_names: Vec<String>,
     pub contains_expression: bool,
+    pub is_simple_parameter_list: bool,
+}
+impl FormalParameters {
+    pub(crate) fn new(params: Vec<Rc<PatternType>>) -> Self {
+        let mut bound_names = vec![];
+        let mut contains_expression = false;
+        let mut is_simple_parameter_list = true;
+        for p in params {
+            let (mut bn, ce, sp) = scan_pattern(&p);
+            bound_names.append(&mut bn);
+            if ce {
+                contains_expression = true;
+            }
+            if !sp {
+                is_simple_parameter_list = false;
+            }
+        }
+        FormalParameters {
+            list: params,
+            bound_names,
+            contains_expression,
+            is_simple_parameter_list,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -1431,14 +1465,69 @@ impl HasMeta for VariableDeclaratorData {
 #[derive(Debug)]
 pub struct PropertyData<V> {
     pub meta: Meta,
-    pub key: LiteralOrIdentifier,
+    pub key: Box<ExpressionType>,
     pub value: V,
     pub kind: PropertyKind,
     pub method: bool,
     pub shorthand: bool,
     pub computed: bool,
 }
+impl<V> PropertyData<V> {
+    pub(crate) fn new_with_identifier_key(
+        meta: Meta,
+        key: IdentifierData,
+        value: V,
+        kind: PropertyKind,
+        method: bool,
+        shorthand: bool,
+    ) -> Self {
+        PropertyData {
+            meta,
+            key: Box::new(ExpressionPatternType::Identifier(key).convert_to_expression()),
+            value,
+            kind,
+            method,
+            shorthand,
+            computed: false,
+        }
+    }
 
+    pub(crate) fn new_with_literal_key(
+        meta: Meta,
+        key: LiteralData,
+        value: V,
+        kind: PropertyKind,
+        method: bool,
+    ) -> Self {
+        PropertyData {
+            meta,
+            key: Box::new(ExpressionType::Literal(key)),
+            value,
+            kind,
+            method,
+            shorthand: false,
+            computed: false,
+        }
+    }
+
+    pub(crate) fn new_with_computed_key(
+        meta: Meta,
+        key: Box<ExpressionType>,
+        value: V,
+        kind: PropertyKind,
+        method: bool,
+    ) -> Self {
+        PropertyData {
+            meta,
+            key,
+            value,
+            kind,
+            method,
+            shorthand: false,
+            computed: true,
+        }
+    }
+}
 impl HasMeta for PropertyData<Box<ExpressionType>> {
     fn get_meta(&self) -> &Meta {
         &self.meta
@@ -1454,7 +1543,6 @@ impl HasMeta for PropertyData<Box<ExpressionType>> {
             .to_string()
     }
 }
-
 impl HasMeta for PropertyData<Box<PatternType>> {
     fn get_meta(&self) -> &Meta {
         &self.meta
@@ -1472,7 +1560,7 @@ impl HasMeta for PropertyData<Box<PatternType>> {
 }
 
 #[derive(Debug)]
-pub enum LiteralOrIdentifier {
+enum LiteralOrIdentifier {
     Literal(LiteralData),
     Identifier(IdentifierData),
 }
@@ -1497,39 +1585,71 @@ impl HasMeta for LiteralOrIdentifier {
 pub struct AssignmentPropertyData(pub PropertyData<Box<PatternType>>);
 
 impl AssignmentPropertyData {
-    fn new(
+    pub(crate) fn new_with_identifier_key(
         meta: Meta,
-        key: LiteralOrIdentifier,
-        value: Box<PatternType>,
+        key: IdentifierData,
+        value: V,
+        method: bool,
         shorthand: bool,
-        computed: bool,
     ) -> Self {
-        AssignmentPropertyData(PropertyData {
+        AssignmentPropertyData(PropertyData::new_with_identifier_key(
             meta,
             key,
             value,
+            PropertyKind::Init,
+            method,
             shorthand,
-            computed,
-            method: false,
-            kind: PropertyKind::Init,
-        })
+        ))
     }
 
-    // fn new_from_variable_declarator_data(data: VariableDeclaratorData) -> Self {
-    //     if let ExpressionPatternType::Identifier(id) = *data.id {
-    //         Self::new(
-    //             data.meta,
-    //             LiteralOrIdentifier::Identifier(id),
-    //             data.init.unwrap(),
-    //             false,
-    //             false,
-    //         )
-    //     } else {
-    //         panic!("Method called with unexpected data");
-    //     }
-    // }
-}
+    pub(crate) fn new_with_literal_key(
+        meta: Meta,
+        key: LiteralData,
+        value: V,
+        method: bool,
+    ) -> Self {
+        AssignmentPropertyData(PropertyData::new_with_literal_key(
+            meta,
+            key,
+            value,
+            PropertyKind::Init,
+            method,
+        ))
+    }
 
+    pub(crate) fn new_with_computed_key(
+        meta: Meta,
+        key: Box<ExpressionType>,
+        value: V,
+        method: bool,
+    ) -> Self {
+        AssignmentPropertyData(PropertyData::new_with_computed_key(
+            meta,
+            key,
+            value,
+            PropertyKind::Init,
+            method,
+        ))
+    }
+
+    pub(crate) fn new_with_any_expression_key(
+        meta: Meta,
+        key: Box<ExpressionType>,
+        value: V,
+        method: bool,
+        shorthand: bool,
+    ) -> Self {
+        match *key {
+            ExpressionType::ExpressionWhichCanBePattern(e) => match e {
+                ExpressionPatternType::Identifier(id) => {
+                    Self::new_with_identifier_key(meta, id, value, method, shorthand)
+                }
+            },
+            ExpressionType::Literal(l) => Self::new_with_literal_key(meta, l, value, method),
+            _ => Self::new_with_computed_key(meta, key, value, method),
+        }
+    }
+}
 impl HasMeta for AssignmentPropertyData {
     fn get_meta(&self) -> &Meta {
         &self.0.meta
@@ -1581,7 +1701,6 @@ pub struct ClassBodyData {
     pub meta: Meta,
     pub body: Vec<MethodDefinitionData>,
 }
-
 impl HasMeta for ClassBodyData {
     fn get_meta(&self) -> &Meta {
         &self.meta
@@ -1631,4 +1750,101 @@ pub enum MethodDefinitionKind {
     Method,
     Get,
     Set,
+}
+
+fn scan_pattern(pattern: &PatternType) -> (Vec<String>, bool, bool) {
+    let mut bound_names = vec![];
+    let mut contains_expression = false;
+    let mut is_simple_parameter_list = true;
+    match pattern {
+        PatternType::PatternWhichCanBeExpression(e) => match e {
+            ExpressionPatternType::Identifier(i) => {
+                bound_names.push(i.name.to_string());
+            }
+        },
+        PatternType::ObjectPattern { properties, .. } => {
+            is_simple_parameter_list = false;
+            for AssignmentPropertyData(p) in properties {
+                let (mut bn, ce, _) = scan_pattern(&p.value);
+                bound_names.append(&mut bn);
+                if ce {
+                    contains_expression = true;
+                }
+            }
+        }
+        PatternType::ArrayPattern { elements, .. } => {
+            is_simple_parameter_list = false;
+            for p in elements {
+                if let Some(p) = p {
+                    let (mut bn, ce, _) = scan_pattern(p);
+                    bound_names.append(&mut bn);
+                    if ce {
+                        contains_expression = true;
+                    }
+                }
+            }
+        }
+        PatternType::RestElement { argument, .. } => {
+            is_simple_parameter_list = false;
+            let (mut bn, ce, _) = scan_pattern(argument);
+            bound_names.append(&mut bn);
+            if ce {
+                contains_expression = true;
+            }
+        }
+        PatternType::AssignmentPattern { left, .. } => {
+            contains_expression = true;
+            is_simple_parameter_list = false;
+            let (mut bn, _, _) = scan_pattern(left);
+            bound_names.append(&mut bn);
+        }
+    }
+    (bound_names, contains_expression, is_simple_parameter_list)
+}
+
+fn scan_statement_list(statement_list: &Vec<StatementType>) -> (Vec<String>) {
+    let mut bound_names = vec![];
+    for statement in statement_list {
+        match statement {
+            StatementType::ExpressionStatement { .. } => {}
+            StatementType::BlockStatement(b) => {
+                let (bn) = scan_statement_list(&b.body);
+                bound_names.append(&mut bn);
+            }
+            StatementType::FunctionBody(_) => {}
+            StatementType::EmptyStatement { .. } => {}
+            StatementType::DebuggerStatement { .. } => {}
+            StatementType::ReturnStatement { .. } => {}
+            StatementType::BreakStatement { .. } => {}
+            StatementType::ContinueStatement { .. } => {}
+            StatementType::IfStatement { .. } => {}
+            StatementType::SwitchStatement { .. } => {}
+            StatementType::ThrowStatement { .. } => {}
+            StatementType::TryStatement { .. } => {}
+            StatementType::WhileStatement { .. } => {}
+            StatementType::DoWhileStatement { .. } => {}
+            StatementType::ForStatement { .. } => {}
+            StatementType::ForInStatement(_) => {}
+            StatementType::ForOfStatement(_) => {}
+            StatementType::DeclarationStatement(d) => match d {
+                DeclarationType::FunctionOrGeneratorDeclaration(f) => {
+                    if let Some(id) = &f.id {
+                        bound_names.push(id.name.to_string());
+                    }
+                }
+                DeclarationType::VariableDeclaration(v) => {
+                    for d in &v.declarations {
+                        let (mut bn, _, _) = scan_pattern(&d.id);
+                        bound_names.append(&mut bn);
+                    }
+                }
+                DeclarationType::ClassDeclaration(c) => {
+                    if let Some(id) = &c.id {
+                        bound_names.push(id.name.to_string());
+                    }
+                }
+            },
+        }
+    }
+    (bound_names)
 }

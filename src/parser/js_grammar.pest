@@ -498,8 +498,8 @@ statement = {
     | breakable_statement
     | block_statement
     | expression_statement
-    | labelled_statement
     | empty_statement
+//     | labelled_statement
 }
 statement__yield = {
     debugger_statement
@@ -513,8 +513,8 @@ statement__yield = {
     | breakable_statement__yield
     | block_statement__yield
     | expression_statement__yield
-    | labelled_statement__yield
     | empty_statement
+//     | labelled_statement__yield
 }
 statement__return = {
     debugger_statement
@@ -529,8 +529,8 @@ statement__return = {
     | breakable_statement__return
     | block_statement__return
     | expression_statement
-    | labelled_statement__return
     | empty_statement
+//     | labelled_statement__return
 }
 statement__yield_return = {
     debugger_statement
@@ -545,8 +545,8 @@ statement__yield_return = {
     | breakable_statement__yield_return
     | block_statement__yield_return
     | expression_statement__yield
-    | labelled_statement__yield_return
     | empty_statement
+//     | labelled_statement__yield_return
 }
 declaration = {
     hoistable_declaration
@@ -818,14 +818,14 @@ default_clause = { "default" ~s~ ":" ~s~ statement_list? }
 default_clause__yield = { "default" ~s~ ":" ~s~ statement_list__yield? }
 default_clause__return = { "default" ~s~ ":" ~s~ statement_list__return? }
 default_clause__yield_return = { "default" ~s~ ":" ~s~ statement_list__yield_return? }
-labelled_statement = { label_identifier ~ ":" ~ labelled_item }
-labelled_statement__yield = { label_identifier__yield ~ ":" ~ labelled_item__yield }
-labelled_statement__return = { label_identifier ~ ":" ~ labelled_item__return }
-labelled_statement__yield_return = { label_identifier__yield ~ ":" ~ labelled_item__yield_return }
-labelled_item = { statement | function_declaration }
-labelled_item__yield = { statement__yield | function_declaration__yield }
-labelled_item__return = { statement__return | function_declaration }
-labelled_item__yield_return = { statement__yield_return | function_declaration__yield }
+// labelled_statement = { label_identifier ~ ":" ~ labelled_item }
+// labelled_statement__yield = { label_identifier__yield ~ ":" ~ labelled_item__yield }
+// labelled_statement__return = { label_identifier ~ ":" ~ labelled_item__return }
+// labelled_statement__yield_return = { label_identifier__yield ~ ":" ~ labelled_item__yield_return }
+// labelled_item = { statement | function_declaration }
+// labelled_item__yield = { statement__yield | function_declaration__yield }
+// labelled_item__return = { statement__return | function_declaration }
+// labelled_item__yield_return = { statement__yield_return | function_declaration__yield }
 throw_statement = { "throw" ~ !line_terminator ~ expression__in ~ smart_semicolon }
 throw_statement__yield = { "throw" ~ !line_terminator ~ expression__in_yield ~ smart_semicolon }
 try_statement = {
