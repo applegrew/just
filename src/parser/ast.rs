@@ -1830,17 +1830,19 @@ fn scan_statement_list(statement_list: &Vec<StatementType>) -> (Vec<String>) {
             StatementType::TryStatement { .. } => {}
             StatementType::WhileStatement { .. } => {}
             StatementType::DoWhileStatement { .. } => {}
-            StatementType::ForStatement { .. } => {}
-            StatementType::ForInStatement(f) => match &f.left {
-                VariableDeclarationOrExpression::VariableDeclaration(v) => {
+            StatementType::ForStatement { init, .. } => {}
+            StatementType::ForInStatement(f) | StatementType::ForOfStatement(f) => match &f.left {
+                VariableDeclarationOrPattern::VariableDeclaration(v) => {
                     for d in &v.declarations {
                         let (mut bn, _, _) = scan_pattern(&d.id);
                         bound_names.append(&mut bn);
                     }
                 }
-                VariableDeclarationOrExpression::Expression(e) => {}
+                VariableDeclarationOrPattern::Pattern(e) => {
+                    let (mut bn, _, _) = scan_pattern(e);
+                    bound_names.append(&mut bn);
+                }
             },
-            StatementType::ForOfStatement(f) => {}
             StatementType::DeclarationStatement(d) => match d {
                 DeclarationType::FunctionOrGeneratorDeclaration(f) => {
                     if let Some(id) = &f.id {

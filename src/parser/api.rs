@@ -8,6 +8,7 @@ use crate::parser::ast::{
     VariableDeclarationData, VariableDeclarationKind, VariableDeclarationOrExpression,
     VariableDeclarationOrPattern, VariableDeclaratorData,
 };
+use crate::parser::static_semantics::Semantics;
 use crate::parser::util::TAB_WIDTH;
 use pest::iterators::{Pair, Pairs};
 use pest::Parser;
@@ -179,7 +180,7 @@ fn build_ast_from_script(
 fn build_ast_from_declaration(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<DeclarationType, JsRuleError> {
+) -> Result<(DeclarationType, Semantics), JsRuleError> {
     let inner_pair = pair.into_inner().next().unwrap();
     Ok(match inner_pair.as_rule() {
         Rule::hoistable_declaration | Rule::hoistable_declaration__yield => {
@@ -189,9 +190,8 @@ fn build_ast_from_declaration(
             unimplemented!()
         }
         Rule::lexical_declaration__in | Rule::lexical_declaration__in_yield => {
-            DeclarationType::VariableDeclaration(build_ast_from_lexical_declaration(
-                inner_pair, script,
-            )?)
+            let (ld, s) = build_ast_from_lexical_declaration(inner_pair, script)?;
+            (DeclarationType::VariableDeclaration(ld), s)
         }
         _ => {
             return Err(get_unexpected_error(
@@ -205,25 +205,24 @@ fn build_ast_from_declaration(
 fn build_ast_from_lexical_declaration(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<VariableDeclarationData, JsRuleError> {
+) -> Result<(VariableDeclarationData, Semantics), JsRuleError> {
     unimplemented!()
 }
 
 fn build_ast_from_hoistable_declaration(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<DeclarationType, JsRuleError> {
+) -> Result<(DeclarationType, Semantics), JsRuleError> {
     let inner_pair = pair.into_inner().next().unwrap();
     Ok(match inner_pair.as_rule() {
         Rule::generator_declaration | Rule::generator_declaration__yield => {
-            DeclarationType::FunctionOrGeneratorDeclaration(build_ast_from_generator_declaration(
-                inner_pair, script,
-            )?)
+            let (f, s) = build_ast_from_generator_declaration(inner_pair, script)?;
+            (DeclarationType::FunctionOrGeneratorDeclaration(f), s)
         }
         Rule::function_declaration | Rule::function_declaration__yield => {
-            DeclarationType::FunctionOrGeneratorDeclaration(
-                build_ast_from_function_declaration_or_function_expression(inner_pair, script)?,
-            )
+            let (f, s) =
+                build_ast_from_function_declaration_or_function_expression(inner_pair, script)?;
+            (DeclarationType::FunctionOrGeneratorDeclaration(f), s)
         }
         _ => {
             return Err(get_unexpected_error(
@@ -237,32 +236,37 @@ fn build_ast_from_hoistable_declaration(
 fn build_ast_from_generator_declaration(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<FunctionData, JsRuleError> {
+) -> Result<(FunctionData, Semantics), JsRuleError> {
     let meta = get_meta(&pair, script);
     let mut pair_iter = pair.into_inner();
-    let f_name = get_binding_identifier_data(pair_iter.next().unwrap(), script)?;
+    let (f_name, mut s) = get_binding_identifier_data(pair_iter.next().unwrap(), script)?;
     let formal_parameters = pair_iter.next().unwrap();
-    let args = build_ast_from_formal_parameters(formal_parameters, script)?;
+    let (args, args_s) = build_ast_from_formal_parameters(formal_parameters, script)?;
     // We first have generator_body then function_body__yield in it
     let function_body_pair = pair_iter.next().unwrap().into_inner().next().unwrap();
-    let body = Rc::new(build_ast_from_function_body(function_body_pair, script)?);
-    Ok(FunctionData {
-        meta,
-        id: Some(f_name),
-        body,
-        params: Rc::new(FormalParameters::new(args)),
-        generator: true,
-    })
+    let (f_body, f_body_s) = build_ast_from_function_body(function_body_pair, script)?;
+    let body = Rc::new(f_body);
+    s.merge(args_s).merge(f_body_s);
+    Ok((
+        FunctionData {
+            meta,
+            id: Some(f_name),
+            body,
+            params: Rc::new(FormalParameters::new(args)),
+            generator: true,
+        },
+        s,
+    ))
 }
 
 fn build_ast_from_function_declaration_or_function_expression(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<FunctionData, JsRuleError> {
+) -> Result<(FunctionData, Semantics), JsRuleError> {
     let meta = get_meta(&pair, script);
     let mut pair_iter = pair.into_inner();
     let first_pair = pair_iter.next().unwrap();
-    let (f_name, formal_parameters) = if first_pair.as_rule() == Rule::binding_identifier {
+    let ((f_name, mut s), formal_parameters) = if first_pair.as_rule() == Rule::binding_identifier {
         (
             Some(get_binding_identifier_data(first_pair, script)?),
             pair_iter.next().unwrap(),
@@ -270,44 +274,61 @@ fn build_ast_from_function_declaration_or_function_expression(
     } else {
         (None, first_pair)
     };
-    let args = build_ast_from_formal_parameters(formal_parameters, script)?;
+    let (args, args_s) = build_ast_from_formal_parameters(formal_parameters, script)?;
     let function_body_pair = pair_iter.next().unwrap();
-    let body = Rc::new(build_ast_from_function_body(function_body_pair, script)?);
-    Ok(FunctionData {
-        meta,
-        id: f_name,
-        body,
-        params: Rc::new(FormalParameters::new(args)),
-        generator: false,
-    })
+    let (f_body, f_body_s) = build_ast_from_function_body(function_body_pair, script)?;
+    let body = Rc::new(f_body);
+    s.merge(args_s).merge(f_body_s);
+    Ok((
+        FunctionData {
+            meta,
+            id: f_name,
+            body,
+            params: Rc::new(FormalParameters::new(args)),
+            generator: false,
+        },
+        s,
+    ))
 }
 
 fn build_ast_from_formal_parameters(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<Vec<Rc<PatternType>>, JsRuleError> {
+) -> Result<(Vec<Rc<PatternType>>, Semantics), JsRuleError> {
     let mut args: Vec<Rc<PatternType>> = vec![];
+    let mut s = Semantics::new_empty();
     for param in pair.into_inner() {
         let meta = get_meta(&param, script);
         args.push(match param.as_rule() {
             Rule::function_rest_parameter | Rule::function_rest_parameter__yield => {
                 let binding_rest_element = param.into_inner().next().unwrap();
-                let binding_identifier = binding_rest_element.into_inner().next().unwrap();
+                let binding_identifier_item = binding_rest_element.into_inner().next().unwrap();
+                let (binding_identifier, binding_identifier_s) =
+                    get_binding_identifier_data(binding_identifier_item, script)?;
+                s.merge(binding_identifier_s);
                 Rc::new(PatternType::RestElement {
                     meta,
                     argument: Rc::new(
-                        ExpressionPatternType::Identifier(get_binding_identifier_data(
-                            binding_identifier,
-                            script,
-                        )?)
-                        .convert_to_pattern(),
+                        ExpressionPatternType::Identifier(binding_identifier).convert_to_pattern(),
                     ),
                 })
             }
             Rule::formal_parameter | Rule::formal_parameter__yield => {
-                build_ast_from_lexical_binding_or_variable_declaration_or_binding_element(
-                    param, script,
-                )?
+                let (fp, fp_s) =
+                    build_ast_from_lexical_binding_or_variable_declaration_or_binding_element(
+                        param, script,
+                    )?;
+                s.merge(fp_s);
+                let VariableDeclaratorData { meta, id, init } = fp;
+                if let Some(init) = init {
+                    Rc::new(PatternType::AssignmentPattern {
+                        meta,
+                        left: id,
+                        right: init,
+                    })
+                } else {
+                    id
+                }
             }
             _ => {
                 return Err(get_unexpected_error(
@@ -317,37 +338,47 @@ fn build_ast_from_formal_parameters(
             }
         });
     }
-    Ok(args)
+    Ok((args, s))
 }
 
 fn build_ast_from_function_body(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<FunctionBodyData, JsRuleError> {
+) -> Result<(FunctionBodyData, Semantics), JsRuleError> {
     let meta = get_meta(&pair, script);
     let mut statements = vec![];
+    let mut s = Semantics::new_empty();
     for pair in pair.into_inner() {
         statements.push(match pair.as_rule() {
             Rule::declaration | Rule::declaration__yield => {
-                StatementType::DeclarationStatement(build_ast_from_declaration(pair, script)?)
+                let (d, d_s) = build_ast_from_declaration(pair, script)?;
+                s.merge(d_s);
+                StatementType::DeclarationStatement(d)
             }
             Rule::statement
             | Rule::statement__yield
             | Rule::statement__return
-            | Rule::statement__yield_return => build_ast_from_statement(pair, script)?,
+            | Rule::statement__yield_return => {
+                let (st, s_s) = build_ast_from_statement(pair, script)?;
+                s.merge(s_s);
+                st
+            }
             _ => return Err(get_unexpected_error("build_ast_from_function_body", &pair)),
         });
     }
-    Ok(FunctionBodyData {
-        meta,
-        body: Rc::new(statements),
-    })
+    Ok((
+        FunctionBodyData {
+            meta,
+            body: Rc::new(statements),
+        },
+        s,
+    ))
 }
 
 fn build_ast_from_statement(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<StatementType, JsRuleError> {
+) -> Result<(StatementType, Semantics), JsRuleError> {
     let inner_pair = pair.into_inner().next().unwrap();
     let meta = get_meta(&inner_pair, script);
     Ok(match inner_pair.as_rule() {
@@ -379,17 +410,21 @@ fn build_ast_from_statement(
         Rule::block_statement
         | Rule::block_statement__yield
         | Rule::block_statement__return
-        | Rule::block_statement__yield_return => StatementType::BlockStatement(
-            build_ast_from_block(inner_pair.into_inner().next().unwrap(), script)?,
-        ),
+        | Rule::block_statement__yield_return => {
+            let (bsd, bsd_s) =
+                build_ast_from_block(inner_pair.into_inner().next().unwrap(), script)?;
+            (StatementType::BlockStatement(bsd), bsd_s)
+        }
         Rule::expression_statement | Rule::expression_statement__yield => {
-            StatementType::ExpressionStatement {
-                meta,
-                expression: Rc::new(build_ast_from_expression(
-                    inner_pair.into_inner().next().unwrap(),
-                    script,
-                )?),
-            }
+            let (exp, exp_s) =
+                build_ast_from_expression(inner_pair.into_inner().next().unwrap(), script)?;
+            (
+                StatementType::ExpressionStatement {
+                    meta,
+                    expression: Rc::new(exp),
+                },
+                exp_s,
+            )
         }
         Rule::empty_statement => unimplemented!(),
         Rule::return_statement | Rule::return_statement__yield => {
@@ -407,31 +442,41 @@ fn build_ast_from_statement(
 fn build_ast_from_block(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<BlockStatementData, JsRuleError> {
+) -> Result<(BlockStatementData, Semantics), JsRuleError> {
     let meta = get_meta(&pair, script);
     let mut declarations = vec![];
+    let mut s = Semantics::new_empty();
     for inner_pair in pair.into_inner() {
         declarations.push(match inner_pair.as_rule() {
             Rule::declaration | Rule::declaration__yield => {
-                StatementType::DeclarationStatement(build_ast_from_declaration(inner_pair, script)?)
+                let (d, d_s) = build_ast_from_declaration(inner_pair, script)?;
+                s.merge(d_s);
+                StatementType::DeclarationStatement(d)
             }
             Rule::statement
             | Rule::statement__yield
             | Rule::statement__return
-            | Rule::statement__yield_return => build_ast_from_statement(inner_pair, script)?,
+            | Rule::statement__yield_return => {
+                let (st, st_s) = build_ast_from_statement(inner_pair, script)?;
+                s.merge(st_s);
+                st
+            }
             _ => return Err(get_unexpected_error("build_ast_from_block", &inner_pair)),
         });
     }
-    Ok(BlockStatementData {
-        meta,
-        body: Rc::new(declarations),
-    })
+    Ok((
+        BlockStatementData {
+            meta,
+            body: Rc::new(declarations),
+        },
+        s,
+    ))
 }
 
 fn build_ast_from_breakable_statement(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<StatementType, JsRuleError> {
+) -> Result<(StatementType, Semantics), JsRuleError> {
     let inner_pair = pair.into_inner().next().unwrap();
     Ok(
         if inner_pair.as_rule() == Rule::iteration_statement
@@ -449,7 +494,7 @@ fn build_ast_from_breakable_statement(
 fn build_ast_from_iteration_statement(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<StatementType, JsRuleError> {
+) -> Result<(StatementType, Semantics), JsRuleError> {
     let tag = pair.as_str().splitn(2, ' ').next().unwrap();
     Ok(match tag {
         "do" => build_ast_for_breakable_statement_do(pair, script)?,
@@ -467,37 +512,49 @@ fn build_ast_from_iteration_statement(
 fn build_ast_for_breakable_statement_do(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<StatementType, JsRuleError> {
+) -> Result<(StatementType, Semantics), JsRuleError> {
     let meta = get_meta(&pair, script);
     let mut inner_iter = pair.into_inner();
     let statement_pair = inner_iter.next().unwrap();
     let test_expression_pair = inner_iter.next().unwrap();
-    Ok(StatementType::DoWhileStatement {
-        meta,
-        test: Rc::new(build_ast_from_expression(test_expression_pair, script)?),
-        body: Rc::new(build_ast_from_statement(statement_pair, script)?),
-    })
+    let (e, mut e_s) = build_ast_from_expression(test_expression_pair, script)?;
+    let (st, st_s) = build_ast_from_statement(statement_pair, script)?;
+    e_s.merge(st_s);
+    Ok((
+        StatementType::DoWhileStatement {
+            meta,
+            test: Rc::new(e),
+            body: Rc::new(st),
+        },
+        e_s,
+    ))
 }
 
 fn build_ast_for_breakable_statement_while(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<StatementType, JsRuleError> {
+) -> Result<(StatementType, Semantics), JsRuleError> {
     let meta = get_meta(&pair, script);
     let mut inner_iter = pair.into_inner();
     let test_expression_pair = inner_iter.next().unwrap();
     let statement_pair = inner_iter.next().unwrap();
-    Ok(StatementType::WhileStatement {
-        meta,
-        test: Rc::new(build_ast_from_expression(test_expression_pair, script)?),
-        body: Rc::new(build_ast_from_statement(statement_pair, script)?),
-    })
+    let (e, mut e_s) = build_ast_from_expression(test_expression_pair, script)?;
+    let (st, st_s) = build_ast_from_statement(statement_pair, script)?;
+    e_s.merge(st_s);
+    Ok((
+        StatementType::WhileStatement {
+            meta,
+            test: Rc::new(e),
+            body: Rc::new(st),
+        },
+        e_s,
+    ))
 }
 
 fn build_ast_for_breakable_statement_for(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<StatementType, JsRuleError> {
+) -> Result<(StatementType, Semantics), JsRuleError> {
     let meta = get_meta(&pair, script);
     let mut inner_iter = pair.into_inner();
     let first_pair = inner_iter.next().unwrap();
@@ -508,9 +565,10 @@ fn build_ast_for_breakable_statement_for(
         | Rule::for_binding__yield
         | Rule::for_declaration
         | Rule::for_declaration__yield => {
-            let in_of_left = match first_pair.as_rule() {
+            let (in_of_left, mut s) = match first_pair.as_rule() {
                 Rule::left_hand_side_expression | Rule::left_hand_side_expression__yield => {
-                    let exp = build_ast_from_left_hand_side_expression(first_pair, script)?;
+                    let (exp, exp_s) =
+                        build_ast_from_left_hand_side_expression(first_pair, script)?;
                     let m = if let ExpressionType::ExpressionWhichCanBePattern(
                         ExpressionPatternType::MemberExpression(m),
                     ) = exp
@@ -522,25 +580,30 @@ fn build_ast_for_breakable_statement_for(
                             &first_pair,
                         ));
                     };
-                    VariableDeclarationOrPattern::Pattern(m)
+                    (VariableDeclarationOrPattern::Pattern(m), exp_s)
                 }
                 Rule::for_binding | Rule::for_binding__yield => {
                     let meta = get_meta(&first_pair, script);
                     let meta2 = meta.clone();
-                    VariableDeclarationOrPattern::VariableDeclaration(VariableDeclarationData {
-                        meta,
-                        declarations: vec![VariableDeclaratorData {
-                            meta: meta2,
-                            id: Rc::new(build_ast_from_for_binding(first_pair, script)?),
-                            init: None,
-                        }],
-                        kind: VariableDeclarationKind::Var,
-                    })
+                    let (b, b_s) = build_ast_from_for_binding(first_pair, script)?;
+                    (
+                        VariableDeclarationOrPattern::VariableDeclaration(
+                            VariableDeclarationData {
+                                meta,
+                                declarations: vec![VariableDeclaratorData {
+                                    meta: meta2,
+                                    id: Rc::new(b),
+                                    init: None,
+                                }],
+                                kind: VariableDeclarationKind::Var,
+                            },
+                        ),
+                        b_s,
+                    )
                 }
                 Rule::for_declaration | Rule::for_declaration__yield => {
-                    VariableDeclarationOrPattern::VariableDeclaration(
-                        build_ast_from_for_declaration(first_pair, script)?,
-                    )
+                    let (d, d_s) = build_ast_from_for_declaration(first_pair, script)?;
+                    (VariableDeclarationOrPattern::VariableDeclaration(d), d_s)
                 }
                 _ => {
                     return Err(get_unexpected_error(
@@ -550,28 +613,33 @@ fn build_ast_for_breakable_statement_for(
                 }
             };
             let second_pair = inner_iter.next().unwrap();
-            let (in_of_right, is_for_of) = match second_pair.as_rule() {
+            let ((in_of_right, in_of_right_s), is_for_of) = match second_pair.as_rule() {
                 Rule::assignment_expression__in | Rule::assignment_expression__in_yield => (
                     build_ast_from_assignment_expression(second_pair, script)?,
                     true,
                 ),
                 _ => (build_ast_from_expression(second_pair, script)?, false),
             };
-            let statement = build_ast_from_statement(inner_iter.next().unwrap(), script)?;
+            let (statement, statement_s) =
+                build_ast_from_statement(inner_iter.next().unwrap(), script)?;
             let node = ForIteratorData {
                 meta,
                 left: in_of_left,
                 right: Rc::new(in_of_right),
                 body: Rc::new(statement),
             };
-            if is_for_of {
-                StatementType::ForOfStatement(node)
-            } else {
-                StatementType::ForInStatement(node)
-            }
+            s.merge(in_of_right_s).merge(statement_s);
+            (
+                if is_for_of {
+                    StatementType::ForOfStatement(node)
+                } else {
+                    StatementType::ForInStatement(node)
+                },
+                s,
+            )
         }
         _ => {
-            let init = match first_pair.as_rule() {
+            let (init, mut s) = match first_pair.as_rule() {
                 Rule::lexical_declaration | Rule::lexical_declaration__yield => {
                     //Lexical Declaration rule ends with smart semicolon which is too flexible. We need to ensure it is semi-colon and nothing else.
                     let last_char = first_pair.as_str().trim_end().chars().last().unwrap();
@@ -585,34 +653,41 @@ fn build_ast_for_breakable_statement_for(
                             script,
                         ));
                     } else {
-                        Some(VariableDeclarationOrExpression::VariableDeclaration(
-                            build_ast_from_lexical_declaration(first_pair, script)?,
-                        ))
+                        let (d, d_s) = build_ast_from_lexical_declaration(first_pair, script)?;
+                        (
+                            Some(VariableDeclarationOrExpression::VariableDeclaration(d)),
+                            d_s,
+                        )
                     }
                 }
                 Rule::variable_declaration_list | Rule::variable_declaration_list__yield => {
                     let meta = get_meta(&first_pair, script);
-                    let declarations =
+                    let (declarations, declarations_s) =
                         build_ast_from_variable_declaration_list(first_pair, script)?;
-                    if declarations.is_empty() {
-                        None
-                    } else {
-                        Some(VariableDeclarationOrExpression::VariableDeclaration(
-                            VariableDeclarationData {
-                                meta,
-                                declarations,
-                                kind: VariableDeclarationKind::Var,
-                            },
-                        ))
-                    }
+                    (
+                        if declarations.is_empty() {
+                            None
+                        } else {
+                            Some(VariableDeclarationOrExpression::VariableDeclaration(
+                                VariableDeclarationData {
+                                    meta,
+                                    declarations,
+                                    kind: VariableDeclarationKind::Var,
+                                },
+                            ))
+                        },
+                        declarations_s,
+                    )
                 }
                 Rule::init_expression | Rule::init_expression__yield => {
                     if let Some(inner_pair) = first_pair.into_inner().next() {
-                        Some(VariableDeclarationOrExpression::Expression(Rc::new(
-                            build_ast_from_expression(inner_pair, script)?,
-                        )))
+                        let (e, e_s) = build_ast_from_expression(inner_pair, script)?;
+                        (
+                            Some(VariableDeclarationOrExpression::Expression(Rc::new(e))),
+                            e_s,
+                        )
                     } else {
-                        None
+                        (None, Semantics::new_empty())
                     }
                 }
                 _ => {
@@ -623,33 +698,32 @@ fn build_ast_for_breakable_statement_for(
                 }
             };
             let test_pair = inner_iter.next().unwrap();
-            let test = if let Some(test_expression_pair) = test_pair.into_inner().next() {
-                Some(Rc::new(build_ast_from_expression(
-                    test_expression_pair,
-                    script,
-                )?))
+            let (test, test_s) = if let Some(test_expression_pair) = test_pair.into_inner().next() {
+                let (e, e_s) = build_ast_from_expression(test_expression_pair, script)?;
+                (Some(Rc::new(e)), e_s)
             } else {
-                None
+                (None, Semantics::new_empty())
             };
             let update_pair = inner_iter.next().unwrap();
-            let update = if let Some(update_expression_pair) = update_pair.into_inner().next() {
-                Some(Rc::new(build_ast_from_expression(
-                    update_expression_pair,
-                    script,
-                )?))
-            } else {
-                None
-            };
-            StatementType::ForStatement {
-                meta,
-                init,
-                test,
-                update,
-                body: Rc::new(build_ast_from_statement(
-                    inner_iter.next().unwrap(),
-                    script,
-                )?),
-            }
+            let (update, update_s) =
+                if let Some(update_expression_pair) = update_pair.into_inner().next() {
+                    let (e, e_s) = build_ast_from_expression(update_expression_pair, script)?;
+                    (Some(Rc::new(e)), e_s)
+                } else {
+                    (None, Semantics::new_empty())
+                };
+            let (st, st_s) = build_ast_from_statement(inner_iter.next().unwrap(), script)?;
+            s.merge(test_s).merge(update_s).merge(st_s);
+            (
+                StatementType::ForStatement {
+                    meta,
+                    init,
+                    test,
+                    update,
+                    body: Rc::new(st),
+                },
+                s,
+            )
         }
     })
 }
@@ -657,23 +731,26 @@ fn build_ast_for_breakable_statement_for(
 fn build_ast_from_binding_pattern(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<PatternType, JsRuleError> {
+) -> Result<(PatternType, Semantics), JsRuleError> {
     let meta = get_meta(&pair, script);
     let mut binding_properties = vec![];
+    let mut s = Semantics::new_empty();
     let inner_pair = pair.into_inner().next().unwrap();
     Ok(match inner_pair.as_rule() {
         Rule::object_binding_pattern | Rule::object_binding_pattern__yield => {
             let mut binding_pattern_inner_iter = inner_pair.into_inner();
             for binding_property_pair in binding_pattern_inner_iter {
-                binding_properties.push(build_ast_from_binding_property(
-                    binding_property_pair,
-                    script,
-                )?);
+                let (b, b_s) = build_ast_from_binding_property(binding_property_pair, script)?;
+                s.merge(b_s);
+                binding_properties.push(b);
             }
-            PatternType::ObjectPattern {
-                meta,
-                properties: binding_properties,
-            }
+            (
+                PatternType::ObjectPattern {
+                    meta,
+                    properties: binding_properties,
+                },
+                s,
+            )
         }
         Rule::array_binding_pattern | Rule::array_binding_pattern__yield => {
             // PatternType::ArrayPattern {
@@ -693,13 +770,13 @@ fn build_ast_from_binding_pattern(
 fn build_ast_from_binding_property(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<AssignmentPropertyData, JsRuleError> {
+) -> Result<(AssignmentPropertyData, Semantics), JsRuleError> {
     let mut inner_iter = pair.into_inner();
     let inner_pair = inner_iter.next().unwrap();
     if inner_pair.as_rule() == Rule::single_name_binding
         || inner_pair.as_rule() == Rule::single_name_binding__yield
     {
-        let VariableDeclaratorData { meta, id, init } =
+        let (VariableDeclaratorData { meta, id, init }, s) =
             build_ast_from_single_name_binding(inner_pair, script)?;
         let id = if let PatternType::PatternWhichCanBeExpression(
             ExpressionPatternType::Identifier(id),
@@ -722,25 +799,36 @@ fn build_ast_from_binding_property(
             ExpressionPatternType::Identifier(id).convert_to_pattern()
         });
 
-        Ok(AssignmentPropertyData::new_with_identifier_key(
-            meta.clone(),
-            id.clone(),
-            value,
-            false,
-            true,
+        Ok((
+            AssignmentPropertyData::new_with_identifier_key(
+                meta.clone(),
+                id.clone(),
+                value,
+                false,
+                true,
+            ),
+            s,
         ))
     } else if inner_pair.as_rule() == Rule::property_name
         || inner_pair.as_rule() == Rule::property_name__yield
     {
         let meta = get_meta(&inner_pair, script);
-        let key = build_ast_from_property_name(inner_pair, script)?;
-        let value = build_ast_from_binding_element(inner_iter.next().unwrap(), script)?;
-        Ok(AssignmentPropertyData::new_with_any_expression_key(
-            meta,
-            Rc::new(key),
-            value,
-            false,
-            false,
+        let (key, mut s) = build_ast_from_property_name(inner_pair, script)?;
+        let (value, value_s) =
+            build_ast_from_lexical_binding_or_variable_declaration_or_binding_element(
+                inner_iter.next().unwrap(),
+                script,
+            )?;
+        s.merge(value_s);
+        Ok((
+            AssignmentPropertyData::new_with_any_expression_key(
+                meta,
+                Rc::new(key),
+                value,
+                false,
+                false,
+            ),
+            s,
         ))
     } else {
         Err(get_unexpected_error(
@@ -753,28 +841,32 @@ fn build_ast_from_binding_property(
 fn build_ast_from_property_name(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<ExpressionType, JsRuleError> {
+) -> Result<(ExpressionType, Semantics), JsRuleError> {
     let inner_pair = pair.into_inner().next().unwrap();
     Ok(if inner_pair.as_rule() == Rule::literal_property_name {
         let pn_pair = inner_pair.into_inner().next().unwrap();
-        if pn_pair.as_rule() == Rule::identifier_name {
-            let id = get_identifier_data(pn_pair, script)?;
-            ExpressionPatternType::Identifier(id).convert_to_expression()
-        } else if pn_pair.as_rule() == Rule::string_literal {
-            let d = build_ast_from_string_literal(pn_pair, script)?;
-            ExpressionType::Literal(d)
-        } else if pn_pair.as_rule() == Rule::numeric_literal {
-            let d = build_ast_from_numeric_literal(pn_pair)?;
-            ExpressionType::Literal(LiteralData {
-                meta: get_meta(&pn_pair, script),
-                value: LiteralType::NumberLiteral(d),
-            })
-        } else {
-            return Err(get_unexpected_error(
-                "build_ast_from_property_name:1",
-                &inner_pair,
-            ));
-        }
+        let s = Semantics::new_empty();
+        (
+            if pn_pair.as_rule() == Rule::identifier_name {
+                let id = get_identifier_data(pn_pair, script)?;
+                ExpressionPatternType::Identifier(id).convert_to_expression()
+            } else if pn_pair.as_rule() == Rule::string_literal {
+                let d = build_ast_from_string_literal(pn_pair, script)?;
+                ExpressionType::Literal(d)
+            } else if pn_pair.as_rule() == Rule::numeric_literal {
+                let d = build_ast_from_numeric_literal(pn_pair)?;
+                ExpressionType::Literal(LiteralData {
+                    meta: get_meta(&pn_pair, script),
+                    value: LiteralType::NumberLiteral(d),
+                })
+            } else {
+                return Err(get_unexpected_error(
+                    "build_ast_from_property_name:1",
+                    &inner_pair,
+                ));
+            },
+            s,
+        )
     } else if inner_pair.as_rule() == Rule::computed_property_name
         || inner_pair.as_rule() == Rule::computed_property_name__yield
     {
@@ -790,12 +882,15 @@ fn build_ast_from_property_name(
 fn build_ast_from_for_binding(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<PatternType, JsRuleError> {
+) -> Result<(PatternType, Semantics), JsRuleError> {
     let inner_pair = pair.into_inner().next().unwrap();
     Ok(match inner_pair.as_rule() {
         Rule::binding_identifier | Rule::binding_identifier__yield => {
-            ExpressionPatternType::Identifier(get_binding_identifier_data(inner_pair, script)?)
-                .convert_to_pattern()
+            let (bi, bi_s) = get_binding_identifier_data(inner_pair, script)?;
+            (
+                ExpressionPatternType::Identifier(bi).convert_to_pattern(),
+                bi_s,
+            )
         }
         Rule::binding_pattern | Rule::binding_pattern__yield => {
             build_ast_from_binding_pattern(inner_pair, script)?
@@ -812,21 +907,25 @@ fn build_ast_from_for_binding(
 fn build_ast_from_for_declaration(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<VariableDeclarationData, JsRuleError> {
+) -> Result<(VariableDeclarationData, Semantics), JsRuleError> {
     let meta = get_meta(&pair, script);
     let mut inner_iter = pair.into_inner();
     let let_or_const_pair = inner_iter.next().unwrap();
     let for_binding_pair = inner_iter.next().unwrap();
     let meta2 = meta.clone();
-    Ok(VariableDeclarationData {
-        meta,
-        declarations: vec![VariableDeclaratorData {
-            meta: meta2,
-            id: Rc::new(build_ast_from_for_binding(for_binding_pair, script)?),
-            init: None,
-        }],
-        kind: get_let_or_const(let_or_const_pair)?,
-    })
+    let (b, b_s) = build_ast_from_for_binding(for_binding_pair, script)?;
+    Ok((
+        VariableDeclarationData {
+            meta,
+            declarations: vec![VariableDeclaratorData {
+                meta: meta2,
+                id: Rc::new(b),
+                init: None,
+            }],
+            kind: get_let_or_const(let_or_const_pair)?,
+        },
+        b_s,
+    ))
 }
 
 fn get_let_or_const(let_or_const_pair: Pair<Rule>) -> Result<VariableDeclarationKind, JsRuleError> {
@@ -840,61 +939,65 @@ fn get_let_or_const(let_or_const_pair: Pair<Rule>) -> Result<VariableDeclaration
 fn build_ast_from_switch_statement(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<StatementType, JsRuleError> {
+) -> Result<(StatementType, Semantics), JsRuleError> {
     unimplemented!()
 }
 
 fn build_ast_from_return_statement(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<StatementType, JsRuleError> {
+) -> Result<(StatementType, Semantics), JsRuleError> {
     let meta = get_meta(&pair, script);
     let inner_pair = pair.into_inner().next().unwrap();
-    let argument: Option<Rc<ExpressionType>> = if inner_pair.as_rule() == Rule::expression__in {
-        Some(Rc::new(build_ast_from_expression(inner_pair, script)?))
+    let (argument, s) = if inner_pair.as_rule() == Rule::expression__in {
+        let (e, e_s) = build_ast_from_expression(inner_pair, script)?;
+        (Some(Rc::new(e)), e_s)
     } else if inner_pair.as_rule() == Rule::smart_semicolon {
-        None
+        (None, Semantics::new_empty())
     } else {
         return Err(get_unexpected_error(
             "build_ast_from_return_statement",
             &inner_pair,
         ));
     };
-    Ok(StatementType::ReturnStatement { meta, argument })
+    Ok((StatementType::ReturnStatement { meta, argument }, s))
 }
 
 fn build_ast_from_variable_statement(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<StatementType, JsRuleError> {
+) -> Result<(StatementType, Semantics), JsRuleError> {
     let meta = get_meta(&pair, script);
-
-    Ok(StatementType::DeclarationStatement(
-        DeclarationType::VariableDeclaration(VariableDeclarationData {
-            meta,
-            declarations: build_ast_from_variable_declaration_list(
-                pair.into_inner().next().unwrap(),
-                script,
-            )?,
-            kind: VariableDeclarationKind::Var,
-        }),
+    let (dl, dl_s) =
+        build_ast_from_variable_declaration_list(pair.into_inner().next().unwrap(), script)?;
+    Ok((
+        StatementType::DeclarationStatement(DeclarationType::VariableDeclaration(
+            VariableDeclarationData {
+                meta,
+                declarations: dl,
+                kind: VariableDeclarationKind::Var,
+            },
+        )),
+        dl_s,
     ))
 }
 
 fn build_ast_from_variable_declaration_list(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<Vec<VariableDeclaratorData>, JsRuleError> {
+) -> Result<(Vec<VariableDeclaratorData>, Semantics), JsRuleError> {
     let mut declarations = vec![];
+    let mut s = Semantics::new_empty();
     for var_pair in pair.into_inner() {
         if var_pair.as_rule() == Rule::variable_declaration
             || var_pair.as_rule() == Rule::variable_declaration__in
         {
-            declarations.push(
+            let (d, d_s) =
                 build_ast_from_lexical_binding_or_variable_declaration_or_binding_element(
                     var_pair, script,
-                )?,
-            )
+                )?;
+            s.merge(d_s);
+            declarations.push(d)
         } else {
             return Err(get_unexpected_error(
                 "build_ast_from_variable_declaration_list",
@@ -902,13 +1005,13 @@ fn build_ast_from_variable_declaration_list(
             ));
         }
     }
-    Ok(declarations)
+    Ok((declarations, s))
 }
 
 fn build_ast_from_lexical_binding_or_variable_declaration_or_binding_element(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<VariableDeclaratorData, JsRuleError> {
+) -> Result<(VariableDeclaratorData, Semantics), JsRuleError> {
     let meta = get_meta(&pair, script);
     let mut inner_iter = pair.into_inner();
     let inner_pair = inner_iter.next().unwrap();
@@ -916,39 +1019,45 @@ fn build_ast_from_lexical_binding_or_variable_declaration_or_binding_element(
         if inner_pair.as_rule() == Rule::binding_identifier
             || inner_pair.as_rule() == Rule::binding_identifier__yield
         {
-            let id = Rc::new(
-                ExpressionPatternType::Identifier(get_binding_identifier_data(inner_pair, script)?)
-                    .convert_to_pattern(),
-            );
-            if let Some(initializer) = inner_iter.next() {
-                VariableDeclaratorData {
-                    meta,
-                    id,
-                    init: Some(Rc::new(build_ast_from_assignment_expression(
+            let (bi, mut bi_s) = get_binding_identifier_data(inner_pair, script)?;
+            let id = Rc::new(ExpressionPatternType::Identifier(bi).convert_to_pattern());
+            (
+                if let Some(initializer) = inner_iter.next() {
+                    let (a, a_s) = build_ast_from_assignment_expression(
                         initializer.into_inner().next().unwrap(),
                         script,
-                    )?)),
-                }
-            } else {
-                VariableDeclaratorData {
-                    meta,
-                    id,
-                    init: None,
-                }
-            }
+                    )?;
+                    bi_s.merge(a_s);
+                    VariableDeclaratorData {
+                        meta,
+                        id,
+                        init: Some(Rc::new(a)),
+                    }
+                } else {
+                    VariableDeclaratorData {
+                        meta,
+                        id,
+                        init: None,
+                    }
+                },
+                bi_s,
+            )
         } else if inner_pair.as_rule() == Rule::binding_pattern
             || inner_pair.as_rule() == Rule::binding_pattern__yield
         {
-            let id = Rc::new(build_ast_from_binding_pattern(inner_pair, script)?);
+            let (b, mut b_s) = build_ast_from_binding_pattern(inner_pair, script)?;
+            let id = Rc::new(b);
             let init = if let Some(initializer) = inner_iter.next() {
-                Some(Rc::new(build_ast_from_assignment_expression(
+                let (a, a_s) = build_ast_from_assignment_expression(
                     initializer.into_inner().next().unwrap(),
                     script,
-                )?))
+                )?;
+                b_s.merge(a_s);
+                Some(Rc::new(a))
             } else {
                 None
             };
-            VariableDeclaratorData { meta, id, init }
+            (VariableDeclaratorData { meta, id, init }, b_s)
         } else if inner_pair.as_rule() == Rule::single_name_binding
             || inner_pair.as_rule() == Rule::single_name_binding__yield
         {
@@ -965,38 +1074,38 @@ fn build_ast_from_lexical_binding_or_variable_declaration_or_binding_element(
 fn build_ast_from_single_name_binding(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<VariableDeclaratorData, JsRuleError> {
+) -> Result<(VariableDeclaratorData, Semantics), JsRuleError> {
     let meta = get_meta(&pair, script);
     let mut inner_iter = pair.into_inner();
-    let id = Rc::new(
-        ExpressionPatternType::Identifier(get_binding_identifier_data(
-            inner_iter.next().unwrap(),
-            script,
-        )?)
-        .convert_to_pattern(),
-    );
+    let (b, mut s) = get_binding_identifier_data(inner_iter.next().unwrap(), script)?;
+    let id = Rc::new(ExpressionPatternType::Identifier(b).convert_to_pattern());
     Ok(if let Some(initializer) = inner_iter.next() {
-        VariableDeclaratorData {
-            meta,
-            id,
-            init: Some(Rc::new(build_ast_from_assignment_expression(
-                initializer,
-                script,
-            )?)),
-        }
+        let (a, a_s) = build_ast_from_assignment_expression(initializer, script)?;
+        s.merge(a_s);
+        (
+            VariableDeclaratorData {
+                meta,
+                id,
+                init: Some(Rc::new(a)),
+            },
+            s,
+        )
     } else {
-        VariableDeclaratorData {
-            meta,
-            id,
-            init: None,
-        }
+        (
+            VariableDeclaratorData {
+                meta,
+                id,
+                init: None,
+            },
+            s,
+        )
     })
 }
 
 fn build_ast_from_assignment_expression(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<ExpressionType, JsRuleError> {
+) -> Result<(ExpressionType, Semantics), JsRuleError> {
     let meta = get_meta(&pair, script);
     let mut inner_pair_iter = pair.into_inner();
     let inner_pair = inner_pair_iter.next().unwrap();
@@ -1006,7 +1115,7 @@ fn build_ast_from_assignment_expression(
         | Rule::arrow_function__yield
         | Rule::arrow_function__in_yield => build_ast_from_arrow_function(inner_pair)?,
         Rule::left_hand_side_expression | Rule::left_hand_side_expression__yield => {
-            let lhs = build_ast_from_left_hand_side_expression(inner_pair, script)?;
+            let (lhs, mut s) = build_ast_from_left_hand_side_expression(inner_pair, script)?;
             let mut next_pair = inner_pair_iter.next().unwrap();
             let operator = if next_pair.as_rule() == Rule::assignment_operator {
                 let op_str = next_pair.as_str();
@@ -1034,13 +1143,18 @@ fn build_ast_from_assignment_expression(
                 AssignmentOperator::Equals
             };
             // next_pair is now assignment_expression
-            let assignment_exp = build_ast_from_assignment_expression(next_pair, script)?;
-            ExpressionType::AssignmentExpression {
-                meta,
-                left: PatternOrExpression::Expression(Rc::new(lhs)),
-                operator,
-                right: Rc::new(assignment_exp),
-            }
+            let (assignment_exp, assignment_exp_s) =
+                build_ast_from_assignment_expression(next_pair, script)?;
+            s.merge(assignment_exp_s);
+            (
+                ExpressionType::AssignmentExpression {
+                    meta,
+                    left: PatternOrExpression::Expression(Rc::new(lhs)),
+                    operator,
+                    right: Rc::new(assignment_exp),
+                },
+                s,
+            )
         }
         Rule::yield_expression | Rule::yield_expression__in => {
             match inner_pair.into_inner().next() {
@@ -1053,19 +1167,25 @@ fn build_ast_from_assignment_expression(
                     } else {
                         (inner_pair, false)
                     };
-                    let assignment_exp =
+                    let (assignment_exp, assignment_exp_s) =
                         build_ast_from_assignment_expression(assign_rule_pair, script)?;
+                    (
+                        ExpressionType::YieldExpression {
+                            meta,
+                            delegate,
+                            argument: Some(Rc::new(assignment_exp)),
+                        },
+                        assignment_exp_s,
+                    )
+                }
+                None => (
                     ExpressionType::YieldExpression {
                         meta,
-                        delegate,
-                        argument: Some(Rc::new(assignment_exp)),
-                    }
-                }
-                None => ExpressionType::YieldExpression {
-                    meta,
-                    delegate: false,
-                    argument: None,
-                },
+                        delegate: false,
+                        argument: None,
+                    },
+                    Semantics::new_empty(),
+                ),
             }
         }
         Rule::conditional_expression
@@ -1083,14 +1203,16 @@ fn build_ast_from_assignment_expression(
     })
 }
 
-fn build_ast_from_arrow_function(pair: Pair<Rule>) -> Result<ExpressionType, JsRuleError> {
+fn build_ast_from_arrow_function(
+    pair: Pair<Rule>,
+) -> Result<(ExpressionType, Semantics), JsRuleError> {
     unimplemented!()
 }
 
 fn build_ast_from_left_hand_side_expression(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<ExpressionType, JsRuleError> {
+) -> Result<(ExpressionType, Semantics), JsRuleError> {
     let inner_pair: Pair<Rule> = pair.into_inner().next().unwrap();
     Ok(match inner_pair.as_rule() {
         Rule::call_expression | Rule::call_expression__yield => {
@@ -1111,7 +1233,7 @@ fn build_ast_from_left_hand_side_expression(
 fn build_ast_from_new_expression(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<ExpressionType, JsRuleError> {
+) -> Result<(ExpressionType, Semantics), JsRuleError> {
     let inner_pair = pair.into_inner().next().unwrap();
     Ok(
         if inner_pair.as_rule() == Rule::member_expression
@@ -1119,11 +1241,16 @@ fn build_ast_from_new_expression(
         {
             build_ast_from_member_expression(inner_pair, script)?
         } else {
-            ExpressionType::NewExpression {
-                meta: get_meta(&inner_pair, script),
-                callee: Rc::new(build_ast_from_new_expression(inner_pair, script)?),
-                arguments: vec![],
-            }
+            let (n, mut n_s) = build_ast_from_new_expression(inner_pair, script)?;
+            n_s.is_function_definition = Some(false);
+            (
+                ExpressionType::NewExpression {
+                    meta: get_meta(&inner_pair, script),
+                    callee: Rc::new(n),
+                    arguments: vec![],
+                },
+                n_s,
+            )
         },
     )
 }
@@ -1131,22 +1258,27 @@ fn build_ast_from_new_expression(
 fn build_ast_from_conditional_expression(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<ExpressionType, JsRuleError> {
+) -> Result<(ExpressionType, Semantics), JsRuleError> {
     let meta = get_meta(&pair, script);
     let mut pair_iter = pair.into_inner();
     let logical_or_pair = pair_iter.next().unwrap();
-    let or_node = build_ast_from_logical_or_expression(logical_or_pair, script)?;
+    let (or_node, mut s) = build_ast_from_logical_or_expression(logical_or_pair, script)?;
     if let Some(inner_pair) = pair_iter.next() {
-        let truthy = build_ast_from_assignment_expression(inner_pair, script)?;
-        let falsy = build_ast_from_assignment_expression(pair_iter.next().unwrap(), script)?;
-        Ok(ExpressionType::ConditionalExpression {
-            meta,
-            test: Rc::new(or_node),
-            consequent: Rc::new(truthy),
-            alternate: Rc::new(falsy),
-        })
+        let (truthy, truthy_s) = build_ast_from_assignment_expression(inner_pair, script)?;
+        let (falsy, falsy_s) =
+            build_ast_from_assignment_expression(pair_iter.next().unwrap(), script)?;
+        s.merge(truthy_s).merge(falsy_s);
+        Ok((
+            ExpressionType::ConditionalExpression {
+                meta,
+                test: Rc::new(or_node),
+                consequent: Rc::new(truthy),
+                alternate: Rc::new(falsy),
+            },
+            s,
+        ))
     } else {
-        Ok(or_node)
+        Ok((or_node, s))
     }
 }
 
@@ -1197,10 +1329,12 @@ fn get_ast_for_binary_expression(
 fn build_ast_from_logical_or_expression(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<ExpressionType, JsRuleError> {
+) -> Result<(ExpressionType, Semantics), JsRuleError> {
     let mut left = None;
+    let mut s = Semantics::new_empty();
     for inner_pair in pair.into_inner() {
-        let right = build_ast_from_logical_and_expression(inner_pair, script)?;
+        let (right, right_s) = build_ast_from_logical_and_expression(inner_pair, script)?;
+        s.merge(right_s);
         left = Some(get_ast_for_logical_expression(
             left,
             right,
@@ -1208,16 +1342,18 @@ fn build_ast_from_logical_or_expression(
             script,
         ));
     }
-    Ok(left.unwrap())
+    Ok(l(eft.unwrap(), s))
 }
 
 fn build_ast_from_logical_and_expression(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<ExpressionType, JsRuleError> {
+) -> Result<(ExpressionType, Semantics), JsRuleError> {
     let mut left = None;
+    let mut s = Semantics::new_empty();
     for inner_pair in pair.into_inner() {
-        let right = build_ast_from_bitwise_or_expression(inner_pair, script)?;
+        let (right, right_s) = build_ast_from_bitwise_or_expression(inner_pair, script)?;
+        s.merge(right_s);
         left = Some(get_ast_for_logical_expression(
             left,
             right,
@@ -1225,16 +1361,18 @@ fn build_ast_from_logical_and_expression(
             script,
         ));
     }
-    Ok(left.unwrap())
+    Ok((left.unwrap(), s))
 }
 
 fn build_ast_from_bitwise_or_expression(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<ExpressionType, JsRuleError> {
+) -> Result<(ExpressionType, Semantics), JsRuleError> {
     let mut left = None;
+    let mut s = Semantics::new_empty();
     for inner_pair in pair.into_inner() {
-        let right = build_ast_from_bitwise_xor_expression(inner_pair, script)?;
+        let (right, right_s) = build_ast_from_bitwise_xor_expression(inner_pair, script)?;
+        s.merge(right_s);
         left = Some(get_ast_for_binary_expression(
             left,
             right,
@@ -1242,16 +1380,18 @@ fn build_ast_from_bitwise_or_expression(
             script,
         ))
     }
-    Ok(left.unwrap())
+    Ok((left.unwrap(), s))
 }
 
 fn build_ast_from_bitwise_xor_expression(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<ExpressionType, JsRuleError> {
+) -> Result<(ExpressionType, Semantics), JsRuleError> {
     let mut left = None;
+    let mut s = Semantics::new_empty();
     for inner_pair in pair.into_inner() {
-        let right = build_ast_from_bitwise_and_expression(inner_pair, script)?;
+        let (right, right_s) = build_ast_from_bitwise_and_expression(inner_pair, script)?;
+        s.merge(right_s);
         left = Some(get_ast_for_binary_expression(
             left,
             right,
@@ -1259,16 +1399,18 @@ fn build_ast_from_bitwise_xor_expression(
             script,
         ))
     }
-    Ok(left.unwrap())
+    Ok((left.unwrap(), s))
 }
 
 fn build_ast_from_bitwise_and_expression(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<ExpressionType, JsRuleError> {
+) -> Result<(ExpressionType, Semantics), JsRuleError> {
     let mut left = None;
+    let mut s = Semantics::new_empty();
     for inner_pair in pair.into_inner() {
-        let right = build_ast_from_equality_expression(inner_pair, script)?;
+        let (right, right_s) = build_ast_from_equality_expression(inner_pair, script)?;
+        s.merge(right_s);
         left = Some(get_ast_for_binary_expression(
             left,
             right,
@@ -1276,13 +1418,13 @@ fn build_ast_from_bitwise_and_expression(
             script,
         ))
     }
-    Ok(left.unwrap())
+    Ok((left.unwrap(), s))
 }
 
 fn build_ast_from_equality_expression(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<ExpressionType, JsRuleError> {
+) -> Result<(ExpressionType, Semantics), JsRuleError> {
     if cfg!(debug_assertions) {
         if pair.as_rule() != Rule::equality_expression
             && pair.as_rule() != Rule::equality_expression__in
@@ -1296,6 +1438,7 @@ fn build_ast_from_equality_expression(
         }
     }
     let mut left = None;
+    let mut s = Semantics::new_empty();
     let mut pair_iter = pair.into_inner();
     loop {
         if let Some(mut inner_pair) = pair_iter.next() {
@@ -1315,19 +1458,20 @@ fn build_ast_from_equality_expression(
                 });
                 inner_pair = pair_iter.next().unwrap();
             }
-            let right = build_ast_from_relational_expression(inner_pair, script)?;
+            let (right, right_s) = build_ast_from_relational_expression(inner_pair, script)?;
+            s.merge(right_s);
             left = Some(get_ast_for_binary_expression(left, right, operator, script));
         } else {
             break;
         }
     }
-    Ok(left.unwrap())
+    Ok((left.unwrap(), s))
 }
 
 fn build_ast_from_relational_expression(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<ExpressionType, JsRuleError> {
+) -> Result<(ExpressionType, Semantics), JsRuleError> {
     if cfg!(debug_assertions) {
         if pair.as_rule() != Rule::relational_expression
             && pair.as_rule() != Rule::relational_expression__in
@@ -1341,6 +1485,7 @@ fn build_ast_from_relational_expression(
         }
     }
     let mut left = None;
+    let mut s = Semantics::new_empty();
     let mut pair_iter = pair.into_inner();
     loop {
         if let Some(mut inner_pair) = pair_iter.next() {
@@ -1364,19 +1509,20 @@ fn build_ast_from_relational_expression(
                 });
                 inner_pair = pair_iter.next().unwrap();
             }
-            let right = build_ast_from_shift_expression(inner_pair, script)?;
+            let (right, right_s) = build_ast_from_shift_expression(inner_pair, script)?;
+            s.merge(right_s);
             left = Some(get_ast_for_binary_expression(left, right, operator, script));
         } else {
             break;
         }
     }
-    Ok(left.unwrap())
+    Ok((left.unwrap(), s))
 }
 
 fn build_ast_from_shift_expression(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<ExpressionType, JsRuleError> {
+) -> Result<(ExpressionType, Semantics), JsRuleError> {
     if cfg!(debug_assertions) {
         if pair.as_rule() != Rule::shift_expression
             && pair.as_rule() != Rule::shift_expression__yield
@@ -1388,6 +1534,7 @@ fn build_ast_from_shift_expression(
         }
     }
     let mut left = None;
+    let mut s = Semantics::new_empty();
     let mut pair_iter = pair.into_inner();
     loop {
         if let Some(mut inner_pair) = pair_iter.next() {
@@ -1406,20 +1553,22 @@ fn build_ast_from_shift_expression(
                 });
                 inner_pair = pair_iter.next().unwrap();
             }
-            let right = build_ast_from_additive_expression(inner_pair, script)?;
+            let (right, right_s) = build_ast_from_additive_expression(inner_pair, script)?;
+            s.merge(right_s);
             left = Some(get_ast_for_binary_expression(left, right, operator, script));
         } else {
             break;
         }
     }
-    Ok(left.unwrap())
+    Ok((left.unwrap(), s))
 }
 
 fn build_ast_from_additive_expression(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<ExpressionType, JsRuleError> {
+) -> Result<(ExpressionType, Semantics), JsRuleError> {
     let mut left = None;
+    let mut s = Semantics::new_empty();
     let mut pair_iter = pair.into_inner();
     loop {
         if let Some(mut inner_pair) = pair_iter.next() {
@@ -1437,20 +1586,22 @@ fn build_ast_from_additive_expression(
                 });
                 inner_pair = pair_iter.next().unwrap();
             }
-            let right = build_ast_from_multiplicative_expression(inner_pair, script)?;
+            let (right, right_s) = build_ast_from_multiplicative_expression(inner_pair, script)?;
+            s.merge(right_s);
             left = Some(get_ast_for_binary_expression(left, right, operator, script));
         } else {
             break;
         }
     }
-    Ok(left.unwrap())
+    Ok((left.unwrap(), s))
 }
 
 fn build_ast_from_multiplicative_expression(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<ExpressionType, JsRuleError> {
+) -> Result<(ExpressionType, Semantics), JsRuleError> {
     let mut left = None;
+    let mut s = Semantics::new_empty();
     let mut pair_iter = pair.into_inner();
     loop {
         if let Some(mut inner_pair) = pair_iter.next() {
@@ -1469,19 +1620,20 @@ fn build_ast_from_multiplicative_expression(
                 });
                 inner_pair = pair_iter.next().unwrap();
             }
-            let right = build_ast_from_unary_expression(inner_pair, script)?;
+            let (right, right_s) = build_ast_from_unary_expression(inner_pair, script)?;
+            s.merge(right_s);
             left = Some(get_ast_for_binary_expression(left, right, operator, script));
         } else {
             break;
         }
     }
-    Ok(left.unwrap())
+    Ok((left.unwrap(), s))
 }
 
 fn build_ast_from_unary_expression(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<ExpressionType, JsRuleError> {
+) -> Result<(ExpressionType, Semantics), JsRuleError> {
     let meta = get_meta(&pair, script);
     let mut pair_iter = pair.into_inner();
     let first_pair = pair_iter.next().unwrap();
@@ -1494,46 +1646,54 @@ fn build_ast_from_unary_expression(
         } else {
             let first_inner_pair = first_pair.into_inner().next().unwrap();
             match first_inner_pair.as_str() {
-                "++" | "--" => ExpressionType::UpdateExpression {
-                    meta,
-                    operator: match first_inner_pair.as_str() {
-                        "++" => UpdateOperator::PlusPlus,
-                        "--" => UpdateOperator::MinusMinus,
-                        _ => {
-                            return Err(get_unexpected_error(
-                                "build_ast_from_unary_expression:1",
-                                &first_inner_pair,
-                            ))
-                        }
-                    },
-                    argument: Rc::new(build_ast_from_unary_expression(
-                        pair_iter.next().unwrap(),
-                        script,
-                    )?),
-                    prefix: true,
-                },
-                _ => ExpressionType::UnaryExpression {
-                    meta,
-                    operator: match first_inner_pair.as_str() {
-                        "delete" => UnaryOperator::Delete,
-                        "void" => UnaryOperator::Void,
-                        "typeof" => UnaryOperator::TypeOf,
-                        "+" => UnaryOperator::Plus,
-                        "-" => UnaryOperator::Minus,
-                        "~" => UnaryOperator::BitwiseNot,
-                        "!" => UnaryOperator::LogicalNot,
-                        _ => {
-                            return Err(get_unexpected_error(
-                                "build_ast_from_unary_expression:2",
-                                &first_inner_pair,
-                            ))
-                        }
-                    },
-                    argument: Rc::new(build_ast_from_unary_expression(
-                        pair_iter.next().unwrap(),
-                        script,
-                    )?),
-                },
+                "++" | "--" => {
+                    let (u, u_s) =
+                        build_ast_from_unary_expression(pair_iter.next().unwrap(), script)?;
+                    (
+                        ExpressionType::UpdateExpression {
+                            meta,
+                            operator: match first_inner_pair.as_str() {
+                                "++" => UpdateOperator::PlusPlus,
+                                "--" => UpdateOperator::MinusMinus,
+                                _ => {
+                                    return Err(get_unexpected_error(
+                                        "build_ast_from_unary_expression:1",
+                                        &first_inner_pair,
+                                    ))
+                                }
+                            },
+                            argument: Rc::new(u),
+                            prefix: true,
+                        },
+                        u_s,
+                    )
+                }
+                _ => {
+                    let (u, u_s) =
+                        build_ast_from_unary_expression(pair_iter.next().unwrap(), script)?;
+                    (
+                        ExpressionType::UnaryExpression {
+                            meta,
+                            operator: match first_inner_pair.as_str() {
+                                "delete" => UnaryOperator::Delete,
+                                "void" => UnaryOperator::Void,
+                                "typeof" => UnaryOperator::TypeOf,
+                                "+" => UnaryOperator::Plus,
+                                "-" => UnaryOperator::Minus,
+                                "~" => UnaryOperator::BitwiseNot,
+                                "!" => UnaryOperator::LogicalNot,
+                                _ => {
+                                    return Err(get_unexpected_error(
+                                        "build_ast_from_unary_expression:2",
+                                        &first_inner_pair,
+                                    ))
+                                }
+                            },
+                            argument: Rc::new(u),
+                        },
+                        u_s,
+                    )
+                }
             }
         },
     )
@@ -1542,54 +1702,65 @@ fn build_ast_from_unary_expression(
 fn build_ast_from_postfix_expression(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<ExpressionType, JsRuleError> {
+) -> Result<(ExpressionType, Semantics), JsRuleError> {
     let meta = get_meta(&pair, script);
     let mut pair_iter = pair.into_inner();
-    let lhs = build_ast_from_left_hand_side_expression(pair_iter.next().unwrap(), script)?;
-    Ok(if let Some(op_pair) = pair_iter.next() {
-        ExpressionType::UpdateExpression {
-            meta,
-            operator: match op_pair.as_str() {
-                "++" => UpdateOperator::PlusPlus,
-                "--" => UpdateOperator::MinusMinus,
-                _ => {
-                    return Err(get_unexpected_error(
-                        "build_ast_from_postfix_expression",
-                        &op_pair,
-                    ))
-                }
-            },
-            argument: Rc::new(lhs),
-            prefix: false,
-        }
-    } else {
-        lhs
-    })
+    let (lhs, lhs_s) = build_ast_from_left_hand_side_expression(pair_iter.next().unwrap(), script)?;
+    Ok((
+        if let Some(op_pair) = pair_iter.next() {
+            ExpressionType::UpdateExpression {
+                meta,
+                operator: match op_pair.as_str() {
+                    "++" => UpdateOperator::PlusPlus,
+                    "--" => UpdateOperator::MinusMinus,
+                    _ => {
+                        return Err(get_unexpected_error(
+                            "build_ast_from_postfix_expression",
+                            &op_pair,
+                        ))
+                    }
+                },
+                argument: Rc::new(lhs),
+                prefix: false,
+            }
+        } else {
+            lhs
+        },
+        lhs_s,
+    ))
 }
 
 fn build_ast_from_call_expression(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<ExpressionType, JsRuleError> {
+) -> Result<(ExpressionType, Semantics), JsRuleError> {
     let mut pair_iter = pair.into_inner();
     let pair = pair_iter.next().unwrap();
     let meta = get_meta(&pair, script);
-    let mut obj: ExpressionType =
+    let (mut obj, mut s) =
         if pair.as_rule() == Rule::super_call || pair.as_rule() == Rule::super_call__yield {
-            ExpressionType::CallExpression {
-                meta,
-                callee: ExpressionOrSuper::Super,
-                arguments: build_ast_from_arguments(pair.into_inner().next().unwrap(), script)?,
-            }
+            let (a, a_s) = build_ast_from_arguments(pair.into_inner().next().unwrap(), script)?;
+            (
+                ExpressionType::CallExpression {
+                    meta,
+                    callee: ExpressionOrSuper::Super,
+                    arguments: a,
+                },
+                a_s,
+            )
         } else {
             let arguments_pair = pair_iter.next().unwrap();
-            ExpressionType::CallExpression {
-                meta,
-                callee: ExpressionOrSuper::Expression(Rc::new(build_ast_from_member_expression(
-                    pair, script,
-                )?)),
-                arguments: build_ast_from_arguments(arguments_pair, script)?,
-            }
+            let (m, mut s) = build_ast_from_member_expression(pair, script)?;
+            let (a, a_s) = build_ast_from_arguments(arguments_pair, script)?;
+            s.merge(a_s);
+            (
+                ExpressionType::CallExpression {
+                    meta,
+                    callee: ExpressionOrSuper::Expression(Rc::new(m)),
+                    arguments: a,
+                },
+                s,
+            )
         };
     for pair in pair_iter {
         let second_meta = get_meta(&pair, script);
@@ -1600,10 +1771,13 @@ fn build_ast_from_call_expression(
         };
         obj = match pair.as_rule() {
             Rule::expression__in_yield | Rule::expression__in => {
+                let (e, mut e_s) = build_ast_from_expression(pair, script)?;
+                e_s.is_valid_simple_assignment_target = Some(true);
+                s.merge(e_s);
                 ExpressionType::MemberExpression(MemberExpressionType::ComputedMemberExpression {
                     meta,
                     object: ExpressionOrSuper::Expression(Rc::new(obj)),
-                    property: Rc::new(build_ast_from_expression(pair, script)?),
+                    property: Rc::new(e),
                 })
             }
             Rule::identifier_name => {
@@ -1615,11 +1789,15 @@ fn build_ast_from_call_expression(
             }
             //Tagged template literal
             Rule::template_literal | Rule::template_literal__yield => unimplemented!(),
-            Rule::arguments | Rule::arguments__yield => ExpressionType::CallExpression {
-                meta,
-                callee: ExpressionOrSuper::Expression(Rc::new(obj)),
-                arguments: build_ast_from_arguments(pair, script)?,
-            },
+            Rule::arguments | Rule::arguments__yield => {
+                let (a, a_s) = build_ast_from_arguments(pair, script)?;
+                s.merge(a_s);
+                ExpressionType::CallExpression {
+                    meta,
+                    callee: ExpressionOrSuper::Expression(Rc::new(obj)),
+                    arguments: a,
+                }
+            }
             _ => {
                 return Err(get_unexpected_error(
                     "build_ast_from_call_expression",
@@ -1628,13 +1806,13 @@ fn build_ast_from_call_expression(
             }
         };
     }
-    Ok(obj)
+    Ok((obj, s))
 }
 
 fn get_binding_identifier_data(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<IdentifierData, JsRuleError> {
+) -> Result<(IdentifierData, Semantics), JsRuleError> {
     let mut id = get_identifier_data(pair, script);
     if id.name == "arguments" || id.name == "eval" {
         Err(JsRuleError {
@@ -1643,7 +1821,7 @@ fn get_binding_identifier_data(
         })
     } else {
         id.is_binding_identifier = true;
-        Ok(id)
+        Ok((id, Semantics::new(vec![id.name])))
     }
 }
 
@@ -1658,52 +1836,57 @@ fn get_identifier_data(pair: Pair<Rule>, script: &Rc<String>) -> IdentifierData 
 fn build_ast_from_expression(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<ExpressionType, JsRuleError> {
+) -> Result<(ExpressionType, Semantics), JsRuleError> {
     let meta = get_meta(&pair, script);
     let mut node_children: Vec<Rc<ExpressionType>> = vec![];
+    let mut s = Semantics::new_empty();
     for inner_pair in pair.into_inner() {
-        node_children.push(Rc::new(build_ast_from_assignment_expression(
-            inner_pair, script,
-        )?));
+        let (a, a_s) = build_ast_from_assignment_expression(inner_pair, script)?;
+        s.merge(a_s);
+        node_children.push(Rc::new(a));
     }
-    Ok(ExpressionType::SequenceExpression {
-        meta,
-        expressions: node_children,
-    })
+    Ok((
+        ExpressionType::SequenceExpression {
+            meta,
+            expressions: node_children,
+        },
+        s,
+    ))
 }
 
 fn build_ast_from_arguments(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<Vec<ExpressionOrSpreadElement>, JsRuleError> {
+) -> Result<(Vec<ExpressionOrSpreadElement>, Semantics), JsRuleError> {
     let mut arguments = vec![];
+    let mut s = Semantics::new_empty();
     if let Some(argument_list_pair) = pair.into_inner().next() {
         for inner_pair in argument_list_pair.into_inner() {
             arguments.push(
                 if inner_pair.as_rule() == Rule::rest_assignment_expression__in
                     || inner_pair.as_rule() == Rule::rest_assignment_expression__in_yield
                 {
-                    ExpressionOrSpreadElement::SpreadElement(Rc::new(
-                        build_ast_from_assignment_expression(
-                            inner_pair.into_inner().next().unwrap(),
-                            script,
-                        )?,
-                    ))
+                    let (a, a_s) = build_ast_from_assignment_expression(
+                        inner_pair.into_inner().next().unwrap(),
+                        script,
+                    )?;
+                    s.merge(a_s);
+                    ExpressionOrSpreadElement::SpreadElement(Rc::new(a))
                 } else {
-                    ExpressionOrSpreadElement::Expression(Rc::new(
-                        build_ast_from_assignment_expression(inner_pair, script)?,
-                    ))
+                    let (a, a_s) = build_ast_from_assignment_expression(inner_pair, script)?;
+                    s.merge(a_s);
+                    ExpressionOrSpreadElement::Expression(Rc::new(a))
                 },
             );
         }
     }
-    Ok(arguments)
+    Ok((arguments, s))
 }
 
 fn build_ast_from_member_expression(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<ExpressionType, JsRuleError> {
+) -> Result<(ExpressionType, Semantics), JsRuleError> {
     let meta = get_meta(&pair, script);
     let mut pair_iter = pair.into_inner();
     let pair_1 = pair_iter.next().unwrap();
@@ -1713,15 +1896,20 @@ fn build_ast_from_member_expression(
         {
             let member_expression_pair = pair_1.into_inner().next().unwrap();
             let arguments_pair = pair_iter.next().unwrap();
-            ExpressionType::NewExpression {
-                meta,
-                callee: Rc::new(build_ast_from_member_expression(
-                    member_expression_pair,
-                    script,
-                )?),
-                arguments: build_ast_from_arguments(arguments_pair, script)?,
-            }
+            let (m, mut s) = build_ast_from_member_expression(member_expression_pair, script)?;
+            let (a, a_s) = build_ast_from_arguments(arguments_pair, script)?;
+            s.merge(a_s);
+            s.is_function_definition = Some(false);
+            (
+                ExpressionType::NewExpression {
+                    meta,
+                    callee: Rc::new(m),
+                    arguments: a,
+                },
+                s,
+            )
         } else {
+            let mut s = Semantics::new_empty();
             let mut obj: ExpressionType = match pair_1.as_rule() {
                 Rule::super_property | Rule::super_property__yield => {
                     let super_pair = pair_1.into_inner().next().unwrap();
@@ -1735,11 +1923,13 @@ fn build_ast_from_member_expression(
                         )
                         .convert_to_expression()
                     } else {
+                        let (e, e_s) = build_ast_from_expression(super_pair, script)?;
+                        s.merge(e_s);
                         ExpressionPatternType::MemberExpression(
                             MemberExpressionType::ComputedMemberExpression {
                                 meta,
                                 object: ExpressionOrSuper::Super,
-                                property: Rc::new(build_ast_from_expression(super_pair, script)?),
+                                property: Rc::new(e),
                             },
                         )
                         .convert_to_expression()
@@ -1771,7 +1961,9 @@ fn build_ast_from_member_expression(
                     }
                 }
                 Rule::primary_expression | Rule::primary_expression__yield => {
-                    build_ast_from_primary_expression(pair_1, script)?
+                    let (p, p_s) = build_ast_from_primary_expression(pair_1, script)?;
+                    s.merge(p_s);
+                    p
                 }
                 _ => {
                     return Err(get_unexpected_error(
@@ -1789,11 +1981,13 @@ fn build_ast_from_member_expression(
                 };
                 obj = match pair.as_rule() {
                     Rule::expression__in_yield | Rule::expression__in => {
+                        let (st, st_s) = build_ast_from_expression(pair, script)?;
+                        s.merge(st_s);
                         ExpressionPatternType::MemberExpression(
                             MemberExpressionType::ComputedMemberExpression {
                                 meta,
                                 object: ExpressionOrSuper::Expression(Rc::new(obj)),
-                                property: Rc::new(build_ast_from_expression(pair, script)?),
+                                property: Rc::new(st),
                             },
                         )
                         .convert_to_expression()
@@ -1815,7 +2009,7 @@ fn build_ast_from_member_expression(
                     }
                 };
             }
-            obj
+            (obj, s)
         },
     )
 }
@@ -1823,28 +2017,40 @@ fn build_ast_from_member_expression(
 fn build_ast_from_primary_expression(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<ExpressionType, JsRuleError> {
+) -> Result<(ExpressionType, Semantics), JsRuleError> {
     let inner_pair = pair.into_inner().next().unwrap();
     let meta = get_meta(&inner_pair, script);
     Ok(match inner_pair.as_rule() {
         Rule::identifier_reference | Rule::identifier_reference__yield => {
-            build_ast_from_identifier_reference(inner_pair, script)?
+            let (i, mut i_s) = build_ast_from_identifier_reference(inner_pair, script)?;
+            i_s.is_function_definition = Some(false);
+            i_s.is_identifier_ref = Some(false);
+            (i, i_s)
         }
-        Rule::literal => Rc::new(ExpressionType::Literal(build_ast_from_literal(
-            inner_pair, script,
-        )?)),
-        Rule::this_exp => Rc::new(ExpressionType::ThisExpression { meta }),
+        Rule::literal => (
+            ExpressionType::Literal(build_ast_from_literal(inner_pair, script)?),
+            Semantics::new_with_params(vec![], Some(false)),
+        ),
+        Rule::this_exp => (
+            ExpressionType::ThisExpression { meta },
+            Semantics::new_with_params(vec![], Some(false)),
+        ),
         Rule::array_literal | Rule::array_literal__yield => {
-            Rc::new(build_ast_from_array_literal(inner_pair, script)?)
+            let (a, mut a_s) = build_ast_from_array_literal(inner_pair, script)?;
+            a_s.is_valid_simple_assignment_target = Some(false);
+            (a, a_s)
         }
-        Rule::object_literal | Rule::object_literal__yield => unimplemented!(),
-        Rule::generator_expression => unimplemented!(),
-        Rule::function_expression => Rc::new(ExpressionType::FunctionExpression(
-            build_ast_from_function_declaration_or_function_expression(inner_pair, script)?,
-        )),
-        Rule::class_expression | Rule::class_expression__yield => unimplemented!(),
-        Rule::regular_expression_literal => unimplemented!(),
-        Rule::template_literal | Rule::template_literal__yield => unimplemented!(),
+        Rule::object_literal | Rule::object_literal__yield => unimplemented!(), /* is_valid_simple_assignment_target&is_function_definition&is_identifier_ref=false */
+        Rule::generator_expression => unimplemented!(), /* is_valid_simple_assignment_target&is_identifier_ref=false */
+        Rule::function_expression => {
+            let (f, mut f_s) =
+                build_ast_from_function_declaration_or_function_expression(inner_pair, script)?;
+            f_s.is_valid_simple_assignment_target = Some(false);
+            (ExpressionType::FunctionExpression(f), f_s)
+        }
+        Rule::class_expression | Rule::class_expression__yield => unimplemented!(), /* is_valid_simple_assignment_target&is_identifier_ref=false */
+        Rule::regular_expression_literal => unimplemented!(), /* is_valid_simple_assignment_target&is_function_definition&is_identifier_ref=false */
+        Rule::template_literal | Rule::template_literal__yield => unimplemented!(), /* is_valid_simple_assignment_target&is_function_definition&is_identifier_ref=false */
         Rule::cover_parenthesized_expression_and_arrow_parameter_list
         | Rule::cover_parenthesized_expression_and_arrow_parameter_list__yield => {
             panic!("Use-case not clear. Not implemented right now!");
@@ -2044,9 +2250,10 @@ fn build_ast_from_numeric_literal(pair: Pair<Rule>) -> Result<NumberLiteralType,
 fn build_ast_from_array_literal(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<ExpressionType, JsRuleError> {
+) -> Result<(ExpressionType, Semantics), JsRuleError> {
     let meta = get_meta(&pair, script);
     let mut arguments = vec![];
+    let mut s = Semantics::new_empty();
     for inner_pair in pair.into_inner() {
         match inner_pair.as_rule() {
             Rule::elision => {
@@ -2055,17 +2262,17 @@ fn build_ast_from_array_literal(
                 }
             }
             Rule::assignment_expression__in | Rule::assignment_expression__in_yield => {
-                arguments.push(Some(ExpressionOrSpreadElement::Expression(Rc::new(
-                    build_ast_from_assignment_expression(inner_pair, script)?,
-                ))));
+                let (a, a_s) = build_ast_from_assignment_expression(inner_pair, script)?;
+                s.merge(a_s);
+                arguments.push(Some(ExpressionOrSpreadElement::Expression(Rc::new(a))));
             }
             Rule::spread_element | Rule::spread_element__yield => {
-                arguments.push(Some(ExpressionOrSpreadElement::SpreadElement(Rc::new(
-                    build_ast_from_assignment_expression(
-                        inner_pair.into_inner().next().unwrap(),
-                        script,
-                    )?,
-                ))));
+                let (a, a_s) = build_ast_from_assignment_expression(
+                    inner_pair.into_inner().next().unwrap(),
+                    script,
+                )?;
+                s.merge(a_s);
+                arguments.push(Some(ExpressionOrSpreadElement::SpreadElement(Rc::new(a))));
             }
             _ => {
                 return Err(get_unexpected_error(
@@ -2075,24 +2282,38 @@ fn build_ast_from_array_literal(
             }
         }
     }
-    Ok(ExpressionType::ArrayExpression {
-        meta,
-        elements: arguments,
-    })
+    Ok((
+        ExpressionType::ArrayExpression {
+            meta,
+            elements: arguments,
+        },
+        s,
+    ))
 }
 
 fn build_ast_from_identifier_reference(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<ExpressionType, JsRuleError> {
+) -> Result<(ExpressionType, Semantics), JsRuleError> {
     let id = pair.as_str();
-    Ok(if id == "yield" {
-        ExpressionType::YieldExpression {
-            meta: get_meta(&pair, script),
-            argument: None,
-            delegate: false,
-        }
-    } else {
-        ExpressionPatternType::Identifier(get_identifier_data(pair, script)).convert_to_expression()
-    })
+    let mut s = Semantics::new_empty();
+    Ok((
+        if id == "yield" {
+            s.is_valid_simple_assignment_target = Some(true);
+            ExpressionType::YieldExpression {
+                meta: get_meta(&pair, script),
+                argument: None,
+                delegate: false,
+            }
+        } else {
+            if id == "arguments" {
+                s.is_valid_simple_assignment_target = Some(false);
+            } else {
+                s.is_valid_simple_assignment_target = Some(true);
+            }
+            ExpressionPatternType::Identifier(get_identifier_data(pair, script))
+                .convert_to_expression()
+        },
+        s,
+    ))
 }
