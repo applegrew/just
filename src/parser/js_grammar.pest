@@ -175,15 +175,15 @@ primary_expression__yield = {
 this_exp = { "this" }
 cover_parenthesized_expression_and_arrow_parameter_list = {
     "(" ~s~ expression__in ~s~ ")"
-    | "(" ~s~ ")"
-    | "(" ~s~ "..." ~ rest_binding_identifier ~s~ ")"
-    | "(" ~s~ expression__in  ~s~ "," ~s~ "..." ~ rest_binding_identifier ~s~ ")"
+//     | "(" ~s~ ")"
+//     | "(" ~s~ "..." ~ rest_binding_identifier ~s~ ")"
+//     | "(" ~s~ expression__in  ~s~ "," ~s~ "..." ~ rest_binding_identifier ~s~ ")"
 }
 cover_parenthesized_expression_and_arrow_parameter_list__yield = {
     "(" ~s~ expression__in_yield ~s~ ")"
-    | "(" ~s~ ")"
-    | "(" ~s~ "..." ~ rest_binding_identifier__yield ~s~ ")"
-    | "(" ~s~ expression__in_yield  ~s~ "," ~s~ "..." ~ rest_binding_identifier__yield ~s~ ")"
+//     | "(" ~s~ ")"
+//     | "(" ~s~ "..." ~ rest_binding_identifier__yield ~s~ ")"
+//     | "(" ~s~ expression__in_yield  ~s~ "," ~s~ "..." ~ rest_binding_identifier__yield ~s~ ")"
 }
 literal = {
     null_literal
@@ -222,10 +222,10 @@ object_literal__yield = {
     "{" ~s~ "}"
     | "{" ~s~ property_definition_list__yield ~s~ ("," ~s)? ~ "}"
 }
-property_definition_list = {
+property_definition_list = _{
     property_definition ~ (s~ "," ~s~ property_definition)*
 }
-property_definition_list__yield = {
+property_definition_list__yield = _{
     property_definition__yield ~ (s~ "," ~s~ property_definition__yield)*
 }
 property_definition = {
@@ -575,10 +575,10 @@ block = { "{" ~s~ statement_list? ~s~ "}" }
 block__yield = { "{" ~s~ statement_list__yield? ~s~ "}" }
 block__return = { "{" ~s~ statement_list__return? ~s~ "}" }
 block__yield_return = { "{" ~s~ statement_list__yield_return? ~s~ "}" }
-statement_list = _{ (s~ statement_list_item)+ }
-statement_list__yield = _{ (s~ statement_list_item__yield)+ }
-statement_list__return = _{ (s~ statement_list_item__return)+ }
-statement_list__yield_return = _{ (s~ statement_list_item__yield_return)+ }
+statement_list = { (s~ statement_list_item)+ }
+statement_list__yield = { (s~ statement_list_item__yield)+ }
+statement_list__return = { (s~ statement_list_item__return)+ }
+statement_list__yield_return = { (s~ statement_list_item__yield_return)+ }
 statement_list_item = _{ declaration | statement }
 statement_list_item__yield = _{ declaration__yield | statement__yield }
 statement_list_item__return = _{ declaration | statement__return }
@@ -776,10 +776,22 @@ for_declaration = { let_or_const ~ for_binding }
 for_declaration__yield = { let_or_const ~ for_binding__yield }
 for_binding = { binding_identifier | binding_pattern }
 for_binding__yield = { binding_identifier__yield | binding_pattern__yield }
-continue_statement = { "continue" ~ !line_terminator ~ label_identifier ~ smart_semicolon | "continue" ~ smart_semicolon }
-continue_statement__yield = { "continue" ~ !line_terminator ~ label_identifier__yield ~ smart_semicolon | "continue" ~ smart_semicolon }
-break_statement = { "break" ~ !line_terminator ~ label_identifier ~ smart_semicolon | "break" ~ smart_semicolon }
-break_statement__yield = { "break" ~ !line_terminator ~ label_identifier__yield ~ smart_semicolon | "break" ~ smart_semicolon }
+continue_statement = {
+    // "continue" ~ !line_terminator ~ label_identifier ~ smart_semicolon |
+    "continue" ~ smart_semicolon
+}
+continue_statement__yield = {
+    // "continue" ~ !line_terminator ~ label_identifier__yield ~ smart_semicolon |
+    "continue" ~ smart_semicolon
+}
+break_statement = {
+    // "break" ~ !line_terminator ~ label_identifier ~ smart_semicolon |
+    "break" ~ smart_semicolon
+}
+break_statement__yield = {
+    // "break" ~ !line_terminator ~ label_identifier__yield ~ smart_semicolon |
+    "break" ~ smart_semicolon
+}
 return_statement = { "return" ~ !line_terminator ~ expression__in ~ smart_semicolon | "return" ~ smart_semicolon }
 return_statement__yield = { "return" ~ !line_terminator ~ expression__in ~ smart_semicolon | "return" ~ smart_semicolon }
 with_statement = { "with"  ~s~ "(" ~s~ expression__in ~s~ ")" ~s~ statement }
@@ -806,10 +818,10 @@ case_block__yield_return = {
     "{" ~s~ case_clauses__yield_return? ~s~ "}"
     | "{" ~s~ case_clauses__yield_return? ~s~ default_clause__yield_return ~s~ case_clauses__yield_return? ~s~ "}"
 }
-case_clauses = { case_clause+ }
-case_clauses__yield = { case_clause__yield+ }
-case_clauses__return = { case_clause__return+ }
-case_clauses__yield_return = { case_clause__yield_return+ }
+case_clauses = _{ case_clause+ }
+case_clauses__yield = _{ case_clause__yield+ }
+case_clauses__return = _{ case_clause__return+ }
+case_clauses__yield_return = _{ case_clause__yield_return+ }
 case_clause = { "case" ~s~ expression__in ~s~ ":" ~s~ statement_list? }
 case_clause__yield = { "case" ~s~ expression__in_yield ~s~ ":" ~s~ statement_list__yield? }
 case_clause__return = { "case" ~s~ expression__in ~s~ ":" ~s~ statement_list__return? }
@@ -890,7 +902,7 @@ formal_parameter_list__yield = _{
     | formals_list__yield ~s~ "," ~s~ function_rest_parameter__yield
     | formals_list__yield
 }
-formals_list = _{
+formals_list = _{                                                             
     formal_parameter ~s~ ("," ~s~ formal_parameter)*
 }
 formals_list__yield = _{
@@ -918,11 +930,13 @@ arrow_function__in_yield = {
 }
 arrow_parameters = {
     binding_identifier
-    | cover_parenthesized_expression_and_arrow_parameter_list
+    | "(" ~s~ strict_formal_parameters ~s~ ")"
+//     | cover_parenthesized_expression_and_arrow_parameter_list
 }
 arrow_parameters__yield = {
     binding_identifier__yield
-    | cover_parenthesized_expression_and_arrow_parameter_list__yield
+    | "(" ~s~ strict_formal_parameters__yield ~s~ ")"
+//     | cover_parenthesized_expression_and_arrow_parameter_list__yield
 }
 concise_body = {
     !"{" ~ assignment_expression
@@ -932,19 +946,21 @@ concise_body__in = {
     !"{" ~ assignment_expression__in
     | "{" ~ function_body ~ "}"
 }
+getter = @{ "get" }
+setter = @{ "set" }
 method_definition = {
     generator_method
-    | "get" ~s~ property_name ~s~ "(" ~s~ ")" ~s~ "{" ~s~ function_body ~s~ "}"
-    | "set" ~s~ property_name ~s~ "(" ~s~ property_set_parameter_list ~s~ ")" ~s~ "{" ~s~ function_body ~s~ "}"
+    | getter ~s~ property_name ~s~ "(" ~s~ ")" ~s~ "{" ~s~ function_body ~s~ "}"
+    | setter ~s~ property_name ~s~ "(" ~s~ property_set_parameter_list ~s~ ")" ~s~ "{" ~s~ function_body ~s~ "}"
     | property_name ~s~ "(" ~s~ strict_formal_parameters ~s~ ")" ~s~ "{" ~s~ function_body ~s~ "}"
 }
 method_definition__yield = {
     generator_method__yield
-    | "get" ~s~ property_name__yield ~s~ "(" ~s~ ")" ~s~ "{" ~s~ function_body ~s~ "}"
-    | "set" ~s~ property_name__yield ~s~ "(" ~s~ property_set_parameter_list ~s~ ")" ~s~ "{" ~s~ function_body ~s~ "}"
+    | getter ~s~ property_name__yield ~s~ "(" ~s~ ")" ~s~ "{" ~s~ function_body ~s~ "}"
+    | setter ~s~ property_name__yield ~s~ "(" ~s~ property_set_parameter_list ~s~ ")" ~s~ "{" ~s~ function_body ~s~ "}"
     | property_name__yield ~s~ "(" ~s~ strict_formal_parameters ~s~ ")" ~s~ "{" ~s~ function_body ~s~ "}"
 }
-property_set_parameter_list = { formal_parameter }
+property_set_parameter_list = _{ formal_parameter }
 generator_method = {
     "*" ~s~ property_name ~s~ "(" ~s~ strict_formal_parameters__yield ~s~ ")" ~s~ "{" ~s~ generator_body ~s~ "}"
 }
@@ -1029,3 +1045,63 @@ class_element__yield = {
 }
 script_body = _{ statement_list }
 script = _{ SOI ~s~ script_body? ~s~ EOI }
+
+
+// Supplemental rules ref: https://262.ecma-international.org/6.0/#sec-destructuring-assignment
+
+// assignment_pattern_lhs = _{ SOI ~ assignment_pattern ~ EOI }
+// assignment_pattern_lhs__yield = _{ SOI ~ assignment_pattern__yield ~ EOI }
+// assignment_pattern = _{ object_assignment_pattern | array_assignment_pattern }
+// assignment_pattern__yield = _{ object_assignment_pattern__yield | array_assignment_pattern__yield }
+// object_assignment_pattern = {
+//     "{" ~s~ "}"
+//     | "{" ~s~ assignment_property_list ~s~ "}"
+//     | "{" ~s~ assignment_property_list ~s~ "," ~s~ "}"
+// }
+// object_assignment_pattern__yield = {
+//     "{" ~s~ "}"
+//     | "{" ~s~ assignment_property_list__yield ~s~ "}"
+//     | "{" ~s~ assignment_property_list__yield ~s~ "," ~s~ "}"
+// }
+// assignment_property_list = _{
+//     assignment_property ~ (s~ "," ~s~ assignment_property)*
+// }
+// assignment_property_list__yield = _{
+//     assignment_property__yield ~ (s~ "," ~s~ assignment_property__yield)*
+// }
+// assignment_property = {
+//     identifier_reference ~ initializer__in?
+//     | property_name ~s~ ":" ~s~ assignment_element
+// }
+// assignment_property__yield = {
+//     identifier_reference__yield ~ initializer__in_yield?
+//     | property_name ~s~ ":" ~s~ assignment_element__yield
+// }
+// assignment_element = {
+//     destructuring_assignment_target ~ initializer__in?
+// }
+// assignment_element__yield = {
+//     destructuring_assignment_target__yield ~ initializer__in_yield?
+// }
+// destructuring_assignment_target = { left_hand_side_expression }
+// destructuring_assignment_target__yield = { left_hand_side_expression__yield }
+// array_assignment_pattern = {
+//      "[" ~s~ elision? ~s~ assignment_rest_element? ~s~ "]"
+//     | "[" ~s~ assignment_element_list ~s~ "]"
+//     | "[" ~s~ assignment_element_list ~s~ "," ~s~ elision? ~s~ assignment_rest_element? ~s~ "]"
+// }
+// array_assignment_pattern__yield = {
+//      "[" ~s~ elision? ~s~ assignment_rest_element__yield? ~s~ "]"
+//     | "[" ~s~ assignment_element_list__yield ~s~ "]"
+//     | "[" ~s~ assignment_element_list__yield ~s~ "," ~s~ elision? ~s~ assignment_rest_element__yield? ~s~ "]"
+// }
+// assignment_element_list = _{
+//     assignment_elision_element ~ (s~ "," ~s~ assignment_elision_element)*
+// }
+// assignment_element_list__yield = _{
+//     assignment_elision_element__yield ~ (s~ "," ~s~ assignment_elision_element__yield)*
+// }
+// assignment_elision_element = _{ elision? ~s~ assignment_element }
+// assignment_elision_element__yield = _{ elision? ~s~ assignment_element__yield }
+// assignment_rest_element = { "..." ~ destructuring_assignment_target }
+// assignment_rest_element__yield = { "..." ~ destructuring_assignment_target__yield }

@@ -1,8 +1,9 @@
 use crate::runner::ds::function_object::JsFunctionObject;
 use crate::runner::ds::object::{JsObjectType, ObjectType};
-use crate::runner::ds::operations::test_and_comparison::{same_js_object, same_value};
+use crate::runner::ds::operations::test_and_comparison::{same_js_object, same_object, same_value};
 use crate::runner::ds::symbol::SymbolData;
 use crate::runner::ds::value::JsValue;
+use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::fmt;
 use std::fmt::{Display, Formatter};
@@ -140,7 +141,7 @@ pub struct PropertyDescriptorData {
 
 pub struct PropertyDescriptorAccessor {
     pub set: Option<JsObjectType>,
-    pub get: Option<Rc<dyn JsFunctionObject>>,
+    pub get: Option<JsObjectType>,
     pub enumerable: bool,
     pub configurable: bool,
 }
@@ -323,7 +324,7 @@ impl PartialEq for PropertyDescriptor {
                     } else {
                         if let Some(s) = setter {
                             if let Some(os) = other_setter {
-                                return same_js_object(s.deref(), os.deref());
+                                return same_object(&(**s).borrow(), &(**os).borrow());
                             }
                         }
                         false

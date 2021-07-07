@@ -1,6 +1,7 @@
 use crate::parser::ast::{ExtendedNumberLiteralType, NumberLiteralType};
 use crate::parser::JsParser;
 use crate::runner::ds::error::JErrorType;
+use crate::runner::ds::execution_context::ExecutionContextStack;
 use crate::runner::ds::object::{JsObject, ObjectType};
 use crate::runner::ds::object_property::PropertyKey;
 use crate::runner::ds::operations::object::get_method;
@@ -31,7 +32,6 @@ pub fn get_type(a: &JsValue) -> &'static str {
         JsValue::Object(o) => match *(**o).borrow() {
             ObjectType::Ordinary(_) => TYPE_STR_OBJECT,
             ObjectType::Function(_) => TYPE_STR_FUNCTION,
-            ObjectType::Array(_) => TYPE_STR_OBJECT,
         },
     }
 }
@@ -42,7 +42,11 @@ pub enum PreferredType {
     Number,
 }
 
-pub fn to_primitive(v: &JsValue, preferred_type: PreferredType) -> Result<JsValue, JErrorType> {
+pub fn to_primitive(
+    ctx_stack: &mut ExecutionContextStack,
+    v: &JsValue,
+    preferred_type: PreferredType,
+) -> Result<JsValue, JErrorType> {
     match v {
         JsValue::Undefined => Ok(v.clone()),
         JsValue::Null => Ok(v.clone()),
@@ -51,7 +55,7 @@ pub fn to_primitive(v: &JsValue, preferred_type: PreferredType) -> Result<JsValu
         JsValue::Symbol(_) => Ok(v.clone()),
         JsValue::Number(_) => Ok(v.clone()),
         JsValue::Object(_) => {
-            let m = get_method(v, &PropertyKey::Sym(SYMBOL_TO_PRIMITIVE.clone()));
+            let m = get_method(ctx_stack, v, &PropertyKey::Sym(SYMBOL_TO_PRIMITIVE.clone()));
             todo!()
         }
     }
@@ -75,7 +79,10 @@ pub fn to_object(v: &JsValue) -> Result<JsValue, JErrorType> {
     }
 }
 
-pub fn to_number(v: &JsValue) -> Result<JsNumberType, JErrorType> {
+pub fn to_number(
+    ctx_stack: &mut ExecutionContextStack,
+    v: &JsValue,
+) -> Result<JsNumberType, JErrorType> {
     match v {
         JsValue::Undefined => Ok(JsNumberType::NaN),
         JsValue::Null => Ok(JsNumberType::Integer(0)),
@@ -90,8 +97,8 @@ pub fn to_number(v: &JsValue) -> Result<JsNumberType, JErrorType> {
         ))),
         JsValue::Number(n) => Ok(n.clone()),
         JsValue::Object(o) => {
-            let pv = to_primitive(v, PreferredType::Default)?;
-            to_number(&pv)
+            let pv = to_primitive(ctx_stack, v, PreferredType::Default)?;
+            to_number(ctx_stack, &pv)
         }
     }
 }
@@ -117,8 +124,8 @@ fn parse_string_to_number(s: &String, is_nan_mode: bool) -> JsNumberType {
     }
 }
 
-pub fn to_unit_32(v: &JsValue) -> Result<u32, JErrorType> {
-    let n = to_number(v)?;
+pub fn to_unit_32(ctx_stack: &mut ExecutionContextStack, v: &JsValue) -> Result<u32, JErrorType> {
+    let n = to_number(ctx_stack, v)?;
     Ok(to_unit32_from_js_number_type(&n))
 }
 
@@ -132,7 +139,7 @@ fn to_unit32_from_js_number_type(n: &JsNumberType) -> u32 {
     }
 }
 
-pub fn to_string(v: &JsValue) -> Result<String, JErrorType> {
+pub fn to_string(ctx_stack: &mut ExecutionContextStack, v: &JsValue) -> Result<String, JErrorType> {
     match v {
         JsValue::Undefined => Ok(TYPE_STR_UNDEFINED.to_string()),
         JsValue::Null => Ok(TYPE_STR_NULL.to_string()),
@@ -150,7 +157,10 @@ pub fn to_string(v: &JsValue) -> Result<String, JErrorType> {
             JsNumberType::PositiveInfinity => TYPE_STR_NUMBER_INFINITY.to_string(),
             JsNumberType::NegativeInfinity => format!("-{}", TYPE_STR_NUMBER_INFINITY),
         }),
-        JsValue::Object(_) => to_string(&to_primitive(v, PreferredType::String)?),
+        JsValue::Object(_) => to_string(
+            ctx_stack,
+            &to_primitive(ctx_stack, v, PreferredType::String)?,
+        ),
     }
 }
 
@@ -158,13 +168,16 @@ pub fn to_string_int(i: i64) -> String {
     format!("{}", i)
 }
 
-pub fn canonical_numeric_index_string(s: &String) -> Option<u32> {
+pub fn canonical_numeric_index_string(
+    ctx_stack: &mut ExecutionContextStack,
+    s: &String,
+) -> Option<u32> {
     if s == "-0" {
         Some(0)
     } else {
         let n = parse_string_to_number(s, false);
         let v = JsValue::Number(n);
-        if let Ok(in_s) = to_string(&v) {
+        if let Ok(in_s) = to_string(ctx_stack, &v) {
             if &in_s == s {
                 if let JsValue::Number(n) = v {
                     return Some(to_unit32_from_js_number_type(&n));

@@ -307,7 +307,7 @@ use std::ops::Deref;
 //         ExpressionType::NewExpression { .. } => {}
 //         ExpressionType::SequenceExpression { .. } => {}
 //         ExpressionType::ArrowFunctionExpression { .. } => {}
-//         ExpressionType::YieldExpression { .. } => {}
+//         ExpressionType::yield_expression { .. } => {}
 //         ExpressionType::TemplateLiteral(_) => {}
 //         ExpressionType::TaggedTemplateExpression { .. } => {}
 //         ExpressionType::ClassExpression(_) => {}

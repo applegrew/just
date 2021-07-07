@@ -1,8 +1,8 @@
 use crate::parser::util::{format_has_meta_option, format_option, format_struct, format_vec};
 use pest::error::Error;
-use std::fmt::Debug;
+use std::fmt;
+use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
-use std::intrinsics::fabsf32;
 use std::rc::Rc;
 
 #[derive(Debug)]
@@ -15,8 +15,14 @@ pub struct JsError<Rule> {
 pub enum JsErrorType<R> {
     Unexpected(&'static str),
     ParserValidation(Error<R>),
-    AstBuilderValidation(Meta),
+    AstBuilderValidation(AstBuilderValidationErrorType, Meta),
     ParserGeneralError,
+}
+
+#[derive(Debug)]
+pub enum AstBuilderValidationErrorType {
+    SyntaxError,
+    ReferenceError,
 }
 
 #[derive(Debug)]
@@ -94,6 +100,11 @@ impl Clone for IdentifierData {
         }
     }
 }
+impl Display for IdentifierData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "'{}'", self.name)
+    }
+}
 
 #[derive(Debug)]
 pub enum ExpressionPatternType {
@@ -150,7 +161,7 @@ pub enum ExpressionType {
         meta: Meta,
         properties: Vec<PropertyData<Rc<ExpressionType>>>,
     },
-    FunctionExpression(FunctionData),
+    FunctionOrGeneratorExpression(FunctionData),
     UnaryExpression {
         meta: Meta,
         operator: UnaryOperator,
@@ -204,8 +215,8 @@ pub enum ExpressionType {
     },
     ArrowFunctionExpression {
         meta: Meta,
-        body: FunctionBodyOrExpression,
-        expression: bool,
+        params: Rc<Vec<PatternType>>,
+        body: Rc<FunctionBodyOrExpression>,
     },
     YieldExpression {
         meta: Meta,
@@ -234,7 +245,7 @@ impl HasMeta for ExpressionType {
             ExpressionType::ThisExpression { meta } => &meta,
             ExpressionType::ArrayExpression { meta, .. } => &meta,
             ExpressionType::ObjectExpression { meta, .. } => &meta,
-            ExpressionType::FunctionExpression(data) => &data.meta,
+            ExpressionType::FunctionOrGeneratorExpression(data) => &data.meta,
             ExpressionType::UnaryExpression { meta, .. } => &meta,
             ExpressionType::UpdateExpression { meta, .. } => &meta,
             ExpressionType::BinaryExpression { meta, .. } => &meta,
@@ -284,7 +295,7 @@ impl HasMeta for ExpressionType {
                     )
                     .to_string()
             }
-            ExpressionType::FunctionExpression(data) => format!(
+            ExpressionType::FunctionOrGeneratorExpression(data) => format!(
                 "ExpressionType::FunctionExpression({})",
                 data.to_formatted_string(script)
             ),
@@ -385,20 +396,21 @@ impl HasMeta for ExpressionType {
                     )
                     .to_string()
             }
-            ExpressionType::ArrowFunctionExpression {
-                meta,
-                body,
-                expression,
-            } => format_struct("ExpressionType::ArrowFunctionExpression")
-                .add_fields("meta", meta.to_formatted_string(script))
-                .add_fields("body", body.to_formatted_string(script))
-                .add_fields("expression", expression.to_string())
-                .to_string(),
+            ExpressionType::ArrowFunctionExpression { meta, params, body } => {
+                format_struct("ExpressionType::ArrowFunctionExpression")
+                    .add_fields("meta", meta.to_formatted_string(script))
+                    .add_fields(
+                        "params",
+                        format_vec(params, |p| p.to_formatted_string(script)),
+                    )
+                    .add_fields("body", body.to_formatted_string(script))
+                    .to_string()
+            }
             ExpressionType::YieldExpression {
                 meta,
                 argument,
                 delegate,
-            } => format_struct("ExpressionType::YieldExpression")
+            } => format_struct("ExpressionType::yield_expression")
                 .add_fields("meta", meta.to_formatted_string(script))
                 .add_fields(
                     "argument",
@@ -463,7 +475,6 @@ pub enum PatternType {
         right: Rc<ExpressionType>,
     },
 }
-
 impl HasMeta for PatternType {
     fn get_meta(&self) -> &Meta {
         match self {
@@ -571,7 +582,7 @@ impl HasMeta for TemplateElementData {
 #[derive(Debug)]
 pub enum FunctionBodyOrExpression {
     FunctionBody(FunctionBodyData),
-    Expression(Rc<ExpressionType>),
+    Expression(ExpressionType),
 }
 
 impl HasMeta for FunctionBodyOrExpression {
@@ -955,7 +966,7 @@ pub enum StatementType {
     SwitchStatement {
         meta: Meta,
         discriminant: Rc<ExpressionType>,
-        cases: Rc<Vec<SwitchCaseData>>,
+        cases: Vec<SwitchCaseData>,
     },
     ThrowStatement {
         meta: Meta,
@@ -1356,41 +1367,10 @@ impl HasMeta for SwitchCaseData {
 }
 
 #[derive(Debug)]
-pub struct FormalParameters {
-    pub list: Vec<Rc<PatternType>>,
-    pub bound_names: Vec<String>,
-    pub contains_expression: bool,
-    pub is_simple_parameter_list: bool,
-}
-impl FormalParameters {
-    pub(crate) fn new(params: Vec<Rc<PatternType>>) -> Self {
-        let mut bound_names = vec![];
-        let mut contains_expression = false;
-        let mut is_simple_parameter_list = true;
-        for p in params {
-            let (mut bn, ce, sp) = scan_pattern(&p);
-            bound_names.append(&mut bn);
-            if ce {
-                contains_expression = true;
-            }
-            if !sp {
-                is_simple_parameter_list = false;
-            }
-        }
-        FormalParameters {
-            list: params,
-            bound_names,
-            contains_expression,
-            is_simple_parameter_list,
-        }
-    }
-}
-
-#[derive(Debug)]
 pub struct FunctionData {
     pub meta: Meta,
     pub id: Option<IdentifierData>,
-    pub params: Rc<FormalParameters>,
+    pub params: Rc<Vec<PatternType>>,
     pub body: Rc<FunctionBodyData>,
     pub generator: bool,
 }
@@ -1512,19 +1492,45 @@ impl<V> PropertyData<V> {
 
     pub(crate) fn new_with_computed_key(
         meta: Meta,
-        key: Rc<ExpressionType>,
+        key: ExpressionType,
         value: V,
         kind: PropertyKind,
         method: bool,
     ) -> Self {
         PropertyData {
             meta,
-            key,
+            key: Rc::new(key),
             value,
             kind,
             method,
             shorthand: false,
             computed: true,
+        }
+    }
+
+    pub(crate) fn new_with_any_expression_key(
+        meta: Meta,
+        key: ExpressionType,
+        value: V,
+        kind: PropertyKind,
+        method: bool,
+        shorthand: bool,
+    ) -> Self {
+        match key {
+            ExpressionType::ExpressionWhichCanBePattern(e) => match e {
+                ExpressionPatternType::Identifier(id) => {
+                    Self::new_with_identifier_key(meta, id, value, kind, method, shorthand)
+                }
+                ExpressionPatternType::MemberExpression(_) => Self::new_with_computed_key(
+                    meta,
+                    e.convert_to_expression(),
+                    value,
+                    kind,
+                    method,
+                ),
+            },
+            ExpressionType::Literal(l) => Self::new_with_literal_key(meta, l, value, kind, method),
+            _ => Self::new_with_computed_key(meta, key, value, kind, method),
         }
     }
 }
@@ -1560,11 +1566,10 @@ impl HasMeta for PropertyData<Rc<PatternType>> {
 }
 
 #[derive(Debug)]
-enum LiteralOrIdentifier {
+pub enum LiteralOrIdentifier {
     Literal(LiteralData),
     Identifier(IdentifierData),
 }
-
 impl HasMeta for LiteralOrIdentifier {
     fn get_meta(&self) -> &Meta {
         match self {
@@ -1583,78 +1588,61 @@ impl HasMeta for LiteralOrIdentifier {
 
 #[derive(Debug)]
 pub struct AssignmentPropertyData(pub PropertyData<Rc<PatternType>>);
-
 impl AssignmentPropertyData {
     pub(crate) fn new_with_identifier_key(
         meta: Meta,
         key: IdentifierData,
-        value: V,
-        method: bool,
+        value: PatternType,
         shorthand: bool,
     ) -> Self {
         AssignmentPropertyData(PropertyData::new_with_identifier_key(
             meta,
             key,
-            value,
+            Rc::new(value),
             PropertyKind::Init,
-            method,
+            false,
             shorthand,
         ))
     }
 
-    pub(crate) fn new_with_literal_key(
-        meta: Meta,
-        key: LiteralData,
-        value: V,
-        method: bool,
-    ) -> Self {
+    pub(crate) fn new_with_literal_key(meta: Meta, key: LiteralData, value: PatternType) -> Self {
         AssignmentPropertyData(PropertyData::new_with_literal_key(
             meta,
             key,
-            value,
+            Rc::new(value),
             PropertyKind::Init,
-            method,
+            false,
         ))
     }
 
     pub(crate) fn new_with_computed_key(
         meta: Meta,
-        key: Rc<ExpressionType>,
-        value: V,
-        method: bool,
+        key: ExpressionType,
+        value: PatternType,
     ) -> Self {
         AssignmentPropertyData(PropertyData::new_with_computed_key(
             meta,
             key,
-            value,
+            Rc::new(value),
             PropertyKind::Init,
-            method,
+            false,
         ))
     }
 
     pub(crate) fn new_with_any_expression_key(
         meta: Meta,
-        key: Rc<ExpressionType>,
-        value: V,
-        method: bool,
+        key: ExpressionType,
+        value: PatternType,
         shorthand: bool,
     ) -> Self {
-        let key = Rc::try_unwrap(key).unwrap();
-        match key {
-            ExpressionType::ExpressionWhichCanBePattern(e) => match e {
-                ExpressionPatternType::Identifier(id) => {
-                    Self::new_with_identifier_key(meta, id, value, method, shorthand)
-                }
-                ExpressionPatternType::MemberExpression(_) => Self::new_with_computed_key(
-                    meta,
-                    Rc::new(e.convert_to_expression()),
-                    value,
-                    method,
-                ),
-            },
-            ExpressionType::Literal(l) => Self::new_with_literal_key(meta, l, value, method),
-            _ => Self::new_with_computed_key(meta, Rc::new(key), value, method),
-        }
+        AssignmentPropertyData(PropertyData::new_with_any_expression_key(
+            meta,
+            key,
+            Rc::new(value),
+            PropertyKind::Init,
+            false,
+            shorthand,
+        ))
     }
 }
 impl HasMeta for AssignmentPropertyData {
@@ -1756,116 +1744,4 @@ pub enum MethodDefinitionKind {
     Method,
     Get,
     Set,
-}
-
-fn scan_pattern(pattern: &PatternType) -> (Vec<String>, bool, bool) {
-    let mut bound_names = vec![];
-    let mut contains_expression = false;
-    let mut is_simple_parameter_list = true;
-    match pattern {
-        PatternType::PatternWhichCanBeExpression(e) => match e {
-            ExpressionPatternType::Identifier(i) => {
-                bound_names.push(i.name.to_string());
-            }
-            ExpressionPatternType::MemberExpression(_) => {}
-        },
-        PatternType::ObjectPattern { properties, .. } => {
-            is_simple_parameter_list = false;
-            for AssignmentPropertyData(p) in properties {
-                let (mut bn, ce, _) = scan_pattern(&p.value);
-                bound_names.append(&mut bn);
-                if ce {
-                    contains_expression = true;
-                }
-            }
-        }
-        PatternType::ArrayPattern { elements, .. } => {
-            is_simple_parameter_list = false;
-            for p in elements {
-                if let Some(p) = p {
-                    let (mut bn, ce, _) = scan_pattern(p);
-                    bound_names.append(&mut bn);
-                    if ce {
-                        contains_expression = true;
-                    }
-                }
-            }
-        }
-        PatternType::RestElement { argument, .. } => {
-            is_simple_parameter_list = false;
-            let (mut bn, ce, _) = scan_pattern(argument);
-            bound_names.append(&mut bn);
-            if ce {
-                contains_expression = true;
-            }
-        }
-        PatternType::AssignmentPattern { left, .. } => {
-            contains_expression = true;
-            is_simple_parameter_list = false;
-            let (mut bn, _, _) = scan_pattern(left);
-            bound_names.append(&mut bn);
-        }
-    }
-    (bound_names, contains_expression, is_simple_parameter_list)
-}
-
-fn scan_statement_list(statement_list: &Vec<StatementType>) -> (Vec<String>) {
-    let mut bound_names = vec![];
-    for statement in statement_list {
-        match statement {
-            StatementType::ExpressionStatement { .. } => {}
-            StatementType::BlockStatement(b) => {
-                let (bn) = scan_statement_list(&b.body);
-                bound_names.append(&mut bn);
-            }
-            StatementType::FunctionBody(_) => {}
-            StatementType::EmptyStatement { .. } => {}
-            StatementType::DebuggerStatement { .. } => {}
-            StatementType::ReturnStatement { .. } => {}
-            StatementType::BreakStatement { .. } => {}
-            StatementType::ContinueStatement { .. } => {}
-            StatementType::IfStatement { .. } => {}
-            StatementType::SwitchStatement { .. } => {}
-            StatementType::ThrowStatement { .. } => {}
-            StatementType::TryStatement { .. } => {}
-            StatementType::WhileStatement { .. } => {}
-            StatementType::DoWhileStatement { .. } => {}
-            StatementType::ForStatement { init, .. } => {}
-            StatementType::ForInStatement(f) | StatementType::ForOfStatement(f) => match &f.left {
-                VariableDeclarationOrPattern::VariableDeclaration(v) => {
-                    for d in &v.declarations {
-                        let (mut bn, _, _) = scan_pattern(&d.id);
-                        bound_names.append(&mut bn);
-                    }
-                }
-                VariableDeclarationOrPattern::Pattern(e) => {
-                    let (mut bn, _, _) = scan_pattern(e);
-                    bound_names.append(&mut bn);
-                }
-            },
-            StatementType::DeclarationStatement(d) => match d {
-                DeclarationType::FunctionOrGeneratorDeclaration(f) => {
-                    if let Some(id) = &f.id {
-                        bound_names.push(id.name.to_string());
-                    } else {
-                        bound_names.push("*default*".to_string());
-                    }
-                }
-                DeclarationType::VariableDeclaration(v) => {
-                    for d in &v.declarations {
-                        let (mut bn, _, _) = scan_pattern(&d.id);
-                        bound_names.append(&mut bn);
-                    }
-                }
-                DeclarationType::ClassDeclaration(c) => {
-                    if let Some(id) = &c.id {
-                        bound_names.push(id.name.to_string());
-                    } else {
-                        bound_names.push("*default*".to_string());
-                    }
-                }
-            },
-        }
-    }
-    (bound_names)
 }

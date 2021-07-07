@@ -1,5 +1,8 @@
 use crate::runner::ds::error::JErrorType;
-use crate::runner::ds::object::{ordinary_define_own_property, JsObject, ObjectBase, ObjectType};
+use crate::runner::ds::execution_context::ExecutionContextStack;
+use crate::runner::ds::object::{
+    ordinary_define_own_property, JsObject, JsObjectType, ObjectBase, ObjectType,
+};
 use crate::runner::ds::object_property::{
     PropertyDescriptor, PropertyDescriptorData, PropertyDescriptorSetter, PropertyKey,
 };
@@ -26,18 +29,19 @@ pub trait JsStringObject: JsObject {
 
     fn get_own_property(
         &self,
+        ctx_stack: &mut ExecutionContextStack,
         property: &PropertyKey,
     ) -> Result<Option<&PropertyDescriptor>, JErrorType> {
         let desc = JsObject::get_own_property(self, property)?;
         Ok(if desc.is_some() {
             desc
         } else {
-            string_get_index_property(self.as_js_string_object(), property)
+            string_get_index_property(ctx_stack, self.as_js_string_object(), property)
         })
     }
 
-    fn has_property(&self, property: &PropertyKey) -> bool {
-        let desc = string_get_index_property(self.as_js_string_object(), property);
+    fn has_property(&self, ctx_stack: &mut ExecutionContextStack, property: &PropertyKey) -> bool {
+        let desc = string_get_index_property(ctx_stack, self.as_js_string_object(), property);
         if desc.is_some() {
             true
         } else {
@@ -45,13 +49,13 @@ pub trait JsStringObject: JsObject {
         }
     }
 
-    fn own_property_keys(&self) -> Vec<PropertyKey> {
+    fn own_property_keys(&self, ctx_stack: &mut ExecutionContextStack) -> Vec<PropertyKey> {
         let len = self.get_string_base().string_data.len();
         let mut res = vec![];
         for idx in 0..len {
             res.push(PropertyKey::Str(to_string_int(idx as i64)));
         }
-        res.append(&mut JsObject::own_property_keys(self));
+        res.append(&mut JsObject::own_property_keys(self, ctx_stack));
         res
     }
 }
@@ -119,11 +123,12 @@ impl JsObject for CoreStringObject {
 }
 
 fn string_get_index_property<'a>(
+    ctx_stack: &mut ExecutionContextStack,
     string_obj: &'a dyn JsStringObject,
     property: &PropertyKey,
 ) -> Option<&'a PropertyDescriptor> {
     if let PropertyKey::Str(str_property) = property {
-        let idx = canonical_numeric_index_string(str_property);
+        let idx = canonical_numeric_index_string(ctx_stack, str_property);
         if let Some(idx) = idx {
             if idx < 0 || idx >= string_obj.get_string_base().string_data.len() as u32 {
                 None

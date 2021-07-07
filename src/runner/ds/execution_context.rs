@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 pub struct ExecutionContext {
-    pub function: Option<dyn JsFunctionObject>,
+    pub function: Option<JsObjectType>,
     pub realm: JsCodeRealmType,
     pub lex_env: JsLexEnvironmentType,
     pub var_env: JsLexEnvironmentType,
@@ -25,7 +25,9 @@ impl ExecutionContextStack {
     }
 
     pub fn get_running_execution_ctx_mut(&mut self) -> Option<&mut ExecutionContext> {
-        self.stack.get_mut(self.stack.len() - 1)
+        let stack = &mut self.stack;
+        let stack_len = stack.len();
+        stack.get_mut(stack_len - 1)
     }
 
     pub fn pop_running_execution_ctx(&mut self) -> Option<ExecutionContext> {

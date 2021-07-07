@@ -1,17 +1,13 @@
 use crate::runner::ds::error::JErrorType;
-use crate::runner::ds::object::{
-    ordinary_define_own_property, JsObject, JsObjectType, ObjectBase, ObjectType,
-};
+use crate::runner::ds::execution_context::ExecutionContextStack;
+use crate::runner::ds::object::{ordinary_define_own_property, JsObject, JsObjectType, ObjectBase};
 use crate::runner::ds::object_property::{
     PropertyDescriptor, PropertyDescriptorData, PropertyDescriptorSetter, PropertyKey,
 };
 use crate::runner::ds::operations::type_conversion::{
-    canonical_numeric_index_string, to_number, to_string, to_string_int, to_unit_32,
+    canonical_numeric_index_string, to_number, to_string_int, to_unit_32,
 };
 use crate::runner::ds::value::{JsNumberType, JsValue};
-use std::borrow::BorrowMut;
-use std::cell::RefCell;
-use std::rc::Rc;
 
 lazy_static! {
     pub static ref ARRAY_LENGTH_PROP: PropertyKey = PropertyKey::Str("length".to_string());
@@ -36,19 +32,21 @@ pub trait JsArrayObject: JsObject {
 
     fn define_own_property(
         &mut self,
+        ctx_stack: &mut ExecutionContextStack,
         mut property: PropertyKey,
         mut descriptor_setter: PropertyDescriptorSetter,
     ) -> Result<bool, JErrorType> {
         if let PropertyKey::Str(s) = &property {
             if s == "length" {
                 return array_set_length(
+                    ctx_stack,
                     self.as_js_array_object_mut(),
                     property,
                     descriptor_setter,
                 );
-            } else if let Some(idx) = canonical_numeric_index_string(s) {
+            } else if let Some(idx) = canonical_numeric_index_string(ctx_stack, s) {
                 let len_desc = self.get_own_length_property()?;
-                let old_len = to_unit_32(&len_desc.value)?;
+                let old_len = to_unit_32(ctx_stack, &len_desc.value)?;
                 if idx >= old_len && !len_desc.writable {
                     return Ok(false);
                 }
@@ -127,6 +125,7 @@ impl JsObject for CoreArrayObject {
 }
 
 pub fn array_set_length(
+    ctx_stack: &mut ExecutionContextStack,
     array: &mut dyn JsArrayObject,
     property: PropertyKey,
     mut descriptor_setter: PropertyDescriptorSetter,
@@ -135,8 +134,8 @@ pub fn array_set_length(
         ordinary_define_own_property(array, ARRAY_LENGTH_PROP.clone(), descriptor_setter)
     } else {
         if let PropertyDescriptor::Data(new_descriptor) = &mut descriptor_setter.descriptor {
-            let new_length = to_unit_32(&new_descriptor.value)?;
-            let new_length_in_js_number = to_number(&new_descriptor.value)?;
+            let new_length = to_unit_32(ctx_stack, &new_descriptor.value)?;
+            let new_length_in_js_number = to_number(ctx_stack, &new_descriptor.value)?;
             if match new_length_in_js_number {
                 JsNumberType::Integer(i) => i != new_length as i64,
                 JsNumberType::Float(f) => f != new_length as f64,
@@ -154,7 +153,7 @@ pub fn array_set_length(
 
             let new_writable = !descriptor_setter.honour_writable || new_descriptor.writable;
 
-            let old_length = to_unit_32(&old_descriptor.value)?;
+            let old_length = to_unit_32(ctx_stack, &old_descriptor.value)?;
             if new_length >= old_length {
                 ordinary_define_own_property(array, ARRAY_LENGTH_PROP.clone(), descriptor_setter)
             } else {
@@ -247,7 +246,8 @@ pub fn finish_array_create(
     let final_proto = if let Some(proto) = proto {
         proto
     } else {
-        IntrinsicArrayPrototype
+        // IntrinsicArrayPrototype
+        todo!()
     };
     array_obj.get_object_base_mut().prototype = Some(final_proto);
     array_obj.get_object_base_mut().is_extensible = true;
