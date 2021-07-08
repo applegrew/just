@@ -17,5 +17,5 @@ To run all tests run `cargo test`.
 
 * Parser - Work in progress
   * Lexical Parser - Work in progress
-  * AST builder - Work in progress
+  * AST builder - Work in progress (The AST complies with ESTree - See: https://github.com/estree/estree & https://astexplorer.net/)
 * Runner - Work in progress
