@@ -1,5 +1,6 @@
 use crate::runner::ds::array_object::JsArrayObject;
 use crate::runner::ds::error::JErrorType;
+use crate::runner::ds::execution_context::{ExecutionContext, ExecutionContextStack};
 use crate::runner::ds::function_object::JsFunctionObject;
 use crate::runner::ds::iterator_object::JsIteratorObject;
 use crate::runner::ds::object_property::{
@@ -15,7 +16,6 @@ use crate::runner::ds::operations::type_conversion::{
 };
 use crate::runner::ds::realm::WellKnownIntrinsics;
 use crate::runner::ds::value::{JsValue, JsValueOrSelf};
-use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
@@ -62,14 +62,14 @@ impl ObjectType {
     pub fn as_js_function_object(&self) -> &dyn JsFunctionObject {
         match self {
             ObjectType::Ordinary(o) => panic!("Not callable hence cannot get as JsFunctionObject"),
-            ObjectType::Function(o) => o.as_js,
+            ObjectType::Function(o) => o.as_js_function_object(),
         }
     }
 
     pub fn as_js_function_object_mut(&mut self) -> &mut dyn JsFunctionObject {
         match self {
-            ObjectType::Ordinary(o) => o.as_js_object_mut(),
-            ObjectType::Function(o) => o.as_js_object_mut(),
+            ObjectType::Ordinary(o) => panic!("Not callable hence cannot get as JsFunctionObject"),
+            ObjectType::Function(o) => o.as_js_function_object_mut(),
         }
     }
 }
@@ -85,7 +85,7 @@ impl PartialEq for ObjectType {
             }
             ObjectType::Function(o) => {
                 if let ObjectType::Function(o1) = other {
-                    same_js_object(o.deref(), o1.deref())
+                    same_js_object(o.deref().as_js_object(), o1.deref().as_js_object())
                 } else {
                     false
                 }
@@ -218,17 +218,29 @@ pub trait JsObject {
         }
     }
 
-    fn get(&self, property: &PropertyKey, receiver: JsValueOrSelf) -> Result<JsValue, JErrorType> {
+    fn get(
+        &self,
+        ctx_stack: &mut ExecutionContextStack,
+        property: &PropertyKey,
+        receiver: JsValueOrSelf,
+    ) -> Result<JsValue, JErrorType> {
         match self.get_own_property(property)? {
             None => match self.get_prototype_of() {
                 None => Ok(JsValue::Undefined),
-                Some(p) => (*(*p).borrow()).as_js_object().get(property, receiver),
+                Some(p) => (*(*p).borrow())
+                    .as_js_object()
+                    .get(ctx_stack, property, receiver),
             },
             Some(pd) => match pd {
                 PropertyDescriptor::Data(PropertyDescriptorData { value, .. }) => Ok(value.clone()),
                 PropertyDescriptor::Accessor(PropertyDescriptorAccessor { get, .. }) => match get {
                     None => Ok(JsValue::Undefined),
-                    Some(getter) => getter.call(receiver, Vec::new()),
+                    Some(getter) => (**getter).borrow().as_js_function_object().call(
+                        getter,
+                        ctx_stack,
+                        receiver,
+                        Vec::new(),
+                    ),
                 },
             },
         }
@@ -236,10 +248,12 @@ pub trait JsObject {
 
     fn set(
         &mut self,
+        ctx_stack: &mut ExecutionContextStack,
         property: PropertyKey,
         value: JsValue,
         receiver: JsValueOrSelf,
     ) -> Result<bool, JErrorType> {
+        let self_mutable_obj = self.as_js_object_mut();
         match self.get_own_property(&property)? {
             None => match self.get_prototype_of() {
                 None => {
@@ -257,7 +271,7 @@ pub trait JsObject {
                 Some(p) => (*p)
                     .borrow_mut()
                     .as_js_object_mut()
-                    .set(property, value, receiver),
+                    .set(ctx_stack, property, value, receiver),
             },
             Some(pd) => match pd {
                 PropertyDescriptor::Data(PropertyDescriptorData {
@@ -273,11 +287,9 @@ pub trait JsObject {
                                 }
                                 _ => Ok(false),
                             },
-                            JsValueOrSelf::SelfValue => set_or_update_data_descriptor(
-                                self.as_js_object_mut(),
-                                property,
-                                value,
-                            ),
+                            JsValueOrSelf::SelfValue => {
+                                set_or_update_data_descriptor(self_mutable_obj, property, value)
+                            }
                         }
                     } else {
                         Ok(false)
@@ -286,7 +298,12 @@ pub trait JsObject {
                 PropertyDescriptor::Accessor(PropertyDescriptorAccessor { set, .. }) => match set {
                     None => Ok(false),
                     Some(setter) => {
-                        setter.call(receiver, vec![value])?;
+                        (**setter).borrow_mut().as_js_function_object_mut().call(
+                            setter,
+                            ctx_stack,
+                            receiver,
+                            vec![value],
+                        )?;
                         Ok(true)
                     }
                 },
@@ -312,14 +329,14 @@ pub trait JsObject {
         todo!()
     }
 
-    fn own_property_keys(&self) -> Vec<PropertyKey> {
+    fn own_property_keys(&self, ctx_stack: &mut ExecutionContextStack) -> Vec<PropertyKey> {
         let mut int_keys = vec![];
         let mut str_keys = vec![];
         let mut sym_keys = vec![];
         for (key, _) in &self.get_object_base().properties {
             match key {
                 PropertyKey::Str(d) => {
-                    if let Some(idx) = canonical_numeric_index_string(d) {
+                    if let Some(idx) = canonical_numeric_index_string(ctx_stack, d) {
                         int_keys.push(idx);
                     } else {
                         str_keys.push(d.to_string());
@@ -372,13 +389,19 @@ impl CoreObject {
     }
 
     fn new_from_constructor(
+        ctx_stack: &mut ExecutionContextStack,
         constructor: JsObjectType,
         intrinsic_default_proto: &WellKnownIntrinsics,
     ) -> Result<Self, JErrorType> {
         let mut o = CoreObject {
             base: ObjectBase::new(),
         };
-        finish_object_create_from_constructor(&mut o, constructor, intrinsic_default_proto)?;
+        finish_object_create_from_constructor(
+            ctx_stack,
+            &mut o,
+            constructor,
+            intrinsic_default_proto,
+        )?;
         Ok(o)
     }
 }
@@ -503,9 +526,9 @@ pub fn ordinary_define_own_property<J: JsObject + ?Sized>(
                                     && descriptor_setter.honour_set
                                     && ((!current_set.is_none() && desc_set.is_none())
                                         || (current_set.is_none() && !desc_set.is_none())
-                                        || !same_js_object::<dyn JsFunctionObject>(
-                                            current_set.as_ref().unwrap().borrow(),
-                                            desc_set.as_ref().unwrap().borrow(),
+                                        || !same_js_object(
+                                            current_set.as_ref().unwrap().borrow().as_js_object(),
+                                            desc_set.as_ref().unwrap().borrow().as_js_object(),
                                         ))
                                 {
                                     return Ok(false);
@@ -515,9 +538,9 @@ pub fn ordinary_define_own_property<J: JsObject + ?Sized>(
                                     && descriptor_setter.honour_get
                                     && ((!current_get.is_none() && desc_get.is_none())
                                         || (current_get.is_none() && !desc_get.is_none())
-                                        || !same_js_object::<dyn JsFunctionObject>(
-                                            current_get.as_ref().unwrap().borrow(),
-                                            desc_get.as_ref().unwrap().borrow(),
+                                        || !same_object(
+                                            &(*current_get.unwrap()).borrow(),
+                                            &(*desc_get.unwrap()).borrow(),
                                         ))
                                 {
                                     return Ok(false);
@@ -598,10 +621,11 @@ pub fn object_create(proto: Option<JsObjectType>) -> impl JsObject {
 }
 
 pub fn object_create_from_constructor(
+    ctx_stack: &mut ExecutionContextStack,
     constructor: JsObjectType,
     intrinsic_default_proto: &WellKnownIntrinsics,
 ) -> Result<impl JsObject, JErrorType> {
-    CoreObject::new_from_constructor(constructor, intrinsic_default_proto)
+    CoreObject::new_from_constructor(ctx_stack, constructor, intrinsic_default_proto)
 }
 
 pub fn finish_object_create(obj: &mut dyn JsObject, proto: Option<JsObjectType>) {
@@ -610,20 +634,22 @@ pub fn finish_object_create(obj: &mut dyn JsObject, proto: Option<JsObjectType>)
 }
 
 pub fn finish_object_create_from_constructor(
+    ctx_stack: &mut ExecutionContextStack,
     obj: &mut dyn JsObject,
     constructor: JsObjectType,
     intrinsic_default_proto: &WellKnownIntrinsics,
 ) -> Result<(), JErrorType> {
-    let proto = get_prototype_from_constructor(constructor, intrinsic_default_proto)?;
+    let proto = get_prototype_from_constructor(ctx_stack, constructor, intrinsic_default_proto)?;
     finish_object_create(obj, Some(proto));
     Ok(())
 }
 
 pub fn get_prototype_from_constructor(
+    ctx_stack: &mut ExecutionContextStack,
     constructor: JsObjectType,
     intrinsic_default_proto: &WellKnownIntrinsics,
 ) -> Result<JsObjectType, JErrorType> {
-    let proto = get(&constructor, &*OBJECT_PROTOTYPE_PROP)?;
+    let proto = get(ctx_stack, &constructor, &*OBJECT_PROTOTYPE_PROP)?;
     if let JsValue::Object(o) = proto {
         Ok(o)
     } else {

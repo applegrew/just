@@ -1,14 +1,15 @@
 use std::collections::HashMap;
 
 use crate::runner::ds::error::JErrorType;
-use crate::runner::ds::function_object::JsFunctionObject;
+use crate::runner::ds::execution_context::ExecutionContextStack;
 use crate::runner::ds::lex_env::{JsLexEnvironmentType, LexEnvironment};
-use crate::runner::ds::object::{JsObjectType, ObjectType};
+use crate::runner::ds::object::JsObjectType;
 use crate::runner::ds::object_property::{
     PropertyDescriptor, PropertyDescriptorData, PropertyDescriptorSetter, PropertyKey,
 };
 use crate::runner::ds::operations::object::{define_property_or_throw, get, has_own_property, set};
 use crate::runner::ds::value::JsValue;
+use std::borrow::BorrowMut;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -16,9 +17,23 @@ pub trait EnvironmentRecord {
     fn has_binding(&self, name: &String) -> bool;
     fn create_mutable_binding(&mut self, name: String, can_delete: bool) -> Result<(), JErrorType>;
     fn create_immutable_binding(&mut self, name: String) -> Result<(), JErrorType>;
-    fn initialize_binding(&mut self, name: String, value: JsValue) -> Result<bool, JErrorType>;
-    fn set_mutable_binding(&mut self, name: String, value: JsValue) -> Result<(), JErrorType>;
-    fn get_binding_value(&self, name: &String) -> Result<JsValue, JErrorType>;
+    fn initialize_binding(
+        &mut self,
+        ctx_stack: &mut ExecutionContextStack,
+        name: String,
+        value: JsValue,
+    ) -> Result<bool, JErrorType>;
+    fn set_mutable_binding(
+        &mut self,
+        ctx_stack: &mut ExecutionContextStack,
+        name: String,
+        value: JsValue,
+    ) -> Result<(), JErrorType>;
+    fn get_binding_value(
+        &self,
+        ctx_stack: &mut ExecutionContextStack,
+        name: &String,
+    ) -> Result<JsValue, JErrorType>;
     fn delete_binding(&mut self, name: &String) -> Result<bool, JErrorType>;
     fn has_this_binding(&self) -> bool;
     fn has_super_binding(&self) -> bool;
@@ -83,7 +98,12 @@ impl EnvironmentRecord for DeclarativeEnvironmentRecord {
         Ok(())
     }
 
-    fn initialize_binding(&mut self, id: String, value: JsValue) -> Result<bool, JErrorType> {
+    fn initialize_binding(
+        &mut self,
+        _ctx_stack: &mut ExecutionContextStack,
+        id: String,
+        value: JsValue,
+    ) -> Result<bool, JErrorType> {
         if let Some(v) = self.bindings.get(&id) {
             if v.is_none() {
                 self.bindings.insert(id, Some(value));
@@ -96,7 +116,12 @@ impl EnvironmentRecord for DeclarativeEnvironmentRecord {
         }
     }
 
-    fn set_mutable_binding(&mut self, id: String, value: JsValue) -> Result<(), JErrorType> {
+    fn set_mutable_binding(
+        &mut self,
+        _ctx_stack: &mut ExecutionContextStack,
+        id: String,
+        value: JsValue,
+    ) -> Result<(), JErrorType> {
         if let Some(v) = self.bindings.get(&id) {
             if !v.is_none() {
                 if !self
@@ -127,7 +152,11 @@ impl EnvironmentRecord for DeclarativeEnvironmentRecord {
         }
     }
 
-    fn get_binding_value(&self, id: &String) -> Result<JsValue, JErrorType> {
+    fn get_binding_value(
+        &self,
+        _ctx_stack: &mut ExecutionContextStack,
+        id: &String,
+    ) -> Result<JsValue, JErrorType> {
         match self.bindings.get(id) {
             None => Err(JErrorType::ReferenceError(format!(
                 "'{}' is not defined",
@@ -184,7 +213,7 @@ impl EnvironmentRecord for ObjectEnvironmentRecord {
 
     fn create_mutable_binding(&mut self, name: String, can_delete: bool) -> Result<(), JErrorType> {
         define_property_or_throw(
-            &mut self.binding_object,
+            self.binding_object.get_mut().as_js_object_mut(),
             PropertyKey::Str(name),
             PropertyDescriptorSetter::new_from_property_descriptor(PropertyDescriptor::Data(
                 PropertyDescriptorData {
@@ -197,24 +226,43 @@ impl EnvironmentRecord for ObjectEnvironmentRecord {
         )
     }
 
-    fn create_immutable_binding(&mut self, name: String) -> Result<(), JErrorType> {
+    fn create_immutable_binding(&mut self, _name: String) -> Result<(), JErrorType> {
         panic!("Not supported")
     }
 
-    fn initialize_binding(&mut self, name: String, value: JsValue) -> Result<bool, JErrorType> {
-        self.set_mutable_binding(name, value)?;
+    fn initialize_binding(
+        &mut self,
+        ctx_stack: &mut ExecutionContextStack,
+        name: String,
+        value: JsValue,
+    ) -> Result<bool, JErrorType> {
+        self.set_mutable_binding(ctx_stack, name, value)?;
         Ok(true)
     }
 
-    fn set_mutable_binding(&mut self, name: String, value: JsValue) -> Result<(), JErrorType> {
-        set(&mut self.binding_object, PropertyKey::Str(name), value)?;
+    fn set_mutable_binding(
+        &mut self,
+        ctx_stack: &mut ExecutionContextStack,
+        name: String,
+        value: JsValue,
+    ) -> Result<(), JErrorType> {
+        set(
+            ctx_stack,
+            &mut self.binding_object,
+            PropertyKey::Str(name),
+            value,
+        )?;
         Ok(())
     }
 
-    fn get_binding_value(&self, name: &String) -> Result<JsValue, JErrorType> {
+    fn get_binding_value(
+        &self,
+        ctx_stack: &mut ExecutionContextStack,
+        name: &String,
+    ) -> Result<JsValue, JErrorType> {
         let p = PropertyKey::Str(name.to_string());
         if self.binding_object.borrow().as_js_object().has_property(&p) {
-            get(&self.binding_object, &p)
+            get(ctx_stack, &self.binding_object, &p)
         } else {
             Err(JErrorType::ReferenceError(format!(
                 "'{}' reference is undefined",
@@ -224,7 +272,7 @@ impl EnvironmentRecord for ObjectEnvironmentRecord {
     }
 
     fn delete_binding(&mut self, name: &String) -> Result<bool, JErrorType> {
-        self.binding_object
+        (*self.binding_object)
             .borrow_mut()
             .as_js_object_mut()
             .delete(&PropertyKey::Str(name.to_string()))
@@ -317,16 +365,30 @@ impl EnvironmentRecord for FunctionEnvironmentRecord {
         self.base_env.create_immutable_binding(name)
     }
 
-    fn initialize_binding(&mut self, name: String, value: JsValue) -> Result<bool, JErrorType> {
-        self.base_env.initialize_binding(name, value)
+    fn initialize_binding(
+        &mut self,
+        ctx_stack: &mut ExecutionContextStack,
+        name: String,
+        value: JsValue,
+    ) -> Result<bool, JErrorType> {
+        self.base_env.initialize_binding(ctx_stack, name, value)
     }
 
-    fn set_mutable_binding(&mut self, name: String, value: JsValue) -> Result<(), JErrorType> {
-        self.base_env.set_mutable_binding(name, value)
+    fn set_mutable_binding(
+        &mut self,
+        ctx_stack: &mut ExecutionContextStack,
+        name: String,
+        value: JsValue,
+    ) -> Result<(), JErrorType> {
+        self.base_env.set_mutable_binding(ctx_stack, name, value)
     }
 
-    fn get_binding_value(&self, name: &String) -> Result<JsValue, JErrorType> {
-        self.base_env.get_binding_value(name)
+    fn get_binding_value(
+        &self,
+        ctx_stack: &mut ExecutionContextStack,
+        name: &String,
+    ) -> Result<JsValue, JErrorType> {
+        self.base_env.get_binding_value(ctx_stack, name)
     }
 
     fn delete_binding(&mut self, name: &String) -> Result<bool, JErrorType> {
@@ -388,50 +450,58 @@ impl GlobalEnvironmentRecord {
         )
     }
 
-    pub fn can_declare_global_var(&self, name: &String) -> bool {
-        if has_own_property(
-            &self.object_record.binding_object,
-            &PropertyKey::Str(name.to_string()),
-        )? {
-            true
-        } else {
-            self.object_record
-                .binding_object
-                .borrow()
-                .as_js_object()
-                .is_extensible()
-        }
+    pub fn can_declare_global_var(&self, name: &String) -> Result<bool, JErrorType> {
+        Ok(
+            if has_own_property(
+                &self.object_record.binding_object,
+                &PropertyKey::Str(name.to_string()),
+            )? {
+                true
+            } else {
+                self.object_record
+                    .binding_object
+                    .borrow()
+                    .as_js_object()
+                    .is_extensible()
+            },
+        )
     }
 
-    pub fn can_declare_global_function(&self, name: &String) -> bool {
-        if let Some(desc) = self
-            .object_record
-            .binding_object
-            .borrow()
-            .as_js_object()
-            .get_own_property(&PropertyKey::Str(name.to_string()))?
-        {
-            if desc.is_configurable() {
-                true
-            } else if desc.is_data_descriptor() && desc.is_enumerable() {
-                if let PropertyDescriptor::Data(PropertyDescriptorData { writable, .. }) = desc {
-                    if *writable {
-                        return true;
-                    }
-                }
-                false
-            }
-        } else {
-            self.object_record
+    pub fn can_declare_global_function(&self, name: &String) -> Result<bool, JErrorType> {
+        Ok(
+            if let Some(desc) = self
+                .object_record
                 .binding_object
                 .borrow()
                 .as_js_object()
-                .is_extensible()
-        }
+                .get_own_property(&PropertyKey::Str(name.to_string()))?
+            {
+                if desc.is_configurable() {
+                    true
+                } else if desc.is_data_descriptor() && desc.is_enumerable() {
+                    if let PropertyDescriptor::Data(PropertyDescriptorData { writable, .. }) = desc
+                    {
+                        if *writable {
+                            return Ok(true);
+                        }
+                    }
+                    false
+                } else {
+                    false
+                }
+            } else {
+                self.object_record
+                    .binding_object
+                    .borrow()
+                    .as_js_object()
+                    .is_extensible()
+            },
+        )
     }
 
     pub fn create_global_var_binding(
         &mut self,
+        ctx_stack: &mut ExecutionContextStack,
         name: String,
         can_delete: bool,
     ) -> Result<(), JErrorType> {
@@ -448,8 +518,11 @@ impl GlobalEnvironmentRecord {
         if !has_property && is_extensible {
             self.object_record
                 .create_mutable_binding(name.to_string(), can_delete)?;
-            self.object_record
-                .initialize_binding(name.to_string(), JsValue::Undefined)?;
+            self.object_record.initialize_binding(
+                ctx_stack,
+                name.to_string(),
+                JsValue::Undefined,
+            )?;
         }
         if !self.var_names.contains(&name) {
             self.var_names.push(name);
@@ -501,7 +574,9 @@ impl GlobalEnvironmentRecord {
             }
         };
         define_property_or_throw(
-            &mut self.object_record.binding_object,
+            (*self.object_record.binding_object)
+                .borrow_mut()
+                .as_js_object_mut(),
             PropertyKey::Str(name.to_string()),
             new_desc,
         )?;
@@ -549,31 +624,49 @@ impl EnvironmentRecord for GlobalEnvironmentRecord {
         }
     }
 
-    fn initialize_binding(&mut self, name: String, value: JsValue) -> Result<bool, JErrorType> {
+    fn initialize_binding(
+        &mut self,
+        ctx_stack: &mut ExecutionContextStack,
+        name: String,
+        value: JsValue,
+    ) -> Result<bool, JErrorType> {
         if self.declarative_record.has_binding(&name) {
-            self.declarative_record.initialize_binding(name, value)
+            self.declarative_record
+                .initialize_binding(ctx_stack, name, value)
         } else if self.object_record.has_binding(&name) {
-            self.object_record.initialize_binding(name, value)
+            self.object_record
+                .initialize_binding(ctx_stack, name, value)
         } else {
             Ok(false)
         }
     }
 
-    fn set_mutable_binding(&mut self, name: String, value: JsValue) -> Result<(), JErrorType> {
+    fn set_mutable_binding(
+        &mut self,
+        ctx_stack: &mut ExecutionContextStack,
+        name: String,
+        value: JsValue,
+    ) -> Result<(), JErrorType> {
         if self.declarative_record.has_binding(&name) {
-            self.declarative_record.set_mutable_binding(name, value)
+            self.declarative_record
+                .set_mutable_binding(ctx_stack, name, value)
         } else if self.object_record.has_binding(&name) {
-            self.object_record.set_mutable_binding(name, value)
+            self.object_record
+                .set_mutable_binding(ctx_stack, name, value)
         } else {
             Ok(())
         }
     }
 
-    fn get_binding_value(&self, name: &String) -> Result<JsValue, JErrorType> {
+    fn get_binding_value(
+        &self,
+        ctx_stack: &mut ExecutionContextStack,
+        name: &String,
+    ) -> Result<JsValue, JErrorType> {
         if self.declarative_record.has_binding(name) {
-            self.declarative_record.get_binding_value(name)
+            self.declarative_record.get_binding_value(ctx_stack, name)
         } else {
-            self.object_record.get_binding_value(name)
+            self.object_record.get_binding_value(ctx_stack, name)
         }
     }
 

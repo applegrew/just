@@ -1,6 +1,7 @@
 use crate::parser::util::{format_has_meta_option, format_option, format_struct, format_vec};
 use pest::error::Error;
-use std::fmt::Debug;
+use std::fmt;
+use std::fmt::{Debug, Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
@@ -14,8 +15,14 @@ pub struct JsError<Rule> {
 pub enum JsErrorType<R> {
     Unexpected(&'static str),
     ParserValidation(Error<R>),
-    AstBuilderValidation(Meta),
+    AstBuilderValidation(AstBuilderValidationErrorType, Meta),
     ParserGeneralError,
+}
+
+#[derive(Debug)]
+pub enum AstBuilderValidationErrorType {
+    SyntaxError,
+    ReferenceError,
 }
 
 #[derive(Debug)]
@@ -59,8 +66,8 @@ pub trait HasMeta {
 pub struct IdentifierData {
     pub name: String,
     pub meta: Meta,
+    pub is_binding_identifier: bool,
 }
-
 impl HasMeta for IdentifierData {
     fn get_meta(&self) -> &Meta {
         &self.meta
@@ -73,25 +80,36 @@ impl HasMeta for IdentifierData {
             .to_string()
     }
 }
-
 impl PartialEq for IdentifierData {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name
     }
 }
-
 impl Eq for IdentifierData {}
-
 impl Hash for IdentifierData {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.name.hash(state)
+    }
+}
+impl Clone for IdentifierData {
+    fn clone(&self) -> Self {
+        IdentifierData {
+            name: self.name.to_string(),
+            meta: self.meta.clone(),
+            is_binding_identifier: self.is_binding_identifier,
+        }
+    }
+}
+impl Display for IdentifierData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "'{}'", self.name)
     }
 }
 
 #[derive(Debug)]
 pub enum ExpressionPatternType {
     Identifier(IdentifierData),
-    MemberExpression(MemberExpressionType),
+    MemberExpression(MemberExpressionType), // This is 99% times Expression, till now I have only seen this become Pattern in for..in and for..of
 }
 
 impl ExpressionPatternType {
@@ -103,7 +121,6 @@ impl ExpressionPatternType {
         ExpressionType::ExpressionWhichCanBePattern(self)
     }
 }
-
 impl HasMeta for ExpressionPatternType {
     fn get_meta(&self) -> &Meta {
         match self {
@@ -132,6 +149,7 @@ impl HasMeta for ExpressionPatternType {
 pub enum ExpressionType {
     ExpressionWhichCanBePattern(ExpressionPatternType),
     Literal(LiteralData),
+    // MemberExpression(MemberExpressionType),
     ThisExpression {
         meta: Meta,
     },
@@ -141,43 +159,43 @@ pub enum ExpressionType {
     },
     ObjectExpression {
         meta: Meta,
-        properties: Vec<PropertyData<Box<ExpressionType>>>,
+        properties: Vec<PropertyData<Rc<ExpressionType>>>,
     },
-    FunctionExpression(FunctionData),
+    FunctionOrGeneratorExpression(FunctionData),
     UnaryExpression {
         meta: Meta,
         operator: UnaryOperator,
-        argument: Box<ExpressionType>,
+        argument: Rc<ExpressionType>,
     },
     UpdateExpression {
         meta: Meta,
         operator: UpdateOperator,
-        argument: Box<ExpressionType>,
+        argument: Rc<ExpressionType>,
         prefix: bool,
     },
     BinaryExpression {
         meta: Meta,
         operator: BinaryOperator,
-        left: Box<ExpressionType>,
-        right: Box<ExpressionType>,
+        left: Rc<ExpressionType>,
+        right: Rc<ExpressionType>,
     },
     AssignmentExpression {
         meta: Meta,
         operator: AssignmentOperator,
         left: PatternOrExpression,
-        right: Box<ExpressionType>,
+        right: Rc<ExpressionType>,
     },
     LogicalExpression {
         meta: Meta,
         operator: LogicalOperator,
-        left: Box<ExpressionType>,
-        right: Box<ExpressionType>,
+        left: Rc<ExpressionType>,
+        right: Rc<ExpressionType>,
     },
     ConditionalExpression {
         meta: Meta,
-        test: Box<ExpressionType>,
-        consequent: Box<ExpressionType>,
-        alternate: Box<ExpressionType>,
+        test: Rc<ExpressionType>,
+        consequent: Rc<ExpressionType>,
+        alternate: Rc<ExpressionType>,
     },
     CallExpression {
         //A function or method call expression.
@@ -187,28 +205,28 @@ pub enum ExpressionType {
     },
     NewExpression {
         meta: Meta,
-        callee: Box<ExpressionType>,
+        callee: Rc<ExpressionType>,
         arguments: Vec<ExpressionOrSpreadElement>,
     },
     SequenceExpression {
         //A comma-separated sequence of expressions
         meta: Meta,
-        expressions: Vec<Box<ExpressionType>>,
+        expressions: Vec<Rc<ExpressionType>>,
     },
     ArrowFunctionExpression {
         meta: Meta,
-        body: FunctionBodyOrExpression,
-        expression: bool,
+        params: Rc<Vec<PatternType>>,
+        body: Rc<FunctionBodyOrExpression>,
     },
     YieldExpression {
         meta: Meta,
-        argument: Option<Box<ExpressionType>>,
+        argument: Option<Rc<ExpressionType>>,
         delegate: bool,
     },
     TemplateLiteral(TemplateLiteralData),
     TaggedTemplateExpression {
         meta: Meta,
-        tag: Box<ExpressionType>,
+        tag: Rc<ExpressionType>,
         quasi: TemplateLiteralData,
     },
     ClassExpression(ClassData),
@@ -227,7 +245,7 @@ impl HasMeta for ExpressionType {
             ExpressionType::ThisExpression { meta } => &meta,
             ExpressionType::ArrayExpression { meta, .. } => &meta,
             ExpressionType::ObjectExpression { meta, .. } => &meta,
-            ExpressionType::FunctionExpression(data) => &data.meta,
+            ExpressionType::FunctionOrGeneratorExpression(data) => &data.meta,
             ExpressionType::UnaryExpression { meta, .. } => &meta,
             ExpressionType::UpdateExpression { meta, .. } => &meta,
             ExpressionType::BinaryExpression { meta, .. } => &meta,
@@ -244,6 +262,7 @@ impl HasMeta for ExpressionType {
             ExpressionType::ClassExpression(data) => &data.meta,
             ExpressionType::MetaProperty { meta, .. } => &meta,
             ExpressionType::ExpressionWhichCanBePattern(d) => d.get_meta(),
+            // ExpressionType::MemberExpression(data) => data.get_meta(),
         }
     }
 
@@ -276,7 +295,7 @@ impl HasMeta for ExpressionType {
                     )
                     .to_string()
             }
-            ExpressionType::FunctionExpression(data) => format!(
+            ExpressionType::FunctionOrGeneratorExpression(data) => format!(
                 "ExpressionType::FunctionExpression({})",
                 data.to_formatted_string(script)
             ),
@@ -377,20 +396,21 @@ impl HasMeta for ExpressionType {
                     )
                     .to_string()
             }
-            ExpressionType::ArrowFunctionExpression {
-                meta,
-                body,
-                expression,
-            } => format_struct("ExpressionType::ArrowFunctionExpression")
-                .add_fields("meta", meta.to_formatted_string(script))
-                .add_fields("body", body.to_formatted_string(script))
-                .add_fields("expression", expression.to_string())
-                .to_string(),
+            ExpressionType::ArrowFunctionExpression { meta, params, body } => {
+                format_struct("ExpressionType::ArrowFunctionExpression")
+                    .add_fields("meta", meta.to_formatted_string(script))
+                    .add_fields(
+                        "params",
+                        format_vec(params, |p| p.to_formatted_string(script)),
+                    )
+                    .add_fields("body", body.to_formatted_string(script))
+                    .to_string()
+            }
             ExpressionType::YieldExpression {
                 meta,
                 argument,
                 delegate,
-            } => format_struct("ExpressionType::YieldExpression")
+            } => format_struct("ExpressionType::yield_expression")
                 .add_fields("meta", meta.to_formatted_string(script))
                 .add_fields(
                     "argument",
@@ -426,6 +446,10 @@ impl HasMeta for ExpressionType {
                 "ExpressionType::ExpressionWhichCanBePattern({})",
                 d.to_formatted_string(script)
             ),
+            // ExpressionType::MemberExpression(data) => format!(
+            //     "ExpressionType::MemberExpression({})",
+            //     data.to_formatted_string(script)
+            // ),
         }
     }
 }
@@ -439,19 +463,18 @@ pub enum PatternType {
     },
     ArrayPattern {
         meta: Meta,
-        elements: Vec<Option<Box<PatternType>>>,
+        elements: Vec<Option<Rc<PatternType>>>,
     },
     RestElement {
         meta: Meta,
-        argument: Box<PatternType>,
+        argument: Rc<PatternType>,
     },
     AssignmentPattern {
         meta: Meta,
-        left: Box<PatternType>,
-        right: Box<ExpressionType>,
+        left: Rc<PatternType>,
+        right: Rc<ExpressionType>,
     },
 }
-
 impl HasMeta for PatternType {
     fn get_meta(&self) -> &Meta {
         match self {
@@ -510,7 +533,7 @@ impl HasMeta for PatternType {
 pub struct TemplateLiteralData {
     pub meta: Meta,
     pub quasis: Vec<TemplateElementData>,
-    pub expressions: Vec<Box<ExpressionType>>,
+    pub expressions: Vec<Rc<ExpressionType>>,
 }
 
 impl HasMeta for TemplateLiteralData {
@@ -559,7 +582,7 @@ impl HasMeta for TemplateElementData {
 #[derive(Debug)]
 pub enum FunctionBodyOrExpression {
     FunctionBody(FunctionBodyData),
-    Expression(Box<ExpressionType>),
+    Expression(ExpressionType),
 }
 
 impl HasMeta for FunctionBodyOrExpression {
@@ -586,7 +609,7 @@ impl HasMeta for FunctionBodyOrExpression {
 
 #[derive(Debug)]
 pub enum ExpressionOrSuper {
-    Expression(Box<ExpressionType>),
+    Expression(Rc<ExpressionType>),
     Super,
 }
 
@@ -619,7 +642,7 @@ pub enum MemberExpressionType {
     ComputedMemberExpression {
         meta: Meta,
         object: ExpressionOrSuper,
-        property: Box<ExpressionType>,
+        property: Rc<ExpressionType>,
     },
 }
 
@@ -657,8 +680,8 @@ impl HasMeta for MemberExpressionType {
 
 #[derive(Debug)]
 pub enum ExpressionOrSpreadElement {
-    Expression(Box<ExpressionType>),
-    SpreadElement(Box<ExpressionType>),
+    Expression(Rc<ExpressionType>),
+    SpreadElement(Rc<ExpressionType>),
 }
 
 impl HasMeta for ExpressionOrSpreadElement {
@@ -686,15 +709,15 @@ impl HasMeta for ExpressionOrSpreadElement {
 #[derive(Debug)]
 pub struct MemberExpressionData {
     pub meta: Meta,
-    pub object: Box<ExpressionType>,
-    pub property: Box<ExpressionType>,
+    pub object: Rc<ExpressionType>,
+    pub property: Rc<ExpressionType>,
     pub computed: bool,
 }
 
 #[derive(Debug)]
 pub enum PatternOrExpression {
-    Pattern(Box<PatternType>),
-    Expression(Box<ExpressionType>),
+    Pattern(Rc<PatternType>),
+    Expression(Rc<ExpressionType>),
 }
 
 impl HasMeta for PatternOrExpression {
@@ -891,9 +914,8 @@ impl HasMeta for ProgramData {
 #[derive(Debug)]
 pub struct BlockStatementData {
     pub meta: Meta,
-    pub body: Box<Vec<StatementType>>,
+    pub body: Rc<Vec<StatementType>>,
 }
-
 impl HasMeta for BlockStatementData {
     fn get_meta(&self) -> &Meta {
         &self.meta
@@ -914,7 +936,7 @@ impl HasMeta for BlockStatementData {
 pub enum StatementType {
     ExpressionStatement {
         meta: Meta,
-        expression: Box<ExpressionType>,
+        expression: Rc<ExpressionType>,
     },
     BlockStatement(BlockStatementData),
     FunctionBody(FunctionBodyData),
@@ -926,7 +948,7 @@ pub enum StatementType {
     },
     ReturnStatement {
         meta: Meta,
-        argument: Option<Box<ExpressionType>>,
+        argument: Option<Rc<ExpressionType>>,
     },
     //Label Statement not supported, hence break & continue with labels not supported
     BreakStatement {
@@ -937,18 +959,18 @@ pub enum StatementType {
     },
     IfStatement {
         meta: Meta,
-        test: Box<ExpressionType>,
-        consequent: Box<StatementType>,
-        alternate: Option<Box<StatementType>>,
+        test: Rc<ExpressionType>,
+        consequent: Rc<StatementType>,
+        alternate: Option<Rc<StatementType>>,
     },
     SwitchStatement {
         meta: Meta,
-        discriminant: Box<ExpressionType>,
-        cases: Box<Vec<SwitchCaseData>>,
+        discriminant: Rc<ExpressionType>,
+        cases: Vec<SwitchCaseData>,
     },
     ThrowStatement {
         meta: Meta,
-        argument: Box<ExpressionType>,
+        argument: Rc<ExpressionType>,
     },
     TryStatement {
         meta: Meta,
@@ -958,20 +980,20 @@ pub enum StatementType {
     },
     WhileStatement {
         meta: Meta,
-        test: Box<ExpressionType>,
-        body: Box<StatementType>,
+        test: Rc<ExpressionType>,
+        body: Rc<StatementType>,
     },
     DoWhileStatement {
         meta: Meta,
-        test: Box<ExpressionType>,
-        body: Box<StatementType>,
+        test: Rc<ExpressionType>,
+        body: Rc<StatementType>,
     },
     ForStatement {
         meta: Meta,
         init: Option<VariableDeclarationOrExpression>,
-        test: Option<Box<ExpressionType>>,
-        update: Option<Box<ExpressionType>>,
-        body: Box<StatementType>,
+        test: Option<Rc<ExpressionType>>,
+        update: Option<Rc<ExpressionType>>,
+        body: Rc<StatementType>,
     },
     ForInStatement(ForIteratorData),
     ForOfStatement(ForIteratorData),
@@ -1151,7 +1173,7 @@ impl HasMeta for StatementType {
 #[derive(Debug)]
 pub struct FunctionBodyData {
     pub meta: Meta,
-    pub body: Box<Vec<StatementType>>, /*Actual code was -- Box<Vec<DirectiveOrStatement>> -- We do not support directives, like 'use strict'*/
+    pub body: Rc<Vec<StatementType>>, /*Actual code was -- Rc<Vec<DirectiveOrStatement>> -- We do not support directives, like 'use strict'*/
 }
 
 impl HasMeta for FunctionBodyData {
@@ -1175,10 +1197,10 @@ pub struct ForIteratorData {
     pub meta: Meta,
     // As per ESTree spec (https://github.com/estree/estree/blob/master/es5.md#forinstatement) it
     // should be VariableDeclarationOrPattern. However, as per rules we left_hand_side_expression
-    // which is an expression.
-    pub left: VariableDeclarationOrExpression,
-    pub right: Box<ExpressionType>,
-    pub body: Box<StatementType>,
+    // which is an expression, which can be MemberExpression (which is also a Pattern).
+    pub left: VariableDeclarationOrPattern,
+    pub right: Rc<ExpressionType>,
+    pub body: Rc<StatementType>,
 }
 
 impl HasMeta for ForIteratorData {
@@ -1199,7 +1221,7 @@ impl HasMeta for ForIteratorData {
 #[derive(Debug)]
 pub enum VariableDeclarationOrExpression {
     VariableDeclaration(VariableDeclarationData),
-    Expression(Box<ExpressionType>),
+    Expression(Rc<ExpressionType>),
 }
 
 impl HasMeta for VariableDeclarationOrExpression {
@@ -1227,7 +1249,7 @@ impl HasMeta for VariableDeclarationOrExpression {
 #[derive(Debug)]
 pub enum VariableDeclarationOrPattern {
     VariableDeclaration(VariableDeclarationData),
-    Pattern(Box<PatternType>),
+    Pattern(Rc<PatternType>),
 }
 
 impl HasMeta for VariableDeclarationOrPattern {
@@ -1254,7 +1276,7 @@ impl HasMeta for VariableDeclarationOrPattern {
 
 #[derive(Debug)]
 pub enum DeclarationType {
-    FunctionDeclaration(FunctionData), //id is mandatory here
+    FunctionOrGeneratorDeclaration(FunctionData), //id is mandatory here
     VariableDeclaration(VariableDeclarationData),
     ClassDeclaration(ClassData),
 }
@@ -1262,7 +1284,7 @@ pub enum DeclarationType {
 impl HasMeta for DeclarationType {
     fn get_meta(&self) -> &Meta {
         match self {
-            DeclarationType::FunctionDeclaration(data) => data.get_meta(),
+            DeclarationType::FunctionOrGeneratorDeclaration(data) => data.get_meta(),
             DeclarationType::VariableDeclaration(data) => data.get_meta(),
             DeclarationType::ClassDeclaration(data) => data.get_meta(),
         }
@@ -1270,7 +1292,7 @@ impl HasMeta for DeclarationType {
 
     fn to_formatted_string(&self, script: &str) -> String {
         match self {
-            DeclarationType::FunctionDeclaration(data) => format!(
+            DeclarationType::FunctionOrGeneratorDeclaration(data) => format!(
                 "DeclarationType::FunctionDeclaration({})",
                 data.to_formatted_string(script)
             ),
@@ -1320,8 +1342,8 @@ pub enum VariableDeclarationKind {
 #[derive(Debug)]
 pub struct SwitchCaseData {
     pub meta: Meta,
-    pub test: Option<Box<ExpressionType>>,
-    pub consequent: Box<Vec<StatementType>>,
+    pub test: Option<Rc<ExpressionType>>,
+    pub consequent: Rc<Vec<StatementType>>,
 }
 
 impl HasMeta for SwitchCaseData {
@@ -1348,7 +1370,7 @@ impl HasMeta for SwitchCaseData {
 pub struct FunctionData {
     pub meta: Meta,
     pub id: Option<IdentifierData>,
-    pub params: Vec<Rc<PatternType>>,
+    pub params: Rc<Vec<PatternType>>,
     pub body: Rc<FunctionBodyData>,
     pub generator: bool,
 }
@@ -1378,7 +1400,7 @@ impl HasMeta for FunctionData {
 #[derive(Debug)]
 pub struct CatchClauseData {
     pub meta: Meta,
-    pub param: Box<PatternType>,
+    pub param: Rc<PatternType>,
     pub body: BlockStatementData,
 }
 
@@ -1399,8 +1421,8 @@ impl HasMeta for CatchClauseData {
 #[derive(Debug)]
 pub struct VariableDeclaratorData {
     pub meta: Meta,
-    pub id: Box<PatternType>,
-    pub init: Option<Box<ExpressionType>>,
+    pub id: Rc<PatternType>,
+    pub init: Option<Rc<ExpressionType>>,
 }
 
 impl HasMeta for VariableDeclaratorData {
@@ -1423,15 +1445,96 @@ impl HasMeta for VariableDeclaratorData {
 #[derive(Debug)]
 pub struct PropertyData<V> {
     pub meta: Meta,
-    pub key: LiteralOrIdentifier,
+    pub key: Rc<ExpressionType>,
     pub value: V,
     pub kind: PropertyKind,
     pub method: bool,
     pub shorthand: bool,
     pub computed: bool,
 }
+impl<V> PropertyData<V> {
+    pub(crate) fn new_with_identifier_key(
+        meta: Meta,
+        key: IdentifierData,
+        value: V,
+        kind: PropertyKind,
+        method: bool,
+        shorthand: bool,
+    ) -> Self {
+        PropertyData {
+            meta,
+            key: Rc::new(ExpressionPatternType::Identifier(key).convert_to_expression()),
+            value,
+            kind,
+            method,
+            shorthand,
+            computed: false,
+        }
+    }
 
-impl HasMeta for PropertyData<Box<ExpressionType>> {
+    pub(crate) fn new_with_literal_key(
+        meta: Meta,
+        key: LiteralData,
+        value: V,
+        kind: PropertyKind,
+        method: bool,
+    ) -> Self {
+        PropertyData {
+            meta,
+            key: Rc::new(ExpressionType::Literal(key)),
+            value,
+            kind,
+            method,
+            shorthand: false,
+            computed: false,
+        }
+    }
+
+    pub(crate) fn new_with_computed_key(
+        meta: Meta,
+        key: ExpressionType,
+        value: V,
+        kind: PropertyKind,
+        method: bool,
+    ) -> Self {
+        PropertyData {
+            meta,
+            key: Rc::new(key),
+            value,
+            kind,
+            method,
+            shorthand: false,
+            computed: true,
+        }
+    }
+
+    pub(crate) fn new_with_any_expression_key(
+        meta: Meta,
+        key: ExpressionType,
+        value: V,
+        kind: PropertyKind,
+        method: bool,
+        shorthand: bool,
+    ) -> Self {
+        match key {
+            ExpressionType::ExpressionWhichCanBePattern(e) => match e {
+                ExpressionPatternType::Identifier(id) => {
+                    Self::new_with_identifier_key(meta, id, value, kind, method, shorthand)
+                }
+                ExpressionPatternType::MemberExpression(_) => Self::new_with_computed_key(
+                    meta,
+                    e.convert_to_expression(),
+                    value,
+                    kind,
+                    method,
+                ),
+            },
+            ExpressionType::Literal(l) => Self::new_with_literal_key(meta, l, value, kind, method),
+            _ => Self::new_with_computed_key(meta, key, value, kind, method),
+        }
+    }
+}
+impl HasMeta for PropertyData<Rc<ExpressionType>> {
     fn get_meta(&self) -> &Meta {
         &self.meta
     }
@@ -1446,8 +1549,7 @@ impl HasMeta for PropertyData<Box<ExpressionType>> {
             .to_string()
     }
 }
-
-impl HasMeta for PropertyData<Box<PatternType>> {
+impl HasMeta for PropertyData<Rc<PatternType>> {
     fn get_meta(&self) -> &Meta {
         &self.meta
     }
@@ -1468,7 +1570,6 @@ pub enum LiteralOrIdentifier {
     Literal(LiteralData),
     Identifier(IdentifierData),
 }
-
 impl HasMeta for LiteralOrIdentifier {
     fn get_meta(&self) -> &Meta {
         match self {
@@ -1486,42 +1587,64 @@ impl HasMeta for LiteralOrIdentifier {
 }
 
 #[derive(Debug)]
-pub struct AssignmentPropertyData(pub PropertyData<Box<PatternType>>);
-
+pub struct AssignmentPropertyData(pub PropertyData<Rc<PatternType>>);
 impl AssignmentPropertyData {
-    fn new(
+    pub(crate) fn new_with_identifier_key(
         meta: Meta,
-        key: LiteralOrIdentifier,
-        value: Box<PatternType>,
+        key: IdentifierData,
+        value: PatternType,
         shorthand: bool,
-        computed: bool,
     ) -> Self {
-        AssignmentPropertyData(PropertyData {
+        AssignmentPropertyData(PropertyData::new_with_identifier_key(
             meta,
             key,
-            value,
+            Rc::new(value),
+            PropertyKind::Init,
+            false,
             shorthand,
-            computed,
-            method: false,
-            kind: PropertyKind::Init,
-        })
+        ))
     }
 
-    // fn new_from_variable_declarator_data(data: VariableDeclaratorData) -> Self {
-    //     if let ExpressionPatternType::Identifier(id) = *data.id {
-    //         Self::new(
-    //             data.meta,
-    //             LiteralOrIdentifier::Identifier(id),
-    //             data.init.unwrap(),
-    //             false,
-    //             false,
-    //         )
-    //     } else {
-    //         panic!("Method called with unexpected data");
-    //     }
-    // }
-}
+    pub(crate) fn new_with_literal_key(meta: Meta, key: LiteralData, value: PatternType) -> Self {
+        AssignmentPropertyData(PropertyData::new_with_literal_key(
+            meta,
+            key,
+            Rc::new(value),
+            PropertyKind::Init,
+            false,
+        ))
+    }
 
+    pub(crate) fn new_with_computed_key(
+        meta: Meta,
+        key: ExpressionType,
+        value: PatternType,
+    ) -> Self {
+        AssignmentPropertyData(PropertyData::new_with_computed_key(
+            meta,
+            key,
+            Rc::new(value),
+            PropertyKind::Init,
+            false,
+        ))
+    }
+
+    pub(crate) fn new_with_any_expression_key(
+        meta: Meta,
+        key: ExpressionType,
+        value: PatternType,
+        shorthand: bool,
+    ) -> Self {
+        AssignmentPropertyData(PropertyData::new_with_any_expression_key(
+            meta,
+            key,
+            Rc::new(value),
+            PropertyKind::Init,
+            false,
+            shorthand,
+        ))
+    }
+}
 impl HasMeta for AssignmentPropertyData {
     fn get_meta(&self) -> &Meta {
         &self.0.meta
@@ -1546,10 +1669,9 @@ pub enum PropertyKind {
 pub struct ClassData {
     pub meta: Meta,
     pub id: Option<IdentifierData>,
-    pub super_class: Option<Box<ExpressionType>>,
+    pub super_class: Option<Rc<ExpressionType>>,
     pub body: ClassBodyData,
 }
-
 impl HasMeta for ClassData {
     fn get_meta(&self) -> &Meta {
         &self.meta
@@ -1573,7 +1695,6 @@ pub struct ClassBodyData {
     pub meta: Meta,
     pub body: Vec<MethodDefinitionData>,
 }
-
 impl HasMeta for ClassBodyData {
     fn get_meta(&self) -> &Meta {
         &self.meta
@@ -1593,7 +1714,7 @@ impl HasMeta for ClassBodyData {
 #[derive(Debug)]
 pub struct MethodDefinitionData {
     pub meta: Meta,
-    pub key: Box<ExpressionType>,
+    pub key: Rc<ExpressionType>,
     pub value: FunctionData,
     pub kind: MethodDefinitionKind,
     pub computed: bool,

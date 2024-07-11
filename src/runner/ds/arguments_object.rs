@@ -1,4 +1,7 @@
+use crate::runner::ds::array_object::ARRAY_LENGTH_PROP;
+use crate::runner::ds::env_record::EnvironmentRecordType;
 use crate::runner::ds::error::JErrorType;
+use crate::runner::ds::execution_context::ExecutionContextStack;
 use crate::runner::ds::object::{
     ordinary_define_own_property, JsObject, JsObjectType, ObjectBase, ObjectType,
 };
@@ -19,7 +22,6 @@ use crate::runner::ds::value::{JsNumberType, JsValue, JsValueOrSelf};
 use std::cell::RefCell;
 use std::panic::resume_unwind;
 use std::rc::Rc;
-use crate::runner::ds::env_record::EnvironmentRecordType;
 
 pub struct ArgumentsBaseObject {
     pub parameter_map: Option<JsObjectType>,
@@ -44,7 +46,8 @@ pub trait JsArgumentsObject: JsObject {
         let desc = JsObject::get_own_property(self, property)?;
         if let Some(_) = desc {
             if let Some(parameter_map) = &self.get_argument_base_object().parameter_map {
-                return (*(**parameter_map).borrow())
+                return (*parameter_map)
+                    .borrow()
                     .as_js_object()
                     .get_own_property(property);
             }
@@ -56,6 +59,7 @@ pub trait JsArgumentsObject: JsObject {
 
     fn define_own_property(
         &mut self,
+        ctx_stack: &mut ExecutionContextStack,
         property: PropertyKey,
         descriptor_setter: PropertyDescriptorSetter,
     ) -> Result<bool, JErrorType> {
@@ -71,18 +75,26 @@ pub trait JsArgumentsObject: JsObject {
                 (&JsValue::Undefined, false)
             };
         let is_writable_and_is_false = descriptor_setter.honour_writable && is_writable;
+        let descriptor_setter_value = value.clone();
+        let descriptor_setter_property = property.clone();
         if ordinary_define_own_property(self.as_js_object_mut(), property, descriptor_setter)? {
             if let Some(parameter_map) = &self.get_argument_base_object().parameter_map {
-                if has_own_property(parameter_map, &property)? {
-                    let parameter_map = &mut *(**parameter_map).borrow_mut().as_js_object_mut();
+                if has_own_property(parameter_map, &descriptor_setter_property)? {
+                    let parameter_map = (**parameter_map).borrow_mut().as_js_object_mut();
                     if is_accessor_desc {
-                        parameter_map.delete(&property);
+                        parameter_map.delete(&descriptor_setter_property);
                     } else {
+                        let descriptor_setter_property2 = descriptor_setter_property.clone();
                         if is_value_present {
-                            set_from_js_object(parameter_map, property.clone(), value.clone());
+                            set_from_js_object(
+                                ctx_stack,
+                                parameter_map,
+                                descriptor_setter_property,
+                                descriptor_setter_value,
+                            );
                         }
                         if is_writable_and_is_false {
-                            parameter_map.delete(&property);
+                            parameter_map.delete(&descriptor_setter_property2);
                         }
                     }
                 }
@@ -93,17 +105,23 @@ pub trait JsArgumentsObject: JsObject {
         }
     }
 
-    fn get(&self, property: &PropertyKey, receiver: JsValueOrSelf) -> Result<JsValue, JErrorType> {
+    fn get(
+        &self,
+        ctx_stack: &mut ExecutionContextStack,
+        property: &PropertyKey,
+        receiver: JsValueOrSelf,
+    ) -> Result<JsValue, JErrorType> {
         if let Some(parameter_map) = &self.get_argument_base_object().parameter_map {
             if has_own_property(parameter_map, &property)? {
-                return get(parameter_map, property);
+                return get(ctx_stack, parameter_map, property);
             }
         }
-        JsObject::get(self, property, receiver)
+        JsObject::get(self, ctx_stack, property, receiver)
     }
 
     fn set(
         &mut self,
+        ctx_stack: &mut ExecutionContextStack,
         property: PropertyKey,
         value: JsValue,
         receiver: JsValueOrSelf,
@@ -113,14 +131,16 @@ pub trait JsArgumentsObject: JsObject {
         } else {
             true
         };
+        let property2 = property.clone();
+        let value2 = value.clone();
         if is_same {
             if let Some(map) = &mut self.get_argument_base_object_mut().parameter_map {
                 if has_own_property(map, &property)? {
-                    set(map, property, value);
+                    set(ctx_stack, map, property, value);
                 }
             }
         }
-        JsObject::set(self, property.clone(), value.clone(), receiver)
+        JsObject::set(self, ctx_stack, property2, value2, receiver)
     }
 
     fn delete(&mut self, property: &PropertyKey) -> Result<bool, JErrorType> {
@@ -179,7 +199,7 @@ pub fn create_unmapped_arguments_object(
     obj: &mut dyn JsArgumentsObject,
     code_realm: &CodeRealm,
     arguments_list: Vec<JsValue>,
-) {
+) -> Result<(), JErrorType> {
     obj.get_object_base_mut().prototype = Some(
         code_realm
             .get_intrinsics_value(&WellKnownIntrinsics::ObjectPrototype)
@@ -187,7 +207,7 @@ pub fn create_unmapped_arguments_object(
     );
     let len = arguments_list.len() as i64;
     define_property_or_throw(
-        obj,
+        obj.as_js_object_mut(),
         ARRAY_LENGTH_PROP.clone(),
         PropertyDescriptorSetter::new_from_property_descriptor(PropertyDescriptor::Data(
             PropertyDescriptorData {
@@ -198,15 +218,16 @@ pub fn create_unmapped_arguments_object(
             },
         )),
     )?;
+    let mut arg_iter = arguments_list.into_iter();
     for idx in 0..len {
         create_data_property(
-            obj,
+            obj.as_js_object_mut(),
             PropertyKey::Str(to_string_int(idx)),
-            arguments_list[idx],
+            arg_iter.next().unwrap(),
         );
     }
     define_property_or_throw(
-        obj,
+        obj.as_js_object_mut(),
         PropertyKey::Sym(SYMBOL_ITERATOR.clone()),
         PropertyDescriptorSetter::new_from_property_descriptor(PropertyDescriptor::Data(
             PropertyDescriptorData {
@@ -222,7 +243,7 @@ pub fn create_unmapped_arguments_object(
         )),
     )?;
     define_property_or_throw(
-        obj,
+        obj.as_js_object_mut(),
         PropertyKey::Str("caller".to_string()),
         PropertyDescriptorSetter::new_from_property_descriptor(PropertyDescriptor::Accessor(
             PropertyDescriptorAccessor {
@@ -242,7 +263,7 @@ pub fn create_unmapped_arguments_object(
         )),
     )?;
     define_property_or_throw(
-        obj,
+        obj.as_js_object_mut(),
         PropertyKey::Str("callee".to_string()),
         PropertyDescriptorSetter::new_from_property_descriptor(PropertyDescriptor::Accessor(
             PropertyDescriptorAccessor {
@@ -261,14 +282,15 @@ pub fn create_unmapped_arguments_object(
             },
         )),
     )?;
+    Ok(())
 }
 
-pub fn create_mapped_arguments_object(
-    obj: &mut dyn JsArgumentsObject,
-    code_realm: &CodeRealm,
-    func:&JsObjectType,
-    formals:,
-    arguments_list: Vec<JsValue>,
-    env:&EnvironmentRecordType
-) {
-}
+// pub fn create_mapped_arguments_object(
+//     obj: &mut dyn JsArgumentsObject,
+//     code_realm: &CodeRealm,
+//     func:&JsObjectType,
+//     formals:,
+//     arguments_list: Vec<JsValue>,
+//     env:&EnvironmentRecordType
+// ) {
+// }

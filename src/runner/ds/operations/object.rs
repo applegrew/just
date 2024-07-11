@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::runner::ds::error::JErrorType;
+use crate::runner::ds::execution_context::ExecutionContextStack;
 use crate::runner::ds::object::{JsObject, JsObjectType, ObjectType};
 use crate::runner::ds::object_property::{
     PropertyDescriptor, PropertyDescriptorData, PropertyDescriptorSetter, PropertyKey,
@@ -11,40 +12,63 @@ use crate::runner::ds::realm::CodeRealm;
 use crate::runner::ds::realm::WellKnownIntrinsics::JSON;
 use crate::runner::ds::value::{JsValue, JsValueOrSelf};
 
-pub fn get(o: &JsObjectType, p: &PropertyKey) -> Result<JsValue, JErrorType> {
+pub fn get(
+    ctx_stack: &mut ExecutionContextStack,
+    o: &JsObjectType,
+    p: &PropertyKey,
+) -> Result<JsValue, JErrorType> {
     let o1 = (**o).borrow();
-    get_from_js_object(o1.as_js_object(), p)
+    get_from_js_object(ctx_stack, o1.as_js_object(), p)
 }
 
-pub fn get_from_js_object(o: &dyn JsObject, p: &PropertyKey) -> Result<JsValue, JErrorType> {
-    o.get(p, JsValueOrSelf::SelfValue)
+pub fn get_from_js_object(
+    ctx_stack: &mut ExecutionContextStack,
+    o: &dyn JsObject,
+    p: &PropertyKey,
+) -> Result<JsValue, JErrorType> {
+    o.get(ctx_stack, p, JsValueOrSelf::SelfValue)
 }
 
-pub fn get_v(v: &JsValue, p: &PropertyKey) -> Result<JsValue, JErrorType> {
+pub fn get_v(
+    ctx_stack: &mut ExecutionContextStack,
+    v: &JsValue,
+    p: &PropertyKey,
+) -> Result<JsValue, JErrorType> {
     let o = to_object(v)?;
     if let JsValue::Object(o) = o {
         let o = (*o).borrow();
-        o.as_js_object().get(p, JsValueOrSelf::ValueRef(v))
+        o.as_js_object()
+            .get(ctx_stack, p, JsValueOrSelf::ValueRef(v))
     } else {
         Ok(v.clone())
     }
 }
 
-pub fn set(o: &JsObjectType, p: PropertyKey, v: JsValue) -> Result<bool, JErrorType> {
+pub fn set(
+    ctx_stack: &mut ExecutionContextStack,
+    o: &JsObjectType,
+    p: PropertyKey,
+    v: JsValue,
+) -> Result<bool, JErrorType> {
     let mut o1 = (**o).borrow_mut();
-    set_from_js_object(o1.as_js_object_mut(), p, v)
+    set_from_js_object(ctx_stack, o1.as_js_object_mut(), p, v)
 }
 
 pub fn set_from_js_object(
+    ctx_stack: &mut ExecutionContextStack,
     o: &mut dyn JsObject,
     p: PropertyKey,
     v: JsValue,
 ) -> Result<bool, JErrorType> {
-    o.set(p, v, JsValueOrSelf::SelfValue)
+    o.set(ctx_stack, p, v, JsValueOrSelf::SelfValue)
 }
 
-pub fn get_method(v: &JsValue, p: &PropertyKey) -> Result<JsValue, JErrorType> {
-    let f = get_v(v, p)?;
+pub fn get_method(
+    ctx_stack: &mut ExecutionContextStack,
+    v: &JsValue,
+    p: &PropertyKey,
+) -> Result<JsValue, JErrorType> {
+    let f = get_v(ctx_stack, v, p)?;
     match &f {
         JsValue::Undefined => Ok(JsValue::Undefined),
         JsValue::Null => Ok(JsValue::Undefined),
@@ -87,14 +111,12 @@ pub fn define_property_or_throw(
     p: PropertyKey,
     desc: PropertyDescriptorSetter,
 ) -> Result<(), JErrorType> {
+    let err = format!("Defining property \"{}\" failed", &p);
     let r = o.define_own_property(p, desc)?;
     if r {
         Ok(())
     } else {
-        Err(JErrorType::TypeError(format!(
-            "Defining property \"{}\" failed",
-            p
-        )))
+        Err(JErrorType::TypeError(err))
     }
 }
 
@@ -121,13 +143,11 @@ pub fn create_data_property_or_throw(
     p: PropertyKey,
     v: JsValue,
 ) -> Result<(), JErrorType> {
+    let err = format!("Defining data property \"{}\" failed", &p);
     let r = create_data_property(o, p, v)?;
     if r {
         Ok(())
     } else {
-        Err(JErrorType::TypeError(format!(
-            "Defining data property \"{}\" failed",
-            p
-        )))
+        Err(JErrorType::TypeError(err))
     }
 }

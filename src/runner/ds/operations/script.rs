@@ -4,14 +4,14 @@ use crate::runner::ds::realm::CodeRealm;
 use std::rc::Rc;
 
 pub fn script_initialization() {
-    let realm = CodeRealm::new();
-    let ctx = ExecutionContext {
-        function: None,
-        realm: Rc::new(realm),
-        lex_env: LexEnvironment {
-            inner: Box::new(()),
-            outer: None,
-        },
-        var_env: LexEnvironment {},
-    };
+    // let realm = CodeRealm::new();
+    // let ctx = ExecutionContext {
+    //     function: None,
+    //     realm: Rc::new(realm),
+    //     lex_env: LexEnvironment {
+    //         inner: Box::new(()),
+    //         outer: None,
+    //     },
+    //     var_env: LexEnvironment {},
+    // };
 }

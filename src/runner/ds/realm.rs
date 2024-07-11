@@ -5,11 +5,12 @@ use crate::runner::ds::object::{object_create, CoreObject, JsObjectType, ObjectT
 use crate::runner::ds::object_property::{
     PropertyDescriptor, PropertyDescriptorData, PropertyDescriptorSetter, PropertyKey,
 };
-use crate::runner::ds::operations::lex_env::new_global_environment;
 use crate::runner::ds::operations::object::define_property_or_throw;
 use crate::runner::ds::value::{JsNumberType, JsValue};
+use std::borrow::BorrowMut;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 pub enum WellKnownIntrinsics {
@@ -79,65 +80,76 @@ impl WellKnownIntrinsics {
             WellKnownIntrinsics::ObjectPrototype => Rc::new(RefCell::new(ObjectType::Ordinary(
                 Box::new(object_create(None)),
             ))),
-            WellKnownIntrinsics::ThrowTypeError => {}
-            WellKnownIntrinsics::Array => {}
-            WellKnownIntrinsics::ArrayBuffer => {}
-            WellKnownIntrinsics::ArrayBufferPrototype => {}
-            WellKnownIntrinsics::ArrayIteratorPrototype => {}
-            WellKnownIntrinsics::ArrayPrototype => {}
-            WellKnownIntrinsics::ArrayProtoValues => {}
-            WellKnownIntrinsics::Boolean => {}
-            WellKnownIntrinsics::BooleanPrototype => {}
-            WellKnownIntrinsics::Date => {}
-            WellKnownIntrinsics::DatePrototype => {}
-            WellKnownIntrinsics::DecodeURI => {}
-            WellKnownIntrinsics::DecodeURIComponent => {}
-            WellKnownIntrinsics::EncodeURI => {}
-            WellKnownIntrinsics::EncodeURIComponent => {}
-            WellKnownIntrinsics::Error => {}
-            WellKnownIntrinsics::ErrorPrototype => {}
-            WellKnownIntrinsics::Function => {}
-            WellKnownIntrinsics::FunctionPrototype => {}
-            WellKnownIntrinsics::Generator => {}
-            WellKnownIntrinsics::GeneratorFunction => {}
-            WellKnownIntrinsics::GeneratorPrototype => {}
-            WellKnownIntrinsics::IsFinite => {}
-            WellKnownIntrinsics::IsNaN => {}
-            WellKnownIntrinsics::IteratorPrototype => {}
-            WellKnownIntrinsics::JSON => {}
-            WellKnownIntrinsics::Map => {}
-            WellKnownIntrinsics::MapIteratorPrototype => {}
-            WellKnownIntrinsics::MapPrototype => {}
-            WellKnownIntrinsics::Math => {}
-            WellKnownIntrinsics::Number => {}
-            WellKnownIntrinsics::NumberPrototype => {}
-            WellKnownIntrinsics::Object => {}
-            WellKnownIntrinsics::ObjProtoToString => {}
-            WellKnownIntrinsics::ParseFloat => {}
-            WellKnownIntrinsics::ParseInt => {}
-            WellKnownIntrinsics::Promise => {}
-            WellKnownIntrinsics::PromisePrototype => {}
-            WellKnownIntrinsics::RangeError => {}
-            WellKnownIntrinsics::RangeErrorPrototype => {}
-            WellKnownIntrinsics::ReferenceError => {}
-            WellKnownIntrinsics::ReferenceErrorPrototype => {}
-            WellKnownIntrinsics::RegExp => {}
-            WellKnownIntrinsics::RegExpPrototype => {}
-            WellKnownIntrinsics::Set => {}
-            WellKnownIntrinsics::SetIteratorPrototype => {}
-            WellKnownIntrinsics::SetPrototype => {}
-            WellKnownIntrinsics::String => {}
-            WellKnownIntrinsics::StringIteratorPrototype => {}
-            WellKnownIntrinsics::StringPrototype => {}
-            WellKnownIntrinsics::Symbol => {}
-            WellKnownIntrinsics::SymbolPrototype => {}
-            WellKnownIntrinsics::SyntaxError => {}
-            WellKnownIntrinsics::SyntaxErrorPrototype => {}
-            WellKnownIntrinsics::TypeError => {}
-            WellKnownIntrinsics::TypeErrorPrototype => {}
-            WellKnownIntrinsics::URIError => {}
-            WellKnownIntrinsics::URIErrorPrototype => {}
+            _ => todo!(), // WellKnownIntrinsics::ThrowTypeError => {}
+                          // WellKnownIntrinsics::Array => {}
+                          // WellKnownIntrinsics::ArrayBuffer => {}
+                          // WellKnownIntrinsics::ArrayBufferPrototype => {}
+                          // WellKnownIntrinsics::ArrayIteratorPrototype => {}
+                          // WellKnownIntrinsics::ArrayPrototype => {}
+                          // WellKnownIntrinsics::ArrayProtoValues => {}
+                          // WellKnownIntrinsics::Boolean => {}
+                          // WellKnownIntrinsics::BooleanPrototype => {}
+                          // WellKnownIntrinsics::Date => {}
+                          // WellKnownIntrinsics::DatePrototype => {}
+                          // WellKnownIntrinsics::DecodeURI => {}
+                          // WellKnownIntrinsics::DecodeURIComponent => {}
+                          // WellKnownIntrinsics::EncodeURI => {}
+                          // WellKnownIntrinsics::EncodeURIComponent => {}
+                          // WellKnownIntrinsics::Error => {}
+                          // WellKnownIntrinsics::ErrorPrototype => {}
+                          // WellKnownIntrinsics::Function => {}
+                          // WellKnownIntrinsics::FunctionPrototype => {}
+                          // WellKnownIntrinsics::Generator => {}
+                          // WellKnownIntrinsics::GeneratorFunction => {}
+                          // WellKnownIntrinsics::GeneratorPrototype => {}
+                          // WellKnownIntrinsics::IsFinite => {}
+                          // WellKnownIntrinsics::IsNaN => {}
+                          // WellKnownIntrinsics::IteratorPrototype => {}
+                          // WellKnownIntrinsics::JSON => {}
+                          // WellKnownIntrinsics::Map => {}
+                          // WellKnownIntrinsics::MapIteratorPrototype => {}
+                          // WellKnownIntrinsics::MapPrototype => {}
+                          // WellKnownIntrinsics::Math => {}
+                          // WellKnownIntrinsics::Number => {}
+                          // WellKnownIntrinsics::NumberPrototype => {}
+                          // WellKnownIntrinsics::Object => {}
+                          // WellKnownIntrinsics::ObjProtoToString => {}
+                          // WellKnownIntrinsics::ParseFloat => {}
+                          // WellKnownIntrinsics::ParseInt => {}
+                          // WellKnownIntrinsics::Promise => {}
+                          // WellKnownIntrinsics::PromisePrototype => {}
+                          // WellKnownIntrinsics::RangeError => {}
+                          // WellKnownIntrinsics::RangeErrorPrototype => {}
+                          // WellKnownIntrinsics::ReferenceError => {}
+                          // WellKnownIntrinsics::ReferenceErrorPrototype => {}
+                          // WellKnownIntrinsics::RegExp => {}
+                          // WellKnownIntrinsics::RegExpPrototype => {}
+                          // WellKnownIntrinsics::Set => {}
+                          // WellKnownIntrinsics::SetIteratorPrototype => {}
+                          // WellKnownIntrinsics::SetPrototype => {}
+                          // WellKnownIntrinsics::String => {}
+                          // WellKnownIntrinsics::StringIteratorPrototype => {}
+                          // WellKnownIntrinsics::StringPrototype => {}
+                          // WellKnownIntrinsics::Symbol => {}
+                          // WellKnownIntrinsics::SymbolPrototype => {}
+                          // WellKnownIntrinsics::SyntaxError => {}
+                          // WellKnownIntrinsics::SyntaxErrorPrototype => {}
+                          // WellKnownIntrinsics::TypeError => {}
+                          // WellKnownIntrinsics::TypeErrorPrototype => {}
+                          // WellKnownIntrinsics::URIError => {}
+                          // WellKnownIntrinsics::URIErrorPrototype => {}
         }
+    }
+}
+impl PartialEq for WellKnownIntrinsics {
+    fn eq(&self, other: &Self) -> bool {
+        todo!()
+    }
+}
+impl Eq for WellKnownIntrinsics {}
+impl Hash for WellKnownIntrinsics {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        todo!()
     }
 }
 
@@ -257,7 +269,7 @@ pub fn set_realm_global_object(r: &mut CodeRealm, mut global_obj: Option<JsObjec
 pub fn set_default_global_bindings(r: &mut CodeRealm) -> Result<(), JErrorType> {
     if let Some(global_obj) = &mut r.global_this {
         define_property_or_throw(
-            global_obj,
+            (**global_obj).borrow_mut().as_js_object_mut(),
             PropertyKey::Str("Infinity".to_string()),
             PropertyDescriptorSetter::new_from_property_descriptor(PropertyDescriptor::Data(
                 PropertyDescriptorData {
@@ -269,7 +281,7 @@ pub fn set_default_global_bindings(r: &mut CodeRealm) -> Result<(), JErrorType> 
             )),
         )?;
         define_property_or_throw(
-            global_obj,
+            (**global_obj).borrow_mut().as_js_object_mut(),
             PropertyKey::Str("NaN".to_string()),
             PropertyDescriptorSetter::new_from_property_descriptor(PropertyDescriptor::Data(
                 PropertyDescriptorData {
@@ -281,7 +293,7 @@ pub fn set_default_global_bindings(r: &mut CodeRealm) -> Result<(), JErrorType> 
             )),
         )?;
         define_property_or_throw(
-            global_obj,
+            (**global_obj).borrow_mut().as_js_object_mut(),
             PropertyKey::Str("undefined".to_string()),
             PropertyDescriptorSetter::new_from_property_descriptor(PropertyDescriptor::Data(
                 PropertyDescriptorData {
@@ -293,7 +305,7 @@ pub fn set_default_global_bindings(r: &mut CodeRealm) -> Result<(), JErrorType> 
             )),
         )?;
         define_property_or_throw(
-            global_obj,
+            (**global_obj).borrow_mut().as_js_object_mut(),
             PropertyKey::Str("isFinite".to_string()),
             PropertyDescriptorSetter::new_from_property_descriptor(PropertyDescriptor::Data(
                 PropertyDescriptorData {
