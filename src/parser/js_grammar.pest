@@ -1036,14 +1036,16 @@ class_body = { class_element_list }
 class_body__yield = { class_element_list__yield }
 class_element_list =  _{ (class_element ~s)+ }
 class_element_list__yield =  _{ (class_element__yield ~s)+ }
+// "static" must be a named rule so it generates a Pair for the parser to detect
+class_static = { "static" }
 class_element = {
     method_definition
-    | "static"  ~s~ method_definition
+    | class_static ~s~ method_definition
     | ";"
 }
 class_element__yield = {
     method_definition__yield
-    | "static"  ~s~ method_definition__yield
+    | class_static ~s~ method_definition__yield
     | ";"
 }
 script_body = _{ statement_list }

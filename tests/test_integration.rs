@@ -915,18 +915,17 @@ fn test_object_method_starting_with_get() {
     assert_eq!(result, JsValue::Number(JsNumberType::Integer(300)));
 }
 
-// TODO: Parser doesn't recognize 'static' keyword properly
-// #[test]
-// fn test_class_static_method() {
-//     let code = r#"
-//         class Math2 {
-//             static double(x) { return x * 2; }
-//         }
-//         Math2.double(21);
-//     "#;
-//     let result = run_js(code).unwrap();
-//     assert_eq!(result, JsValue::Number(JsNumberType::Integer(42)));
-// }
+#[test]
+fn test_class_static_method() {
+    let code = r#"
+        class Math2 {
+            static double(x) { return x * 2; }
+        }
+        Math2.double(21);
+    "#;
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(42)));
+}
 
 #[test]
 fn test_class_extends_basic() {

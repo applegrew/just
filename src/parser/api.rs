@@ -3803,7 +3803,7 @@ fn build_ast_from_class_element(
         None => return Ok(None), // Empty class element (;)
     };
 
-    let (is_static, method_pair) = if first_pair.as_str() == "static" {
+    let (is_static, method_pair) = if first_pair.as_rule() == Rule::class_static {
         let mp = inner_iter.next().ok_or_else(|| {
             get_validation_error_with_meta(
                 "Expected method definition after 'static'".to_string(),
