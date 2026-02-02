@@ -4,10 +4,10 @@
 //! It handles all expression types defined in the AST.
 
 use crate::parser::ast::{
-    AssignmentOperator, BinaryOperator, ExpressionOrSpreadElement, ExpressionOrSuper,
+    AssignmentOperator, BinaryOperator, ClassData, ExpressionOrSpreadElement, ExpressionOrSuper,
     ExpressionType, ExpressionPatternType, FunctionData, LiteralData, LiteralType, MemberExpressionType,
-    PatternOrExpression, PatternType, PropertyData, PropertyKind, UnaryOperator, UpdateOperator,
-    LogicalOperator,
+    MethodDefinitionKind, PatternOrExpression, PatternType, PropertyData, PropertyKind, UnaryOperator,
+    UpdateOperator, LogicalOperator,
 };
 use crate::runner::ds::error::JErrorType;
 use crate::runner::ds::function_object::FunctionObjectBase;
@@ -93,8 +93,8 @@ pub fn evaluate_expression(
             Err(JErrorType::TypeError("Tagged template expression not yet implemented".to_string()))
         }
 
-        ExpressionType::ClassExpression(_) => {
-            Err(JErrorType::TypeError("Class expression not yet implemented".to_string()))
+        ExpressionType::ClassExpression(class_data) => {
+            evaluate_class_expression(class_data, ctx)
         }
 
         ExpressionType::YieldExpression { .. } => {
@@ -715,7 +715,13 @@ fn call_function_object(
         ObjectType::Ordinary(obj) => {
             // Check if it's a SimpleFunctionObject (has marker property)
             let marker = PropertyKey::Str("__simple_function__".to_string());
-            if obj.get_object_base().properties.contains_key(&marker) {
+            let default_ctor_marker = PropertyKey::Str("__default_constructor__".to_string());
+
+            if obj.get_object_base().properties.contains_key(&default_ctor_marker) {
+                // It's a default constructor (no-op) - just return undefined
+                drop(func_ref);
+                Ok(JsValue::Undefined)
+            } else if obj.get_object_base().properties.contains_key(&marker) {
                 // It's a SimpleFunctionObject - use the call_with_this method
                 // Get a raw pointer to call call_with_this
                 let obj_ptr = obj.as_ref() as *const dyn JsObject;
@@ -791,7 +797,19 @@ fn get_property_simple(value: &JsValue, prop_name: &str) -> ValueResult {
 
 /// Get a property from a value, calling getters if necessary.
 fn get_property_with_ctx(value: &JsValue, prop_name: &str, ctx: &mut EvalContext) -> ValueResult {
-    match value {
+    // Use the receiver version with value as both receiver and lookup target
+    get_property_with_receiver(value, value, prop_name, ctx)
+}
+
+/// Get a property, with separate receiver (for 'this') and lookup target.
+/// This handles prototype chain lookups where 'this' should be the original receiver.
+fn get_property_with_receiver(
+    receiver: &JsValue,
+    lookup_target: &JsValue,
+    prop_name: &str,
+    ctx: &mut EvalContext,
+) -> ValueResult {
+    match lookup_target {
         JsValue::Object(obj) => {
             let prop_key = PropertyKey::Str(prop_name.to_string());
 
@@ -805,19 +823,19 @@ fn get_property_with_ctx(value: &JsValue, prop_name: &str, ctx: &mut EvalContext
                 match desc {
                     PropertyDescriptor::Data(data) => Ok(data.value.clone()),
                     PropertyDescriptor::Accessor(accessor) => {
-                        // Call the getter if it exists
+                        // Call the getter if it exists, with RECEIVER as 'this'
                         if let Some(getter) = accessor.get {
-                            call_accessor_function(&getter, value.clone(), vec![], ctx)
+                            call_accessor_function(&getter, receiver.clone(), vec![], ctx)
                         } else {
                             Ok(JsValue::Undefined)
                         }
                     }
                 }
             } else {
-                // Check prototype chain
+                // Check prototype chain - receiver stays the same
                 let proto = obj.borrow().as_js_object().get_prototype_of();
                 if let Some(proto) = proto {
-                    get_property_with_ctx(&JsValue::Object(proto), prop_name, ctx)
+                    get_property_with_receiver(receiver, &JsValue::Object(proto), prop_name, ctx)
                 } else {
                     Ok(JsValue::Undefined)
                 }
@@ -1923,6 +1941,267 @@ pub fn create_function_object(func_data: &FunctionData, ctx: &EvalContext) -> Va
     // Add marker property to identify this as a SimpleFunctionObject
     func_obj.base.properties.insert(
         PropertyKey::Str("__simple_function__".to_string()),
+        PropertyDescriptor::Data(PropertyDescriptorData {
+            value: JsValue::Boolean(true),
+            writable: false,
+            enumerable: false,
+            configurable: false,
+        }),
+    );
+
+    let obj_ref: JsObjectType = Rc::new(RefCell::new(ObjectType::Ordinary(Box::new(func_obj))));
+    Ok(JsValue::Object(obj_ref))
+}
+
+// ============================================================================
+// Class evaluation
+// ============================================================================
+
+/// Evaluate a class expression and return the constructor function.
+pub fn evaluate_class_expression(class_data: &ClassData, ctx: &mut EvalContext) -> ValueResult {
+    evaluate_class(class_data, ctx)
+}
+
+/// Evaluate a class definition (used by both ClassExpression and ClassDeclaration).
+/// Returns a constructor function object with methods on its prototype.
+pub fn evaluate_class(class_data: &ClassData, ctx: &mut EvalContext) -> ValueResult {
+    // 1. Evaluate the super class if present
+    let parent_proto = if let Some(super_class) = &class_data.super_class {
+        let parent = evaluate_expression(super_class, ctx)?;
+        match &parent {
+            JsValue::Object(parent_obj) => {
+                // Get parent.prototype
+                let borrowed = parent_obj.borrow();
+                let proto_key = PropertyKey::Str("prototype".to_string());
+                if let Some(PropertyDescriptor::Data(data)) = borrowed.as_js_object().get_object_base().properties.get(&proto_key) {
+                    if let JsValue::Object(proto) = &data.value {
+                        Some((parent_obj.clone(), proto.clone()))
+                    } else {
+                        return Err(JErrorType::TypeError("Parent class prototype is not an object".to_string()));
+                    }
+                } else {
+                    return Err(JErrorType::TypeError("Parent class has no prototype".to_string()));
+                }
+            }
+            _ => return Err(JErrorType::TypeError("Class extends value is not a constructor".to_string())),
+        }
+    } else {
+        None
+    };
+
+    // 2. Find the constructor method
+    let constructor_method = class_data.body.body.iter()
+        .find(|m| matches!(m.kind, MethodDefinitionKind::Constructor));
+
+    // 3. Create the constructor function
+    let constructor_obj = if let Some(ctor_method) = constructor_method {
+        // Use the defined constructor
+        create_class_constructor(&ctor_method.value, parent_proto.as_ref().map(|(p, _)| p.clone()), ctx)?
+    } else {
+        // Create a default constructor
+        create_default_constructor(parent_proto.as_ref().map(|(p, _)| p.clone()), ctx)?
+    };
+
+    // 4. Create the prototype object
+    let prototype = if let Some((_, parent_proto)) = &parent_proto {
+        // Derived class: prototype inherits from parent prototype
+        let mut proto_obj = SimpleObject::new();
+        proto_obj.get_object_base_mut().prototype = Some(parent_proto.clone());
+        Rc::new(RefCell::new(ObjectType::Ordinary(Box::new(proto_obj))))
+    } else {
+        // Base class: regular prototype object
+        Rc::new(RefCell::new(ObjectType::Ordinary(Box::new(SimpleObject::new()))))
+    };
+
+    // 5. Add methods to prototype (and static methods to constructor)
+    for method in &class_data.body.body {
+        if matches!(method.kind, MethodDefinitionKind::Constructor) {
+            continue; // Skip constructor, already handled
+        }
+
+        // Get the method key
+        let key = get_object_property_key(&method.key, method.computed, ctx)?;
+
+        // Create the method function
+        let method_fn = create_function_object(&method.value, ctx)?;
+
+        // Determine target: prototype for instance methods, constructor for static
+        let target = if method.static_flag {
+            &constructor_obj
+        } else {
+            &JsValue::Object(prototype.clone())
+        };
+
+        match method.kind {
+            MethodDefinitionKind::Method => {
+                // Regular method
+                if let JsValue::Object(target_obj) = target {
+                    target_obj.borrow_mut().as_js_object_mut().get_object_base_mut().properties.insert(
+                        PropertyKey::Str(key),
+                        PropertyDescriptor::Data(PropertyDescriptorData {
+                            value: method_fn,
+                            writable: true,
+                            enumerable: false,
+                            configurable: true,
+                        }),
+                    );
+                }
+            }
+            MethodDefinitionKind::Get => {
+                // Getter
+                if let JsValue::Object(getter_fn) = method_fn {
+                    if let JsValue::Object(target_obj) = target {
+                        let mut borrowed = target_obj.borrow_mut();
+                        let prop_key = PropertyKey::Str(key.clone());
+                        let existing = borrowed.as_js_object().get_object_base().properties.get(&prop_key).cloned();
+
+                        let setter = if let Some(PropertyDescriptor::Accessor(acc)) = existing {
+                            acc.set
+                        } else {
+                            None
+                        };
+
+                        borrowed.as_js_object_mut().get_object_base_mut().properties.insert(
+                            prop_key,
+                            PropertyDescriptor::Accessor(PropertyDescriptorAccessor {
+                                get: Some(getter_fn),
+                                set: setter,
+                                enumerable: false,
+                                configurable: true,
+                            }),
+                        );
+                    }
+                }
+            }
+            MethodDefinitionKind::Set => {
+                // Setter
+                if let JsValue::Object(setter_fn) = method_fn {
+                    if let JsValue::Object(target_obj) = target {
+                        let mut borrowed = target_obj.borrow_mut();
+                        let prop_key = PropertyKey::Str(key.clone());
+                        let existing = borrowed.as_js_object().get_object_base().properties.get(&prop_key).cloned();
+
+                        let getter = if let Some(PropertyDescriptor::Accessor(acc)) = existing {
+                            acc.get
+                        } else {
+                            None
+                        };
+
+                        borrowed.as_js_object_mut().get_object_base_mut().properties.insert(
+                            prop_key,
+                            PropertyDescriptor::Accessor(PropertyDescriptorAccessor {
+                                get: getter,
+                                set: Some(setter_fn),
+                                enumerable: false,
+                                configurable: true,
+                            }),
+                        );
+                    }
+                }
+            }
+            MethodDefinitionKind::Constructor => unreachable!(),
+        }
+    }
+
+    // 6. Wire up constructor.prototype
+    if let JsValue::Object(ctor_obj) = &constructor_obj {
+        ctor_obj.borrow_mut().as_js_object_mut().get_object_base_mut().properties.insert(
+            PropertyKey::Str("prototype".to_string()),
+            PropertyDescriptor::Data(PropertyDescriptorData {
+                value: JsValue::Object(prototype.clone()),
+                writable: false,
+                enumerable: false,
+                configurable: false,
+            }),
+        );
+
+        // Set prototype.constructor to point back to constructor
+        prototype.borrow_mut().as_js_object_mut().get_object_base_mut().properties.insert(
+            PropertyKey::Str("constructor".to_string()),
+            PropertyDescriptor::Data(PropertyDescriptorData {
+                value: constructor_obj.clone(),
+                writable: true,
+                enumerable: false,
+                configurable: true,
+            }),
+        );
+    }
+
+    Ok(constructor_obj)
+}
+
+/// Create a constructor function from a method definition.
+fn create_class_constructor(
+    func_data: &FunctionData,
+    _parent_ctor: Option<JsObjectType>,
+    ctx: &EvalContext,
+) -> ValueResult {
+    let body_ptr = func_data.body.as_ref() as *const _;
+    let params_ptr = &func_data.params.list as *const _;
+    let environment = ctx.lex_env.clone();
+
+    let mut func_obj = SimpleFunctionObject::new(body_ptr, params_ptr, environment);
+
+    // Add marker property to identify this as a SimpleFunctionObject (callable)
+    func_obj.base.properties.insert(
+        PropertyKey::Str("__simple_function__".to_string()),
+        PropertyDescriptor::Data(PropertyDescriptorData {
+            value: JsValue::Boolean(true),
+            writable: false,
+            enumerable: false,
+            configurable: false,
+        }),
+    );
+
+    // Mark as class constructor
+    func_obj.base.properties.insert(
+        PropertyKey::Str("__class_constructor__".to_string()),
+        PropertyDescriptor::Data(PropertyDescriptorData {
+            value: JsValue::Boolean(true),
+            writable: false,
+            enumerable: false,
+            configurable: false,
+        }),
+    );
+
+    let obj_ref: JsObjectType = Rc::new(RefCell::new(ObjectType::Ordinary(Box::new(func_obj))));
+    Ok(JsValue::Object(obj_ref))
+}
+
+/// Create a default constructor for a class.
+fn create_default_constructor(
+    _parent_ctor: Option<JsObjectType>,
+    _ctx: &EvalContext,
+) -> ValueResult {
+    // Create a simple empty function that does nothing
+    // For derived classes, it should call super(), but we'll simplify for now
+    let mut func_obj = SimpleObject::new();
+
+    // Add marker property to identify this as callable
+    func_obj.get_object_base_mut().properties.insert(
+        PropertyKey::Str("__simple_function__".to_string()),
+        PropertyDescriptor::Data(PropertyDescriptorData {
+            value: JsValue::Boolean(true),
+            writable: false,
+            enumerable: false,
+            configurable: false,
+        }),
+    );
+
+    // Mark as class constructor
+    func_obj.get_object_base_mut().properties.insert(
+        PropertyKey::Str("__class_constructor__".to_string()),
+        PropertyDescriptor::Data(PropertyDescriptorData {
+            value: JsValue::Boolean(true),
+            writable: false,
+            enumerable: false,
+            configurable: false,
+        }),
+    );
+
+    // Mark as default constructor (no-op)
+    func_obj.get_object_base_mut().properties.insert(
+        PropertyKey::Str("__default_constructor__".to_string()),
         PropertyDescriptor::Data(PropertyDescriptorData {
             value: JsValue::Boolean(true),
             writable: false,

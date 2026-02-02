@@ -3,7 +3,7 @@
 //! This module provides statement execution logic for the JavaScript interpreter.
 
 use crate::parser::ast::{
-    ExpressionPatternType, FunctionBodyData, FunctionData, LiteralType, NumberLiteralType,
+    ClassData, ExpressionPatternType, FunctionBodyData, FunctionData, LiteralType, NumberLiteralType,
     PatternType, StatementType, DeclarationType, VariableDeclarationData, VariableDeclarationKind,
     BlockStatementData, ExpressionType, SwitchCaseData, CatchClauseData, ForIteratorData,
     VariableDeclarationOrPattern,
@@ -13,7 +13,7 @@ use crate::runner::ds::value::JsValue;
 use crate::runner::plugin::types::EvalContext;
 
 use super::types::{Completion, CompletionType, EvalResult};
-use super::expression::{evaluate_expression, to_boolean, create_function_object};
+use super::expression::{evaluate_expression, to_boolean, create_function_object, evaluate_class};
 
 /// Execute a statement and return its completion.
 pub fn execute_statement(
@@ -146,8 +146,8 @@ fn execute_declaration(
             execute_function_declaration(func_data, ctx)
         }
 
-        DeclarationType::ClassDeclaration(_) => {
-            Err(JErrorType::TypeError("class declaration not yet implemented".to_string()))
+        DeclarationType::ClassDeclaration(class_data) => {
+            execute_class_declaration(class_data, ctx)
         }
     }
 }
@@ -411,6 +411,26 @@ fn execute_function_declaration(
         ctx.create_var_binding(&name)?;
         ctx.initialize_var_binding(&name, func_value)?;
     }
+
+    Ok(Completion::normal())
+}
+
+/// Execute a class declaration.
+fn execute_class_declaration(
+    class_data: &ClassData,
+    ctx: &mut EvalContext,
+) -> EvalResult {
+    // Get the class name (id is mandatory for declarations)
+    let name = class_data.id.as_ref()
+        .ok_or_else(|| JErrorType::TypeError("Class declaration must have a name".to_string()))?
+        .name.clone();
+
+    // Evaluate the class to get the constructor function
+    let class_value = evaluate_class(class_data, ctx)?;
+
+    // Bind the class name (classes are like let bindings - not hoisted to var scope)
+    ctx.create_binding(&name, false)?;
+    ctx.initialize_binding(&name, class_value)?;
 
     Ok(Completion::normal())
 }
