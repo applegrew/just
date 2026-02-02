@@ -144,4 +144,4 @@ This project uses JetBrains IntelliJ IDEA. Project files are included in the rep
 
 ## License
 
-See LICENSE file for details.
+This project is licensed under the MIT License.
