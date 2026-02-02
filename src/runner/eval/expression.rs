@@ -689,7 +689,41 @@ fn evaluate_unary_expression(
             bitwise_not(&value)
         }
         UnaryOperator::Delete => {
-            Err(JErrorType::TypeError("Delete operator not yet implemented".to_string()))
+            match argument {
+                ExpressionType::MemberExpression(member) => {
+                    match member {
+                        MemberExpressionType::SimpleMemberExpression { object, property, .. } => {
+                            let obj_value = evaluate_expression_or_super(object, ctx)?;
+                            match obj_value {
+                                JsValue::Object(obj) => {
+                                    let prop_key = PropertyKey::Str(property.name.clone());
+                                    let result = obj.borrow_mut().as_js_object_mut().delete(&prop_key)?;
+                                    Ok(JsValue::Boolean(result))
+                                }
+                                _ => Ok(JsValue::Boolean(true))
+                            }
+                        }
+                        MemberExpressionType::ComputedMemberExpression { object, property, .. } => {
+                            let obj_value = evaluate_expression_or_super(object, ctx)?;
+                            let prop_value = evaluate_expression(property.as_ref(), ctx)?;
+                            let prop_name = to_property_key(&prop_value);
+                            match obj_value {
+                                JsValue::Object(obj) => {
+                                    let prop_key = PropertyKey::Str(prop_name);
+                                    let result = obj.borrow_mut().as_js_object_mut().delete(&prop_key)?;
+                                    Ok(JsValue::Boolean(result))
+                                }
+                                _ => Ok(JsValue::Boolean(true))
+                            }
+                        }
+                    }
+                }
+                _ => {
+                    // Non-member: evaluate for side effects, return true
+                    let _ = evaluate_expression(argument, ctx)?;
+                    Ok(JsValue::Boolean(true))
+                }
+            }
         }
     }
 }
@@ -734,10 +768,65 @@ fn evaluate_binary_expression(
 
         // Other
         BinaryOperator::InstanceOf => {
-            Err(JErrorType::TypeError("instanceof not yet implemented".to_string()))
+            // Left must be an object for instanceof to potentially return true
+            let left_obj = match &left_val {
+                JsValue::Object(obj) => obj.clone(),
+                _ => return Ok(JsValue::Boolean(false)),
+            };
+
+            // Right must be an object (constructor function) with a prototype property
+            let right_obj = match &right_val {
+                JsValue::Object(obj) => obj.clone(),
+                _ => return Err(JErrorType::TypeError("Right-hand side of 'instanceof' is not an object".to_string())),
+            };
+
+            // Get the prototype property from the right-hand side (constructor.prototype)
+            let proto_key = PropertyKey::Str("prototype".to_string());
+            let right_prototype = {
+                let right_borrowed = right_obj.borrow();
+                if let Some(desc) = right_borrowed.as_js_object().get_own_property(&proto_key)? {
+                    match desc {
+                        PropertyDescriptor::Data(data) => {
+                            match &data.value {
+                                JsValue::Object(p) => Some(p.clone()),
+                                _ => None,
+                            }
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            };
+
+            // If right.prototype is not an object, return false
+            let target_proto = match right_prototype {
+                Some(p) => p,
+                None => return Ok(JsValue::Boolean(false)),
+            };
+
+            // Walk the prototype chain of left
+            let mut current_proto = left_obj.borrow().as_js_object().get_prototype_of();
+
+            while let Some(proto) = current_proto {
+                // Compare by reference
+                if Rc::ptr_eq(&proto, &target_proto) {
+                    return Ok(JsValue::Boolean(true));
+                }
+                current_proto = proto.borrow().as_js_object().get_prototype_of();
+            }
+
+            Ok(JsValue::Boolean(false))
         }
         BinaryOperator::In => {
-            Err(JErrorType::TypeError("in operator not yet implemented".to_string()))
+            let prop_key = PropertyKey::Str(to_property_key(&left_val));
+            match &right_val {
+                JsValue::Object(obj) => {
+                    let has = obj.borrow().as_js_object().has_property(&prop_key);
+                    Ok(JsValue::Boolean(has))
+                }
+                _ => Err(JErrorType::TypeError("Cannot use 'in' operator with non-object".to_string()))
+            }
         }
     }
 }

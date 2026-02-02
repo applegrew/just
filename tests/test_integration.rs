@@ -508,3 +508,103 @@ fn test_nested_if() {
     let result = run_js_get_var(code, "result").unwrap();
     assert_eq!(result, JsValue::Number(JsNumberType::Integer(1)));
 }
+
+// ============================================================================
+// Delete Operator Tests
+// ============================================================================
+
+#[test]
+fn test_delete_property() {
+    let code = "let obj = { x: 1, y: 2 }; delete obj.x; obj.x;";
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Undefined);
+}
+
+#[test]
+fn test_delete_returns_true() {
+    let code = "let obj = { x: 1 }; delete obj.x;";
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Boolean(true));
+}
+
+#[test]
+fn test_delete_nonexistent() {
+    let code = "let obj = {}; delete obj.x;";
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Boolean(true));
+}
+
+#[test]
+fn test_delete_computed_property() {
+    let code = r#"let obj = { x: 1 }; delete obj["x"];"#;
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Boolean(true));
+}
+
+// ============================================================================
+// In Operator Tests
+// ============================================================================
+
+#[test]
+fn test_in_operator_true() {
+    let code = r#""x" in { x: 1 };"#;
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Boolean(true));
+}
+
+#[test]
+fn test_in_operator_false() {
+    let code = r#""y" in { x: 1 };"#;
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Boolean(false));
+}
+
+#[test]
+fn test_in_array_index() {
+    let code = "0 in [1, 2, 3];";
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Boolean(true));
+}
+
+#[test]
+fn test_in_array_out_of_bounds() {
+    let code = "5 in [1, 2, 3];";
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Boolean(false));
+}
+
+#[test]
+fn test_in_array_length() {
+    let code = r#""length" in [];"#;
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Boolean(true));
+}
+
+// ============================================================================
+// Instanceof Operator Tests (basic - full tests after classes/new)
+// ============================================================================
+
+#[test]
+fn test_instanceof_primitive_false() {
+    // Primitives are never instanceof anything - use an object as the RHS
+    let code = r#"
+        var ctor = { prototype: {} };
+        var result = 42 instanceof ctor;
+    "#;
+    let result = run_js_get_var(code, "result").unwrap();
+    assert_eq!(result, JsValue::Boolean(false));
+}
+
+#[test]
+fn test_instanceof_object_basic() {
+    // Object with matching prototype chain
+    let code = r#"
+        var proto = {};
+        var ctor = { prototype: proto };
+        var obj = {};
+        var result = obj instanceof ctor;
+    "#;
+    // obj doesn't have proto in its chain since we didn't set up the chain
+    let result = run_js_get_var(code, "result").unwrap();
+    assert_eq!(result, JsValue::Boolean(false));
+}
