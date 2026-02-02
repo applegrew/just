@@ -431,7 +431,7 @@ fn build_ast_from_generator_declaration_or_generator_expression(
         ));
     }
     validate_bound_names_have_no_duplicates_and_also_not_present_in_var_declared_names_or_lexically_declared_names(&args_s.bound_names, &vec![], &f_body_s.lexically_declared_names)?;
-    let body = Rc::new(f_body);
+    let body = Box::new(f_body);
     s.merge(args_s);
     // .merge(f_body_s); bound_names from f_body_s are not returned
     Ok((
@@ -439,7 +439,7 @@ fn build_ast_from_generator_declaration_or_generator_expression(
             meta,
             id: f_name,
             body,
-            params: Rc::new(args),
+            params: args,
             generator: true,
         },
         s,
@@ -488,7 +488,7 @@ fn build_ast_from_function_declaration_or_function_expression(
         ));
     }
     validate_bound_names_have_no_duplicates_and_also_not_present_in_var_declared_names_or_lexically_declared_names(&args_s.bound_names, &vec![], &f_body_s.lexically_declared_names,)?;
-    let body = Rc::new(f_body);
+    let body = Box::new(f_body);
     s.merge(args_s);
     // .merge(f_body_s); bound_names from f_body_s are not returned
     Ok((
@@ -496,7 +496,7 @@ fn build_ast_from_function_declaration_or_function_expression(
             meta,
             id: f_name,
             body,
-            params: Rc::new(args),
+            params: args,
             generator: false,
         },
         s,
@@ -520,7 +520,7 @@ fn build_ast_from_formal_parameters(
                 s.merge(binding_identifier_s);
                 PatternType::RestElement {
                     meta,
-                    argument: Rc::new(
+                    argument: Box::new(
                         ExpressionPatternType::Identifier(binding_identifier).convert_to_pattern(),
                     ),
                 }
@@ -539,7 +539,7 @@ fn build_ast_from_formal_parameters(
                         right: init,
                     }
                 } else {
-                    Rc::try_unwrap(id).unwrap()
+                    *id
                 }
             }
             _ => {
@@ -589,7 +589,7 @@ fn build_ast_from_function_body(
     Ok((
         FunctionBodyData {
             meta,
-            body: Rc::new(statements),
+            body: statements,
         },
         s,
     ))
@@ -649,7 +649,7 @@ fn build_ast_from_statement(
             (
                 StatementType::ExpressionStatement {
                     meta,
-                    expression: Rc::new(exp),
+                    expression: Box::new(exp),
                 },
                 Semantics::new_empty(),
             )
@@ -686,15 +686,15 @@ fn build_ast_from_if_statement(
     let (statement_else, statement_else_s) = if let Some(statement_else_pair) = inner_iter.next() {
         let (st, mut st_s) = build_ast_from_statement(statement_else_pair, script)?;
         s.var_declared_names.append(&mut st_s.var_declared_names);
-        (Some(Rc::new(st)), st_s)
+        (Some(Box::new(st)), st_s)
     } else {
         (None, Semantics::new_empty())
     };
     Ok((
         StatementType::IfStatement {
             meta,
-            test: Rc::new(expression),
-            consequent: Rc::new(statement_true),
+            test: Box::new(expression),
+            consequent: Box::new(statement_true),
             alternate: statement_else,
         },
         s,
@@ -711,7 +711,7 @@ fn build_ast_from_throw_statement(
     Ok((
         StatementType::ThrowStatement {
             meta,
-            argument: Rc::new(e),
+            argument: Box::new(e),
         },
         e_s,
     ))
@@ -821,7 +821,7 @@ fn build_ast_from_block(
     Ok((
         BlockStatementData {
             meta,
-            body: Rc::new(declarations),
+            body: declarations,
         },
         s,
     ))
@@ -878,8 +878,8 @@ fn build_ast_for_breakable_statement_do(
     Ok((
         StatementType::DoWhileStatement {
             meta,
-            test: Rc::new(e),
-            body: Rc::new(st),
+            test: Box::new(e),
+            body: Box::new(st),
         },
         s,
     ))
@@ -900,8 +900,8 @@ fn build_ast_for_breakable_statement_while(
     Ok((
         StatementType::WhileStatement {
             meta,
-            test: Rc::new(e),
-            body: Rc::new(st),
+            test: Box::new(e),
+            body: Box::new(st),
         },
         s,
     ))
@@ -927,7 +927,7 @@ fn build_ast_for_breakable_statement_for(
                 Rule::left_hand_side_expression | Rule::left_hand_side_expression__yield => {
                     let (exp, exp_s) =
                         build_ast_from_left_hand_side_expression(first_pair, script)?;
-                    let m = Rc::new(convert_lhs_expression_to_pattern_for_assignment_operation(
+                    let m = Box::new(convert_lhs_expression_to_pattern_for_assignment_operation(
                         exp,
                         Some(&exp_s),
                     )?);
@@ -943,7 +943,7 @@ fn build_ast_for_breakable_statement_for(
                         meta,
                         declarations: vec![VariableDeclaratorData {
                             meta: meta2,
-                            id: Rc::new(b),
+                            id: Box::new(b),
                             init: None,
                         }],
                         kind: VariableDeclarationKind::Var,
@@ -996,8 +996,8 @@ fn build_ast_for_breakable_statement_for(
             let node = ForIteratorData {
                 meta,
                 left: in_of_left,
-                right: Rc::new(in_of_right),
-                body: Rc::new(statement),
+                right: Box::new(in_of_right),
+                body: Box::new(statement),
             };
             s.var_declared_names
                 .append(&mut statement_s.var_declared_names);
@@ -1056,7 +1056,7 @@ fn build_ast_for_breakable_statement_for(
                 Rule::init_expression | Rule::init_expression__yield => {
                     if let Some(inner_pair) = first_pair.into_inner().next() {
                         let (e, e_s) = build_ast_from_expression(inner_pair, script)?;
-                        Some(VariableDeclarationOrExpression::Expression(Rc::new(e)))
+                        Some(VariableDeclarationOrExpression::Expression(Box::new(e)))
                     } else {
                         None
                     }
@@ -1071,7 +1071,7 @@ fn build_ast_for_breakable_statement_for(
             let test_pair = inner_iter.next().unwrap();
             let (test, test_s) = if let Some(test_expression_pair) = test_pair.into_inner().next() {
                 let (e, e_s) = build_ast_from_expression(test_expression_pair, script)?;
-                (Some(Rc::new(e)), e_s)
+                (Some(Box::new(e)), e_s)
             } else {
                 (None, Semantics::new_empty())
             };
@@ -1079,7 +1079,7 @@ fn build_ast_for_breakable_statement_for(
             let (update, update_s) =
                 if let Some(update_expression_pair) = update_pair.into_inner().next() {
                     let (e, e_s) = build_ast_from_expression(update_expression_pair, script)?;
-                    (Some(Rc::new(e)), e_s)
+                    (Some(Box::new(e)), e_s)
                 } else {
                     (None, Semantics::new_empty())
                 };
@@ -1101,7 +1101,7 @@ fn build_ast_for_breakable_statement_for(
                     init,
                     test,
                     update,
-                    body: Rc::new(st),
+                    body: Box::new(st),
                 },
                 s,
             )
@@ -1134,7 +1134,7 @@ fn build_ast_from_binding_pattern(
             )
         }
         Rule::array_binding_pattern | Rule::array_binding_pattern__yield => {
-            let mut elements: Vec<Option<Rc<PatternType>>> = vec![];
+            let mut elements: Vec<Option<Box<PatternType>>> = vec![];
             for item_pair in inner_pair.into_inner() {
                 match item_pair.as_rule() {
                     Rule::elision => {
@@ -1147,7 +1147,7 @@ fn build_ast_from_binding_pattern(
                         let (element, element_s) =
                             build_ast_from_binding_element(item_pair, script)?;
                         s.merge(element_s);
-                        elements.push(Some(Rc::new(element)));
+                        elements.push(Some(Box::new(element)));
                     }
                     Rule::binding_rest_element | Rule::binding_rest_element__yield => {
                         let rest_meta = get_meta(&item_pair, script);
@@ -1160,9 +1160,9 @@ fn build_ast_from_binding_pattern(
                         })?;
                         let (id, id_s) = get_binding_identifier_data(binding_id_pair, script)?;
                         s.merge(id_s);
-                        elements.push(Some(Rc::new(PatternType::RestElement {
+                        elements.push(Some(Box::new(PatternType::RestElement {
                             meta: rest_meta,
-                            argument: Rc::new(
+                            argument: Box::new(
                                 ExpressionPatternType::Identifier(id).convert_to_pattern(),
                             ),
                         })));
@@ -1216,8 +1216,8 @@ fn build_ast_from_binding_element(
                     s,
                 ))
             } else {
-                // No default value: just return the pattern (unwrap is safe since we just created this Rc)
-                Ok((Rc::try_unwrap(id).unwrap(), s))
+                // No default value: just return the pattern
+                Ok((*id, s))
             }
         }
         Rule::binding_pattern | Rule::binding_pattern__yield => {
@@ -1236,8 +1236,8 @@ fn build_ast_from_binding_element(
                 Ok((
                     PatternType::AssignmentPattern {
                         meta,
-                        left: Rc::new(pattern),
-                        right: Rc::new(init_expr),
+                        left: Box::new(pattern),
+                        right: Box::new(init_expr),
                     },
                     s,
                 ))
@@ -1267,7 +1267,7 @@ fn build_ast_from_binding_property(
             build_ast_from_single_name_binding(inner_pair, script)?;
         let id = if let PatternType::PatternWhichCanBeExpression(
             ExpressionPatternType::Identifier(id),
-        ) = Rc::try_unwrap(id).unwrap()
+        ) = *id
         {
             id
         } else {
@@ -1281,7 +1281,7 @@ fn build_ast_from_binding_property(
         let value = if let Some(init) = init {
             PatternType::AssignmentPattern {
                 meta,
-                left: Rc::new(ExpressionPatternType::Identifier(id).convert_to_pattern()),
+                left: Box::new(ExpressionPatternType::Identifier(id).convert_to_pattern()),
                 right: init,
             }
         } else {
@@ -1307,7 +1307,7 @@ fn build_ast_from_binding_property(
                 right: init,
             }
         } else {
-            Rc::try_unwrap(value.id).unwrap()
+            *value.id
         };
         // s.merge(value_s); bound_names is read only from value_s (binding_element)
         Ok((
@@ -1404,7 +1404,7 @@ fn build_ast_from_for_declaration(
             meta,
             declarations: vec![VariableDeclaratorData {
                 meta: meta2,
-                id: Rc::new(b),
+                id: Box::new(b),
                 init: None,
             }],
             kind: get_let_or_const(let_or_const_pair)?,
@@ -1462,7 +1462,7 @@ fn build_ast_from_switch_statement(
     Ok((
         StatementType::SwitchStatement {
             meta,
-            discriminant: Rc::new(condition),
+            discriminant: Box::new(condition),
             cases,
         },
         s,
@@ -1490,8 +1490,8 @@ fn build_ast_from_case_clause(
     Ok((
         SwitchCaseData {
             meta,
-            test: Some(Rc::new(test_exp)),
-            consequent: Rc::new(statements),
+            test: Some(Box::new(test_exp)),
+            consequent: statements,
         },
         s,
     ))
@@ -1517,7 +1517,7 @@ fn build_ast_from_default_clause(
         SwitchCaseData {
             meta,
             test: None,
-            consequent: Rc::new(statements),
+            consequent: statements,
         },
         s,
     ))
@@ -1531,7 +1531,7 @@ fn build_ast_from_return_statement(
     let inner_pair = pair.into_inner().next().unwrap();
     let (argument, s) = if inner_pair.as_rule() == Rule::expression__in {
         let (e, e_s) = build_ast_from_expression(inner_pair, script)?;
-        (Some(Rc::new(e)), e_s)
+        (Some(Box::new(e)), e_s)
     } else if inner_pair.as_rule() == Rule::smart_semicolon {
         (None, Semantics::new_empty())
     } else {
@@ -1586,7 +1586,7 @@ fn build_ast_from_try_statement(
             (
                 Some(CatchClauseData {
                     meta,
-                    param: Rc::new(catch_param),
+                    param: Box::new(catch_param),
                     body: block,
                 }),
                 s,
@@ -1677,7 +1677,7 @@ fn build_ast_from_lexical_binding_or_variable_declaration_or_binding_element(
             || inner_pair.as_rule() == Rule::binding_identifier__yield
         {
             let (bi, mut bi_s) = get_binding_identifier_data(inner_pair, script)?;
-            let id = Rc::new(ExpressionPatternType::Identifier(bi).convert_to_pattern());
+            let id = Box::new(ExpressionPatternType::Identifier(bi).convert_to_pattern());
             (
                 if let Some(initializer) = inner_iter.next() {
                     let (a, a_s) = build_ast_from_assignment_expression(
@@ -1688,7 +1688,7 @@ fn build_ast_from_lexical_binding_or_variable_declaration_or_binding_element(
                     VariableDeclaratorData {
                         meta,
                         id,
-                        init: Some(Rc::new(a)),
+                        init: Some(Box::new(a)),
                     }
                 } else {
                     VariableDeclaratorData {
@@ -1703,14 +1703,14 @@ fn build_ast_from_lexical_binding_or_variable_declaration_or_binding_element(
             || inner_pair.as_rule() == Rule::binding_pattern__yield
         {
             let (b, mut b_s) = build_ast_from_binding_pattern(inner_pair, script)?;
-            let id = Rc::new(b);
+            let id = Box::new(b);
             let init = if let Some(initializer) = inner_iter.next() {
                 let (a, a_s) = build_ast_from_assignment_expression(
                     initializer.into_inner().next().unwrap(),
                     script,
                 )?;
                 // b_s.merge(a_s);  bound_names is required only from b_s
-                Some(Rc::new(a))
+                Some(Box::new(a))
             } else {
                 None
             };
@@ -1735,7 +1735,7 @@ fn build_ast_from_single_name_binding(
     let meta = get_meta(&pair, script);
     let mut inner_iter = pair.into_inner();
     let (b, mut s) = get_binding_identifier_data(inner_iter.next().unwrap(), script)?;
-    let id = Rc::new(ExpressionPatternType::Identifier(b).convert_to_pattern());
+    let id = Box::new(ExpressionPatternType::Identifier(b).convert_to_pattern());
     Ok(if let Some(initializer) = inner_iter.next() {
         let (a, a_s) = build_ast_from_assignment_expression(initializer, script)?;
         // s.merge(a_s); bound_names from s is only used
@@ -1743,7 +1743,7 @@ fn build_ast_from_single_name_binding(
             VariableDeclaratorData {
                 meta,
                 id,
-                init: Some(Rc::new(a)),
+                init: Some(Box::new(a)),
             },
             s,
         )
@@ -1787,7 +1787,7 @@ fn build_ast_from_assignment_expression(
                 let op_str = next_pair.as_str();
                 next_pair = inner_pair_iter.next().unwrap();
                 (
-                    PatternOrExpression::Expression(Rc::new(lhs)),
+                    PatternOrExpression::Expression(Box::new(lhs)),
                     match op_str {
                         "*=" => AssignmentOperator::MultiplyEquals,
                         "/=" => AssignmentOperator::DivideEquals,
@@ -1810,7 +1810,7 @@ fn build_ast_from_assignment_expression(
                 )
             } else {
                 (
-                    PatternOrExpression::Pattern(Rc::new(
+                    PatternOrExpression::Pattern(Box::new(
                         convert_lhs_expression_to_pattern_for_assignment_operation(lhs, Some(&s))?,
                     )),
                     AssignmentOperator::Equals,
@@ -1825,7 +1825,7 @@ fn build_ast_from_assignment_expression(
                     meta,
                     left,
                     operator,
-                    right: Rc::new(assignment_exp),
+                    right: Box::new(assignment_exp),
                 },
                 s,
             )
@@ -1847,7 +1847,7 @@ fn build_ast_from_assignment_expression(
                         ExpressionType::YieldExpression {
                             meta,
                             delegate,
-                            argument: Some(Rc::new(assignment_exp)),
+                            argument: Some(Box::new(assignment_exp)),
                         },
                         assignment_exp_s,
                     )
@@ -1891,21 +1891,21 @@ fn convert_lhs_expression_to_pattern_for_assignment_operation(
             let mut elements = vec![];
             for p in o_elements {
                 elements.push(if let Some(es) = p {
-                    Some(Rc::new(match es {
+                    Some(Box::new(match es {
                         ExpressionOrSpreadElement::Expression(e) => {
                             convert_lhs_expression_to_pattern_for_assignment_operation(
-                                Rc::try_unwrap(e).unwrap(),
+                                *e,
                                 None,
                             )?
                         }
                         ExpressionOrSpreadElement::SpreadElement(s) => {
                             let s = convert_lhs_expression_to_pattern_for_assignment_operation(
-                                Rc::try_unwrap(s).unwrap(),
+                                *s,
                                 None,
                             )?;
                             PatternType::RestElement {
                                 meta: s.get_meta().clone(),
-                                argument: Rc::new(s),
+                                argument: Box::new(s),
                             }
                         }
                     }))
@@ -1931,9 +1931,9 @@ fn convert_lhs_expression_to_pattern_for_assignment_operation(
                 } else {
                     properties.push(AssignmentPropertyData::new_with_any_expression_key(
                         p.meta,
-                        Rc::try_unwrap(p.key).unwrap(),
+                        *p.key,
                         convert_lhs_expression_to_pattern_for_assignment_operation(
-                            Rc::try_unwrap(p.value).unwrap(),
+                            *p.value,
                             None,
                         )?,
                         p.shorthand,
@@ -1981,15 +1981,15 @@ fn build_ast_from_arrow_function(
         Rule::binding_identifier | Rule::binding_identifier__yield => {
             let (b, b_s) = get_binding_identifier_data(inner_arrow_parameters_pair, script)?;
             (
-                Rc::new(vec![
+                vec![
                     ExpressionPatternType::Identifier(b).convert_to_pattern()
-                ]),
+                ],
                 b_s,
             )
         }
         Rule::formal_parameters | Rule::formal_parameters__yield => {
             let (f, f_s) = build_ast_from_formal_parameters(inner_arrow_parameters_pair, script)?;
-            (Rc::new(f), f_s)
+            (f, f_s)
         }
         _ => {
             return Err(get_unexpected_error(
@@ -2003,12 +2003,12 @@ fn build_ast_from_arrow_function(
     let (body, body_s) = match inner_concise_body_pair.as_rule() {
         Rule::function_body => {
             let (f, f_s) = build_ast_from_function_body(inner_concise_body_pair, script)?;
-            (Rc::new(FunctionBodyOrExpression::FunctionBody(f)), f_s)
+            (Box::new(FunctionBodyOrExpression::FunctionBody(f)), f_s)
         }
         Rule::assignment_expression | Rule::assignment_expression__in => {
             let (a, a_s) = build_ast_from_assignment_expression(inner_concise_body_pair, script)?;
             (
-                Rc::new(FunctionBodyOrExpression::Expression(a)),
+                Box::new(FunctionBodyOrExpression::Expression(a)),
                 Semantics::new_empty(),
             )
         }
@@ -2075,7 +2075,7 @@ fn build_ast_from_new_expression(
             (
                 ExpressionType::NewExpression {
                     meta: ne_meta,
-                    callee: Rc::new(n),
+                    callee: Box::new(n),
                     arguments: vec![],
                 },
                 n_s,
@@ -2100,9 +2100,9 @@ fn build_ast_from_conditional_expression(
         Ok((
             ExpressionType::ConditionalExpression {
                 meta,
-                test: Rc::new(or_node),
-                consequent: Rc::new(truthy),
-                alternate: Rc::new(falsy),
+                test: Box::new(or_node),
+                consequent: Box::new(truthy),
+                alternate: Box::new(falsy),
             },
             s,
         ))
@@ -2125,8 +2125,8 @@ fn get_ast_for_logical_expression(
                 script: script.clone(),
             },
             operator,
-            left: Rc::new(actual_left),
-            right: Rc::new(right),
+            left: Box::new(actual_left),
+            right: Box::new(right),
         }
     } else {
         right
@@ -2147,8 +2147,8 @@ fn get_ast_for_binary_expression(
                 script: script.clone(),
             },
             operator: operator.unwrap(),
-            left: Rc::new(actual_left),
-            right: Rc::new(right),
+            left: Box::new(actual_left),
+            right: Box::new(right),
         }
     } else {
         right
@@ -2499,7 +2499,7 @@ fn build_ast_from_unary_expression(
                                         ))
                                     }
                                 },
-                                argument: Rc::new(u),
+                                argument: Box::new(u),
                                 prefix: true,
                             },
                             u_s,
@@ -2542,7 +2542,7 @@ fn build_ast_from_unary_expression(
                                     ))
                                 }
                             },
-                            argument: Rc::new(u),
+                            argument: Box::new(u),
                         },
                         u_s,
                     )
@@ -2581,7 +2581,7 @@ fn build_ast_from_postfix_expression(
                             ))
                         }
                     },
-                    argument: Rc::new(lhs),
+                    argument: Box::new(lhs),
                     prefix: false,
                 }
             } else {
@@ -2618,7 +2618,7 @@ fn build_ast_from_call_expression(
             (
                 ExpressionType::CallExpression {
                     meta,
-                    callee: ExpressionOrSuper::Expression(Rc::new(m)),
+                    callee: ExpressionOrSuper::Expression(Box::new(m)),
                     arguments: a,
                 },
                 s,
@@ -2638,8 +2638,8 @@ fn build_ast_from_call_expression(
                 ExpressionPatternType::MemberExpression(
                     MemberExpressionType::ComputedMemberExpression {
                         meta,
-                        object: ExpressionOrSuper::Expression(Rc::new(obj)),
-                        property: Rc::new(e),
+                        object: ExpressionOrSuper::Expression(Box::new(obj)),
+                        property: Box::new(e),
                     },
                 )
                 .convert_to_expression()
@@ -2647,7 +2647,7 @@ fn build_ast_from_call_expression(
             Rule::identifier_name => ExpressionPatternType::MemberExpression(
                 MemberExpressionType::SimpleMemberExpression {
                     meta,
-                    object: ExpressionOrSuper::Expression(Rc::new(obj)),
+                    object: ExpressionOrSuper::Expression(Box::new(obj)),
                     property: get_identifier_data(pair, script),
                 },
             )
@@ -2667,7 +2667,7 @@ fn build_ast_from_call_expression(
                 };
                 ExpressionType::TaggedTemplateExpression {
                     meta,
-                    tag: Rc::new(obj),
+                    tag: Box::new(obj),
                     quasi,
                 }
             }
@@ -2676,7 +2676,7 @@ fn build_ast_from_call_expression(
                 s.merge(a_s);
                 ExpressionType::CallExpression {
                     meta,
-                    callee: ExpressionOrSuper::Expression(Rc::new(obj)),
+                    callee: ExpressionOrSuper::Expression(Box::new(obj)),
                     arguments: a,
                 }
             }
@@ -2723,12 +2723,12 @@ fn build_ast_from_expression(
     script: &Rc<String>,
 ) -> Result<(ExpressionType, Semantics), JsRuleError> {
     let meta = get_meta(&pair, script);
-    let mut node_children: Vec<Rc<ExpressionType>> = vec![];
+    let mut node_children: Vec<Box<ExpressionType>> = vec![];
     let mut s = Semantics::new_empty();
     for inner_pair in pair.into_inner() {
         let (a, a_s) = build_ast_from_assignment_expression(inner_pair, script)?;
         s.merge(a_s);
-        node_children.push(Rc::new(a));
+        node_children.push(Box::new(a));
     }
     Ok((
         ExpressionType::SequenceExpression {
@@ -2756,11 +2756,11 @@ fn build_ast_from_arguments(
                         script,
                     )?;
                     s.merge(a_s);
-                    ExpressionOrSpreadElement::SpreadElement(Rc::new(a))
+                    ExpressionOrSpreadElement::SpreadElement(Box::new(a))
                 } else {
                     let (a, a_s) = build_ast_from_assignment_expression(inner_pair, script)?;
                     s.merge(a_s);
-                    ExpressionOrSpreadElement::Expression(Rc::new(a))
+                    ExpressionOrSpreadElement::Expression(Box::new(a))
                 },
             );
         }
@@ -2787,7 +2787,7 @@ fn build_ast_from_member_expression(
             (
                 ExpressionType::NewExpression {
                     meta,
-                    callee: Rc::new(m),
+                    callee: Box::new(m),
                     arguments: a,
                 },
                 s,
@@ -2813,7 +2813,7 @@ fn build_ast_from_member_expression(
                             MemberExpressionType::ComputedMemberExpression {
                                 meta,
                                 object: ExpressionOrSuper::Super,
-                                property: Rc::new(e),
+                                property: Box::new(e),
                             },
                         )
                         .convert_to_expression()
@@ -2870,8 +2870,8 @@ fn build_ast_from_member_expression(
                         ExpressionPatternType::MemberExpression(
                             MemberExpressionType::ComputedMemberExpression {
                                 meta,
-                                object: ExpressionOrSuper::Expression(Rc::new(obj)),
-                                property: Rc::new(st),
+                                object: ExpressionOrSuper::Expression(Box::new(obj)),
+                                property: Box::new(st),
                             },
                         )
                         .convert_to_expression()
@@ -2879,7 +2879,7 @@ fn build_ast_from_member_expression(
                     Rule::identifier_name => ExpressionPatternType::MemberExpression(
                         MemberExpressionType::SimpleMemberExpression {
                             meta,
-                            object: ExpressionOrSuper::Expression(Rc::new(obj)),
+                            object: ExpressionOrSuper::Expression(Box::new(obj)),
                             property: get_identifier_data(pair, script),
                         },
                     )
@@ -2898,7 +2898,7 @@ fn build_ast_from_member_expression(
                         };
                         ExpressionType::TaggedTemplateExpression {
                             meta,
-                            tag: Rc::new(obj),
+                            tag: Box::new(obj),
                             quasi,
                         }
                     }
@@ -3031,7 +3031,7 @@ fn build_ast_from_template_literal(
 ) -> Result<(ExpressionType, Semantics), JsRuleError> {
     let meta = get_meta(&pair, script);
     let mut quasis: Vec<TemplateElementData> = vec![];
-    let mut expressions: Vec<Rc<ExpressionType>> = vec![];
+    let mut expressions: Vec<Box<ExpressionType>> = vec![];
     let mut s = Semantics::new_empty();
 
     for inner_pair in pair.into_inner() {
@@ -3091,7 +3091,7 @@ fn build_ast_from_template_literal(
             Rule::expression__in | Rule::expression__in_yield => {
                 let (expr, expr_s) = build_ast_from_expression(inner_pair, script)?;
                 s.merge(expr_s);
-                expressions.push(Rc::new(expr));
+                expressions.push(Box::new(expr));
             }
             _ => {
                 return Err(get_unexpected_error(
@@ -3360,13 +3360,13 @@ fn build_ast_from_array_literal(
             Rule::assignment_expression__in | Rule::assignment_expression__in_yield => {
                 let (a, a_s) = build_ast_from_assignment_expression(inner_pair, script)?;
                 s.merge(a_s);
-                arguments.push(Some(ExpressionOrSpreadElement::Expression(Rc::new(a))));
+                arguments.push(Some(ExpressionOrSpreadElement::Expression(Box::new(a))));
             }
             Rule::spread_element | Rule::spread_element__yield => {
                 let spread_inner = expect_inner(inner_pair, "spread_element", script)?;
                 let (a, a_s) = build_ast_from_assignment_expression(spread_inner, script)?;
                 s.merge(a_s);
-                arguments.push(Some(ExpressionOrSpreadElement::SpreadElement(Rc::new(a))));
+                arguments.push(Some(ExpressionOrSpreadElement::SpreadElement(Box::new(a))));
             }
             _ => {
                 return Err(get_unexpected_error(
@@ -3403,7 +3403,7 @@ fn build_ast_from_object_literal(
 fn build_ast_from_property_definition(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<(PropertyData<Rc<ExpressionType>>, Semantics), JsRuleError> {
+) -> Result<(PropertyData<Box<ExpressionType>>, Semantics), JsRuleError> {
     let meta = get_meta(&pair, script);
     let mut s = Semantics::new_empty();
     let mut inner_pair_iter = pair.into_inner();
@@ -3417,7 +3417,7 @@ fn build_ast_from_property_definition(
             PropertyData::new_with_any_expression_key(
                 meta,
                 p,
-                Rc::new(a),
+                Box::new(a),
                 PropertyKind::Init,
                 false,
                 false,
@@ -3451,7 +3451,7 @@ fn build_ast_from_property_definition(
             PropertyData::new_with_identifier_key(
                 meta,
                 id,
-                Rc::new(ExpressionPatternType::Identifier(id2).convert_to_expression()),
+                Box::new(ExpressionPatternType::Identifier(id2).convert_to_expression()),
                 PropertyKind::Init,
                 false,
                 true,
@@ -3470,7 +3470,7 @@ fn build_ast_from_property_definition(
 fn build_ast_from_method_definition(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<(PropertyData<Rc<ExpressionType>>, Semantics), JsRuleError> {
+) -> Result<(PropertyData<Box<ExpressionType>>, Semantics), JsRuleError> {
     let meta = get_meta(&pair, script);
     let mut s = Semantics::new_empty();
     let mut inner_iter = pair.into_inner();
@@ -3486,12 +3486,12 @@ fn build_ast_from_method_definition(
             PropertyData::new_with_any_expression_key(
                 meta,
                 p,
-                Rc::new(ExpressionType::FunctionOrGeneratorExpression(
+                Box::new(ExpressionType::FunctionOrGeneratorExpression(
                     FunctionData {
                         meta: meta2,
                         id: None,
-                        params: Rc::new(fp),
-                        body: Rc::new(fb),
+                        params: fp,
+                        body: Box::new(fb),
                         generator: false,
                     },
                 )),
@@ -3520,12 +3520,12 @@ fn build_ast_from_method_definition(
             PropertyData::new_with_any_expression_key(
                 meta,
                 p,
-                Rc::new(ExpressionType::FunctionOrGeneratorExpression(
+                Box::new(ExpressionType::FunctionOrGeneratorExpression(
                     FunctionData {
                         meta: meta2,
                         id: None,
-                        params: Rc::new(fp),
-                        body: Rc::new(fb),
+                        params: fp,
+                        body: Box::new(fb),
                         generator: true,
                     },
                 )),
@@ -3542,12 +3542,12 @@ fn build_ast_from_method_definition(
             PropertyData::new_with_any_expression_key(
                 meta,
                 p,
-                Rc::new(ExpressionType::FunctionOrGeneratorExpression(
+                Box::new(ExpressionType::FunctionOrGeneratorExpression(
                     FunctionData {
                         meta: meta2,
                         id: None,
-                        params: Rc::new(vec![]),
-                        body: Rc::new(fb),
+                        params: vec![],
+                        body: Box::new(fb),
                         generator: false,
                     },
                 )),
@@ -3566,12 +3566,12 @@ fn build_ast_from_method_definition(
             PropertyData::new_with_any_expression_key(
                 meta,
                 p,
-                Rc::new(ExpressionType::FunctionOrGeneratorExpression(
+                Box::new(ExpressionType::FunctionOrGeneratorExpression(
                     FunctionData {
                         meta: meta2,
                         id: None,
-                        params: Rc::new(fp),
-                        body: Rc::new(fb),
+                        params: fp,
+                        body: Box::new(fb),
                         generator: false,
                     },
                 )),
@@ -3711,7 +3711,7 @@ fn build_ast_from_class_expression(
 fn build_ast_from_class_tail(
     pair: Pair<Rule>,
     script: &Rc<String>,
-) -> Result<(Option<Rc<ExpressionType>>, ClassBodyData, Semantics), JsRuleError> {
+) -> Result<(Option<Box<ExpressionType>>, ClassBodyData, Semantics), JsRuleError> {
     let meta = get_meta(&pair, script);
     let mut s = Semantics::new_empty();
     let mut super_class = None;
@@ -3730,7 +3730,7 @@ fn build_ast_from_class_tail(
                 })?;
                 let (expr, expr_s) = build_ast_from_left_hand_side_expression(lhs_pair, script)?;
                 s.merge(expr_s);
-                super_class = Some(Rc::new(expr));
+                super_class = Some(Box::new(expr));
             }
             Rule::class_body | Rule::class_body__yield => {
                 // class_body = class_element_list
@@ -3800,33 +3800,14 @@ fn build_ast_from_class_element(
     } = prop_data;
 
     // Extract FunctionData from the value expression
-    // We need to move out of value since FunctionData doesn't implement Clone
-    let func_data = match Rc::try_unwrap(value) {
-        Ok(ExpressionType::FunctionOrGeneratorExpression(f)) => f,
-        Ok(_) => {
+    let func_data = match *value {
+        ExpressionType::FunctionOrGeneratorExpression(f) => f,
+        _ => {
             return Err(get_validation_error_with_meta(
                 "Expected function in method definition".to_string(),
                 AstBuilderValidationErrorType::SyntaxError,
                 prop_meta.clone(),
             ));
-        }
-        Err(rc_val) => {
-            // Rc has multiple owners, we need to reconstruct FunctionData
-            if let ExpressionType::FunctionOrGeneratorExpression(ref f) = *rc_val {
-                FunctionData {
-                    meta: f.meta.clone(),
-                    id: f.id.clone(),
-                    params: f.params.clone(),
-                    body: f.body.clone(),
-                    generator: f.generator,
-                }
-            } else {
-                return Err(get_validation_error_with_meta(
-                    "Expected function in method definition".to_string(),
-                    AstBuilderValidationErrorType::SyntaxError,
-                    prop_meta.clone(),
-                ));
-            }
         }
     };
 

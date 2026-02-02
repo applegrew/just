@@ -267,12 +267,12 @@ fn evaluate_conditional_expression(
 
 /// Evaluate a sequence expression.
 fn evaluate_sequence_expression(
-    expressions: &[std::rc::Rc<ExpressionType>],
+    expressions: &[Box<ExpressionType>],
     ctx: &mut EvalContext,
 ) -> ValueResult {
     let mut result = JsValue::Undefined;
     for expr in expressions {
-        result = evaluate_expression(expr, ctx)?;
+        result = evaluate_expression(expr.as_ref(), ctx)?;
     }
     Ok(result)
 }

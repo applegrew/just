@@ -68,8 +68,8 @@ fn binary_expr(op: BinaryOperator, left: ExpressionType, right: ExpressionType) 
     ExpressionType::BinaryExpression {
         meta: test_meta(),
         operator: op,
-        left: Rc::new(left),
-        right: Rc::new(right),
+        left: Box::new(left),
+        right: Box::new(right),
     }
 }
 
@@ -78,7 +78,7 @@ fn unary_expr(op: UnaryOperator, arg: ExpressionType) -> ExpressionType {
     ExpressionType::UnaryExpression {
         meta: test_meta(),
         operator: op,
-        argument: Rc::new(arg),
+        argument: Box::new(arg),
     }
 }
 
@@ -87,8 +87,8 @@ fn logical_expr(op: LogicalOperator, left: ExpressionType, right: ExpressionType
     ExpressionType::LogicalExpression {
         meta: test_meta(),
         operator: op,
-        left: Rc::new(left),
-        right: Rc::new(right),
+        left: Box::new(left),
+        right: Box::new(right),
     }
 }
 
@@ -96,9 +96,9 @@ fn logical_expr(op: LogicalOperator, left: ExpressionType, right: ExpressionType
 fn cond_expr(test: ExpressionType, consequent: ExpressionType, alternate: ExpressionType) -> ExpressionType {
     ExpressionType::ConditionalExpression {
         meta: test_meta(),
-        test: Rc::new(test),
-        consequent: Rc::new(consequent),
-        alternate: Rc::new(alternate),
+        test: Box::new(test),
+        consequent: Box::new(consequent),
+        alternate: Box::new(alternate),
     }
 }
 
