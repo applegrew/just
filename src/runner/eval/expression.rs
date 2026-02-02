@@ -147,29 +147,94 @@ fn evaluate_array_expression(
     let mut index = 0;
     for element in elements {
         if let Some(elem) = element {
-            let value = match elem {
-                ExpressionOrSpreadElement::Expression(expr) => evaluate_expression(expr, ctx)?,
-                ExpressionOrSpreadElement::SpreadElement(_) => {
-                    return Err(JErrorType::TypeError(
-                        "Spread in arrays not yet supported".to_string(),
-                    ));
+            match elem {
+                ExpressionOrSpreadElement::Expression(expr) => {
+                    let value = evaluate_expression(expr, ctx)?;
+                    // Define the element as a property
+                    let key = PropertyKey::Str(index.to_string());
+                    array_obj.get_object_base_mut().properties.insert(
+                        key,
+                        PropertyDescriptor::Data(PropertyDescriptorData {
+                            value,
+                            writable: true,
+                            enumerable: true,
+                            configurable: true,
+                        }),
+                    );
+                    index += 1;
                 }
-            };
+                ExpressionOrSpreadElement::SpreadElement(spread_expr) => {
+                    // Evaluate the spread expression
+                    let spread_value = evaluate_expression(spread_expr, ctx)?;
 
-            // Define the element as a property
-            let key = PropertyKey::Str(index.to_string());
-            array_obj.get_object_base_mut().properties.insert(
-                key,
-                PropertyDescriptor::Data(PropertyDescriptorData {
-                    value,
-                    writable: true,
-                    enumerable: true,
-                    configurable: true,
-                }),
-            );
+                    // If it's an array, spread its elements
+                    if let JsValue::Object(spread_obj) = spread_value {
+                        let borrowed = spread_obj.borrow();
+                        let base = borrowed.as_js_object().get_object_base();
+
+                        // Get length property if it exists
+                        let length = if let Some(PropertyDescriptor::Data(prop)) =
+                            base.properties.get(&PropertyKey::Str("length".to_string()))
+                        {
+                            match &prop.value {
+                                JsValue::Number(JsNumberType::Integer(n)) => *n as usize,
+                                JsValue::Number(JsNumberType::Float(n)) => *n as usize,
+                                _ => 0,
+                            }
+                        } else {
+                            0
+                        };
+
+                        // Iterate over array indices
+                        for i in 0..length {
+                            let elem_key = PropertyKey::Str(i.to_string());
+                            let elem_value = if let Some(PropertyDescriptor::Data(prop)) =
+                                base.properties.get(&elem_key)
+                            {
+                                prop.value.clone()
+                            } else {
+                                JsValue::Undefined
+                            };
+
+                            // Add to result array
+                            let key = PropertyKey::Str(index.to_string());
+                            array_obj.get_object_base_mut().properties.insert(
+                                key,
+                                PropertyDescriptor::Data(PropertyDescriptorData {
+                                    value: elem_value,
+                                    writable: true,
+                                    enumerable: true,
+                                    configurable: true,
+                                }),
+                            );
+                            index += 1;
+                        }
+                    } else if let JsValue::String(s) = spread_value {
+                        // Spread string characters
+                        for ch in s.chars() {
+                            let key = PropertyKey::Str(index.to_string());
+                            array_obj.get_object_base_mut().properties.insert(
+                                key,
+                                PropertyDescriptor::Data(PropertyDescriptorData {
+                                    value: JsValue::String(ch.to_string()),
+                                    writable: true,
+                                    enumerable: true,
+                                    configurable: true,
+                                }),
+                            );
+                            index += 1;
+                        }
+                    } else {
+                        return Err(JErrorType::TypeError(
+                            "Spread requires an iterable".to_string(),
+                        ));
+                    }
+                }
+            }
+        } else {
+            // Holes (None elements) are left as undefined/missing
+            index += 1;
         }
-        // Holes (None elements) are left as undefined/missing
-        index += 1;
     }
 
     // Set the length property
@@ -409,8 +474,50 @@ fn evaluate_arguments(
             ExpressionOrSpreadElement::Expression(expr) => {
                 args.push(evaluate_expression(expr, ctx)?);
             }
-            ExpressionOrSpreadElement::SpreadElement(_) => {
-                return Err(JErrorType::TypeError("Spread in calls not yet supported".to_string()));
+            ExpressionOrSpreadElement::SpreadElement(spread_expr) => {
+                // Evaluate the spread expression
+                let spread_value = evaluate_expression(spread_expr, ctx)?;
+
+                // If it's an array, spread its elements into args
+                if let JsValue::Object(spread_obj) = spread_value {
+                    let borrowed = spread_obj.borrow();
+                    let base = borrowed.as_js_object().get_object_base();
+
+                    // Get length property if it exists
+                    let length = if let Some(PropertyDescriptor::Data(prop)) =
+                        base.properties.get(&PropertyKey::Str("length".to_string()))
+                    {
+                        match &prop.value {
+                            JsValue::Number(JsNumberType::Integer(n)) => *n as usize,
+                            JsValue::Number(JsNumberType::Float(n)) => *n as usize,
+                            _ => 0,
+                        }
+                    } else {
+                        0
+                    };
+
+                    // Iterate over array indices and add each element to args
+                    for i in 0..length {
+                        let elem_key = PropertyKey::Str(i.to_string());
+                        let elem_value = if let Some(PropertyDescriptor::Data(prop)) =
+                            base.properties.get(&elem_key)
+                        {
+                            prop.value.clone()
+                        } else {
+                            JsValue::Undefined
+                        };
+                        args.push(elem_value);
+                    }
+                } else if let JsValue::String(s) = spread_value {
+                    // Spread string characters as separate args
+                    for ch in s.chars() {
+                        args.push(JsValue::String(ch.to_string()));
+                    }
+                } else {
+                    return Err(JErrorType::TypeError(
+                        "Spread requires an iterable".to_string(),
+                    ));
+                }
             }
         }
     }
@@ -451,87 +558,105 @@ fn call_value(
 /// Call a function object.
 fn call_function_object(
     func: &crate::runner::ds::object::JsObjectType,
-    _this_value: JsValue,
+    this_value: JsValue,
     args: Vec<JsValue>,
     ctx: &mut EvalContext,
 ) -> ValueResult {
     let func_ref = func.borrow();
 
-    // Check if it's a function object
-    if let ObjectType::Function(func_obj) = &*func_ref {
-        // Get function metadata (these are Rc so cloning is cheap)
-        let body = func_obj.get_function_object_base().body_code.clone();
-        let params = func_obj.get_function_object_base().formal_parameters.clone();
-        let func_env = func_obj.get_function_object_base().environment.clone();
+    match &*func_ref {
+        ObjectType::Function(func_obj) => {
+            // Get function metadata (these are Rc so cloning is cheap)
+            let body = func_obj.get_function_object_base().body_code.clone();
+            let params = func_obj.get_function_object_base().formal_parameters.clone();
+            let func_env = func_obj.get_function_object_base().environment.clone();
 
-        drop(func_ref);
+            drop(func_ref);
 
-        // Create a new function scope
-        let saved_lex_env = ctx.lex_env.clone();
-        let saved_var_env = ctx.var_env.clone();
+            // Create a new function scope
+            let saved_lex_env = ctx.lex_env.clone();
+            let saved_var_env = ctx.var_env.clone();
 
-        // Create new environment for the function, with the function's closure as outer
-        use crate::runner::ds::env_record::new_declarative_environment;
-        let func_scope = new_declarative_environment(Some(func_env));
-        ctx.lex_env = func_scope.clone();
-        ctx.var_env = func_scope;
+            // Create new environment for the function, with the function's closure as outer
+            use crate::runner::ds::env_record::new_declarative_environment;
+            let func_scope = new_declarative_environment(Some(func_env));
+            ctx.lex_env = func_scope.clone();
+            ctx.var_env = func_scope;
 
-        // Bind parameters to arguments
-        for (i, param) in params.iter().enumerate() {
-            if let crate::parser::ast::PatternType::PatternWhichCanBeExpression(
-                ExpressionPatternType::Identifier(id)
-            ) = param {
-                let arg_value = args.get(i).cloned().unwrap_or(JsValue::Undefined);
-                ctx.create_binding(&id.name, false)?;
-                ctx.initialize_binding(&id.name, arg_value)?;
-            }
-        }
-
-        // Execute each statement in the function body
-        use super::statement::execute_statement;
-        use super::types::CompletionType;
-
-        let mut result_completion = super::types::Completion::normal();
-
-        for stmt in body.body.iter() {
-            let completion = execute_statement(stmt, ctx)?;
-
-            match completion.completion_type {
-                CompletionType::Return => {
-                    result_completion = completion;
-                    break;
-                }
-                CompletionType::Throw => {
-                    // Restore environment before returning error
-                    ctx.lex_env = saved_lex_env;
-                    ctx.var_env = saved_var_env;
-                    return Err(JErrorType::TypeError(format!(
-                        "Uncaught exception: {:?}",
-                        completion.value
-                    )));
-                }
-                CompletionType::Break | CompletionType::Continue => {
-                    // These shouldn't escape function body
-                    result_completion = completion;
-                    break;
-                }
-                CompletionType::Normal => {
-                    result_completion = completion;
+            // Bind parameters to arguments
+            for (i, param) in params.iter().enumerate() {
+                if let crate::parser::ast::PatternType::PatternWhichCanBeExpression(
+                    ExpressionPatternType::Identifier(id)
+                ) = param {
+                    let arg_value = args.get(i).cloned().unwrap_or(JsValue::Undefined);
+                    ctx.create_binding(&id.name, false)?;
+                    ctx.initialize_binding(&id.name, arg_value)?;
                 }
             }
-        }
 
-        // Restore the previous environment
-        ctx.lex_env = saved_lex_env;
-        ctx.var_env = saved_var_env;
+            // Execute each statement in the function body
+            use super::statement::execute_statement;
+            use super::types::CompletionType;
 
-        // Return the result
-        match result_completion.completion_type {
-            CompletionType::Return => Ok(result_completion.get_value()),
-            _ => Ok(JsValue::Undefined),
+            let mut result_completion = super::types::Completion::normal();
+
+            for stmt in body.body.iter() {
+                let completion = execute_statement(stmt, ctx)?;
+
+                match completion.completion_type {
+                    CompletionType::Return => {
+                        result_completion = completion;
+                        break;
+                    }
+                    CompletionType::Throw => {
+                        // Restore environment before returning error
+                        ctx.lex_env = saved_lex_env;
+                        ctx.var_env = saved_var_env;
+                        return Err(JErrorType::TypeError(format!(
+                            "Uncaught exception: {:?}",
+                            completion.value
+                        )));
+                    }
+                    CompletionType::Break | CompletionType::Continue => {
+                        // These shouldn't escape function body
+                        result_completion = completion;
+                        break;
+                    }
+                    CompletionType::Normal => {
+                        result_completion = completion;
+                    }
+                }
+            }
+
+            // Restore the previous environment
+            ctx.lex_env = saved_lex_env;
+            ctx.var_env = saved_var_env;
+
+            // Return the result
+            match result_completion.completion_type {
+                CompletionType::Return => Ok(result_completion.get_value()),
+                _ => Ok(JsValue::Undefined),
+            }
         }
-    } else {
-        Err(JErrorType::TypeError("Object is not callable".to_string()))
+        ObjectType::Ordinary(obj) => {
+            // Check if it's a SimpleFunctionObject (has marker property)
+            let marker = PropertyKey::Str("__simple_function__".to_string());
+            if obj.get_object_base().properties.contains_key(&marker) {
+                // It's a SimpleFunctionObject - use the call_with_this method
+                // Get a raw pointer to call call_with_this
+                let obj_ptr = obj.as_ref() as *const dyn JsObject;
+                drop(func_ref);
+
+                // SAFETY: We know this is a SimpleFunctionObject and we've dropped func_ref
+                unsafe {
+                    // Cast to SimpleFunctionObject
+                    let simple_func = &*(obj_ptr as *const SimpleFunctionObject);
+                    simple_func.call_with_this(this_value, args, ctx)
+                }
+            } else {
+                Err(JErrorType::TypeError("Object is not callable".to_string()))
+            }
+        }
     }
 }
 

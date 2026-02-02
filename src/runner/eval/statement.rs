@@ -3,7 +3,7 @@
 //! This module provides statement execution logic for the JavaScript interpreter.
 
 use crate::parser::ast::{
-    ExpressionPatternType, FunctionBodyData, PatternType, StatementType, DeclarationType,
+    ExpressionPatternType, FunctionBodyData, FunctionData, PatternType, StatementType, DeclarationType,
     VariableDeclarationData, VariableDeclarationKind, BlockStatementData, ExpressionType,
     SwitchCaseData, CatchClauseData, ForIteratorData, VariableDeclarationOrPattern,
 };
@@ -12,7 +12,7 @@ use crate::runner::ds::value::JsValue;
 use crate::runner::plugin::types::EvalContext;
 
 use super::types::{Completion, CompletionType, EvalResult};
-use super::expression::{evaluate_expression, to_boolean};
+use super::expression::{evaluate_expression, to_boolean, create_function_object};
 
 /// Execute a statement and return its completion.
 pub fn execute_statement(
@@ -141,8 +141,8 @@ fn execute_declaration(
             execute_variable_declaration(var_decl, ctx)
         }
 
-        DeclarationType::FunctionOrGeneratorDeclaration(_) => {
-            Ok(Completion::normal())
+        DeclarationType::FunctionOrGeneratorDeclaration(func_data) => {
+            execute_function_declaration(func_data, ctx)
         }
 
         DeclarationType::ClassDeclaration(_) => {
@@ -188,6 +188,32 @@ fn execute_variable_declaration(
             ctx.create_binding(&name, is_const)?;
             ctx.initialize_binding(&name, value)?;
         }
+    }
+
+    Ok(Completion::normal())
+}
+
+/// Execute a function declaration.
+fn execute_function_declaration(
+    func_data: &FunctionData,
+    ctx: &mut EvalContext,
+) -> EvalResult {
+    // Get the function name (id is mandatory for declarations)
+    let name = func_data.id.as_ref()
+        .ok_or_else(|| JErrorType::TypeError("Function declaration must have a name".to_string()))?
+        .name.clone();
+
+    // Create the function object
+    let func_value = create_function_object(func_data, ctx)?;
+
+    // Bind the function name in the variable environment (functions are hoisted like var)
+    if ctx.has_var_binding(&name) {
+        // Update existing binding
+        ctx.set_var_binding(&name, func_value)?;
+    } else {
+        // Create and initialize new binding
+        ctx.create_var_binding(&name)?;
+        ctx.initialize_var_binding(&name, func_value)?;
     }
 
     Ok(Completion::normal())

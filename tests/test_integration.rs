@@ -655,3 +655,48 @@ fn test_getter_with_this() {
     let result = run_js(code).unwrap();
     assert_eq!(result, JsValue::String("John Doe".to_string()));
 }
+
+// ==================== PHASE 3: SPREAD OPERATOR TESTS ====================
+
+#[test]
+fn test_spread_array_basic() {
+    let code = "let a = [1, 2]; let b = [...a, 3]; b.length;";
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(3)));
+}
+
+#[test]
+fn test_spread_array_middle() {
+    let code = "let a = [2, 3]; let b = [1, ...a, 4]; b[2];";
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(3)));
+}
+
+#[test]
+fn test_spread_array_values() {
+    let code = "let a = [1, 2, 3]; let b = [...a]; b[0] + b[1] + b[2];";
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(6)));
+}
+
+#[test]
+fn test_function_with_multiple_params() {
+    // First test basic function with multiple params
+    let code = "function sum(a, b) { return a + b; } sum(1, 2);";
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(3)));
+}
+
+#[test]
+fn test_spread_function_call() {
+    let code = "function sum(a, b, c) { return a + b + c; } let args = [1, 2, 3]; sum(...args);";
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(6)));
+}
+
+#[test]
+fn test_spread_function_call_mixed() {
+    let code = "function sum(a, b, c, d) { return a + b + c + d; } let args = [2, 3]; sum(1, ...args, 4);";
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(10)));
+}

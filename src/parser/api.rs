@@ -527,21 +527,11 @@ fn build_ast_from_formal_parameters(
                 }
             }
             Rule::formal_parameter | Rule::formal_parameter__yield => {
-                let (fp, fp_s) =
-                    build_ast_from_lexical_binding_or_variable_declaration_or_binding_element(
-                        param, script,
-                    )?;
-                s.merge(fp_s);
-                let VariableDeclaratorData { meta, id, init } = fp;
-                if let Some(init) = init {
-                    PatternType::AssignmentPattern {
-                        meta,
-                        left: id,
-                        right: init,
-                    }
-                } else {
-                    *id
-                }
+                // formal_parameter contains binding_element
+                let binding_element = param.into_inner().next().unwrap();
+                let (pattern, pattern_s) = build_ast_from_binding_element(binding_element, script)?;
+                s.merge(pattern_s);
+                pattern
             }
             _ => {
                 return Err(get_unexpected_error(

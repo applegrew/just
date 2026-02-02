@@ -37,7 +37,11 @@ impl ObjectType {
     pub fn is_callable(&self) -> bool {
         match self {
             ObjectType::Function(_) => true,
-            _ => false,
+            ObjectType::Ordinary(obj) => {
+                // Check for SimpleFunctionObject marker property
+                let marker = PropertyKey::Str("__simple_function__".to_string());
+                obj.get_object_base().properties.contains_key(&marker)
+            }
         }
     }
 
