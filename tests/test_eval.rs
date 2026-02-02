@@ -524,3 +524,169 @@ fn test_to_boolean_undefined() {
 fn test_to_boolean_nan() {
     assert!(!to_boolean(&JsValue::Number(JsNumberType::NaN)));
 }
+
+// ============================================================================
+// Variable declaration and lookup tests
+// ============================================================================
+
+use just::parser::ast::{
+    ExpressionPatternType, IdentifierData, PatternType, PatternOrExpression,
+    AssignmentOperator, VariableDeclarationData, VariableDeclarationKind,
+    VariableDeclaratorData, StatementType, DeclarationType,
+};
+use just::runner::eval::statement::execute_statement;
+
+/// Helper to create an identifier expression.
+fn id_expr(name: &str) -> ExpressionType {
+    ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(
+        IdentifierData {
+            name: name.to_string(),
+            meta: test_meta(),
+            is_binding_identifier: true,
+        },
+    ))
+}
+
+/// Helper to create an identifier pattern.
+fn id_pattern(name: &str) -> PatternType {
+    PatternType::PatternWhichCanBeExpression(ExpressionPatternType::Identifier(
+        IdentifierData {
+            name: name.to_string(),
+            meta: test_meta(),
+            is_binding_identifier: true,
+        },
+    ))
+}
+
+/// Helper to create a variable declaration statement.
+fn var_decl_stmt(
+    kind: VariableDeclarationKind,
+    name: &str,
+    init: Option<ExpressionType>,
+) -> StatementType {
+    StatementType::DeclarationStatement(DeclarationType::VariableDeclaration(
+        VariableDeclarationData {
+            meta: test_meta(),
+            kind,
+            declarations: vec![VariableDeclaratorData {
+                meta: test_meta(),
+                id: Box::new(id_pattern(name)),
+                init: init.map(Box::new),
+            }],
+        },
+    ))
+}
+
+/// Helper to create an assignment expression.
+fn assign_expr(name: &str, value: ExpressionType) -> ExpressionType {
+    ExpressionType::AssignmentExpression {
+        meta: test_meta(),
+        operator: AssignmentOperator::Equals,
+        left: PatternOrExpression::Expression(Box::new(id_expr(name))),
+        right: Box::new(value),
+    }
+}
+
+#[test]
+fn test_var_declaration_and_lookup() {
+    let mut ctx = EvalContext::new();
+
+    // var x = 42;
+    let stmt = var_decl_stmt(VariableDeclarationKind::Var, "x", Some(num_expr(42)));
+    execute_statement(&stmt, &mut ctx).unwrap();
+
+    // x should be 42
+    let lookup = id_expr("x");
+    let result = evaluate_expression(&lookup, &mut ctx).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(42)));
+}
+
+#[test]
+fn test_let_declaration_and_lookup() {
+    let mut ctx = EvalContext::new();
+
+    // let y = "hello";
+    let stmt = var_decl_stmt(VariableDeclarationKind::Let, "y", Some(str_expr("hello")));
+    execute_statement(&stmt, &mut ctx).unwrap();
+
+    // y should be "hello"
+    let lookup = id_expr("y");
+    let result = evaluate_expression(&lookup, &mut ctx).unwrap();
+    assert_eq!(result, JsValue::String("hello".to_string()));
+}
+
+#[test]
+fn test_const_declaration_and_lookup() {
+    let mut ctx = EvalContext::new();
+
+    // const z = true;
+    let stmt = var_decl_stmt(VariableDeclarationKind::Const, "z", Some(bool_expr(true)));
+    execute_statement(&stmt, &mut ctx).unwrap();
+
+    // z should be true
+    let lookup = id_expr("z");
+    let result = evaluate_expression(&lookup, &mut ctx).unwrap();
+    assert_eq!(result, JsValue::Boolean(true));
+}
+
+#[test]
+fn test_var_declaration_no_init() {
+    let mut ctx = EvalContext::new();
+
+    // var x;
+    let stmt = var_decl_stmt(VariableDeclarationKind::Var, "x", None);
+    execute_statement(&stmt, &mut ctx).unwrap();
+
+    // x should be undefined
+    let lookup = id_expr("x");
+    let result = evaluate_expression(&lookup, &mut ctx).unwrap();
+    assert_eq!(result, JsValue::Undefined);
+}
+
+#[test]
+fn test_assignment_expression() {
+    let mut ctx = EvalContext::new();
+
+    // var x = 10;
+    let stmt = var_decl_stmt(VariableDeclarationKind::Var, "x", Some(num_expr(10)));
+    execute_statement(&stmt, &mut ctx).unwrap();
+
+    // x = 20
+    let assign = assign_expr("x", num_expr(20));
+    let result = evaluate_expression(&assign, &mut ctx).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(20)));
+
+    // x should now be 20
+    let lookup = id_expr("x");
+    let result = evaluate_expression(&lookup, &mut ctx).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(20)));
+}
+
+#[test]
+fn test_compound_assignment_add() {
+    let mut ctx = EvalContext::new();
+
+    // var x = 10;
+    let stmt = var_decl_stmt(VariableDeclarationKind::Var, "x", Some(num_expr(10)));
+    execute_statement(&stmt, &mut ctx).unwrap();
+
+    // x += 5
+    let assign = ExpressionType::AssignmentExpression {
+        meta: test_meta(),
+        operator: AssignmentOperator::AddEquals,
+        left: PatternOrExpression::Expression(Box::new(id_expr("x"))),
+        right: Box::new(num_expr(5)),
+    };
+    let result = evaluate_expression(&assign, &mut ctx).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(15)));
+}
+
+#[test]
+fn test_undefined_variable_error() {
+    let mut ctx = EvalContext::new();
+
+    // Try to access undefined variable
+    let lookup = id_expr("undefined_var");
+    let result = evaluate_expression(&lookup, &mut ctx);
+    assert!(result.is_err());
+}

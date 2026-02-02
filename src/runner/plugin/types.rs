@@ -1,7 +1,13 @@
 //! Core types for the plugin architecture.
 
+use crate::runner::ds::env_record::{
+    new_declarative_environment, new_global_environment, EnvironmentRecord, EnvironmentRecordType,
+};
 use crate::runner::ds::error::JErrorType;
+use crate::runner::ds::execution_context::ExecutionContextStack;
 use crate::runner::ds::heap::{Heap, HeapConfig};
+use crate::runner::ds::lex_env::JsLexEnvironmentType;
+use crate::runner::ds::object::{CoreObject, JsObject, JsObjectType, ObjectBase, ObjectType};
 use crate::runner::ds::value::JsValue;
 use crate::parser::ast::FunctionData;
 use std::cell::RefCell;
@@ -12,28 +18,55 @@ use std::rc::Rc;
 pub type SharedHeap = Rc<RefCell<Heap>>;
 
 /// Execution context passed to native functions.
-/// This will be expanded as the runtime is implemented.
+/// Contains the lexical environment chain for variable resolution.
 pub struct EvalContext {
     /// The global `this` value.
     pub global_this: Option<JsValue>,
     /// Shared heap for memory allocation tracking.
     pub heap: SharedHeap,
+    /// Current lexical environment (for let/const and block scoping).
+    pub lex_env: JsLexEnvironmentType,
+    /// Current variable environment (for var declarations).
+    pub var_env: JsLexEnvironmentType,
+    /// Execution context stack for tracking function calls.
+    pub ctx_stack: ExecutionContextStack,
+    /// Whether we're in strict mode.
+    pub strict: bool,
 }
 
 impl EvalContext {
     /// Create a new evaluation context with default heap configuration.
     pub fn new() -> Self {
+        // Create a simple global object
+        let global_obj: JsObjectType = Rc::new(RefCell::new(ObjectType::Ordinary(Box::new(
+            SimpleObject::new(),
+        ))));
+        let global_env = new_global_environment(global_obj.clone());
+
         EvalContext {
-            global_this: None,
+            global_this: Some(JsValue::Object(global_obj)),
             heap: Rc::new(RefCell::new(Heap::default())),
+            lex_env: global_env.clone(),
+            var_env: global_env,
+            ctx_stack: ExecutionContextStack::new(),
+            strict: false,
         }
     }
 
     /// Create a new evaluation context with a specific heap configuration.
     pub fn with_heap_config(config: HeapConfig) -> Self {
+        let global_obj: JsObjectType = Rc::new(RefCell::new(ObjectType::Ordinary(Box::new(
+            SimpleObject::new(),
+        ))));
+        let global_env = new_global_environment(global_obj.clone());
+
         EvalContext {
-            global_this: None,
+            global_this: Some(JsValue::Object(global_obj)),
             heap: Rc::new(RefCell::new(Heap::new(config))),
+            lex_env: global_env.clone(),
+            var_env: global_env,
+            ctx_stack: ExecutionContextStack::new(),
+            strict: false,
         }
     }
 
@@ -51,11 +84,240 @@ impl EvalContext {
     pub fn heap_usage(&self) -> usize {
         self.heap.borrow().get_allocated()
     }
+
+    /// Look up a binding in the environment chain.
+    pub fn get_binding(&mut self, name: &str) -> Result<JsValue, JErrorType> {
+        let name_string = name.to_string();
+        self.resolve_binding(&name_string)
+    }
+
+    /// Resolve a binding by walking up the environment chain.
+    fn resolve_binding(&mut self, name: &String) -> Result<JsValue, JErrorType> {
+        let mut current_env = Some(self.lex_env.clone());
+
+        while let Some(env) = current_env {
+            let env_borrowed = env.borrow();
+            if env_borrowed.inner.as_env_record().has_binding(name) {
+                drop(env_borrowed);
+                return env
+                    .borrow()
+                    .inner
+                    .as_env_record()
+                    .get_binding_value(&mut self.ctx_stack, name);
+            }
+            current_env = env_borrowed.outer.clone();
+        }
+
+        Err(JErrorType::ReferenceError(format!("{} is not defined", name)))
+    }
+
+    /// Set a binding in the environment chain.
+    pub fn set_binding(&mut self, name: &str, value: JsValue) -> Result<(), JErrorType> {
+        let name_string = name.to_string();
+        self.resolve_and_set_binding(&name_string, value)
+    }
+
+    /// Resolve and set a binding by walking up the environment chain.
+    fn resolve_and_set_binding(&mut self, name: &String, value: JsValue) -> Result<(), JErrorType> {
+        let mut current_env = Some(self.lex_env.clone());
+
+        while let Some(env) = current_env.clone() {
+            let has_binding = env.borrow().inner.as_env_record().has_binding(name);
+            if has_binding {
+                return self.set_binding_in_env(&env, name, value);
+            }
+            current_env = env.borrow().outer.clone();
+        }
+
+        // If not found and not strict, create in global (var behavior)
+        if !self.strict {
+            return self.set_binding_in_env(&self.var_env.clone(), name, value);
+        }
+
+        Err(JErrorType::ReferenceError(format!("{} is not defined", name)))
+    }
+
+    /// Set a binding in a specific environment.
+    fn set_binding_in_env(
+        &mut self,
+        env: &JsLexEnvironmentType,
+        name: &String,
+        value: JsValue,
+    ) -> Result<(), JErrorType> {
+        let mut env_borrowed = env.borrow_mut();
+        match env_borrowed.inner.as_mut() {
+            EnvironmentRecordType::Declarative(rec) => {
+                rec.set_mutable_binding(&mut self.ctx_stack, name.clone(), value)
+            }
+            EnvironmentRecordType::Function(rec) => {
+                rec.set_mutable_binding(&mut self.ctx_stack, name.clone(), value)
+            }
+            EnvironmentRecordType::Global(rec) => {
+                rec.set_mutable_binding(&mut self.ctx_stack, name.clone(), value)
+            }
+            EnvironmentRecordType::Object(rec) => {
+                rec.set_mutable_binding(&mut self.ctx_stack, name.clone(), value)
+            }
+        }
+    }
+
+    /// Create a new binding in the current lexical environment.
+    pub fn create_binding(&mut self, name: &str, is_const: bool) -> Result<(), JErrorType> {
+        let mut env = self.lex_env.borrow_mut();
+        let name_string = name.to_string();
+        match env.inner.as_mut() {
+            EnvironmentRecordType::Declarative(rec) => {
+                if is_const {
+                    rec.create_immutable_binding(name_string)
+                } else {
+                    rec.create_mutable_binding(name_string, false)
+                }
+            }
+            EnvironmentRecordType::Function(rec) => {
+                if is_const {
+                    rec.create_immutable_binding(name_string)
+                } else {
+                    rec.create_mutable_binding(name_string, false)
+                }
+            }
+            EnvironmentRecordType::Global(rec) => {
+                if is_const {
+                    rec.create_immutable_binding(name_string)
+                } else {
+                    rec.create_mutable_binding(name_string, false)
+                }
+            }
+            EnvironmentRecordType::Object(rec) => rec.create_mutable_binding(name_string, false),
+        }
+    }
+
+    /// Create a var binding in the variable environment.
+    pub fn create_var_binding(&mut self, name: &str) -> Result<(), JErrorType> {
+        let mut env = self.var_env.borrow_mut();
+        let name_string = name.to_string();
+        match env.inner.as_mut() {
+            EnvironmentRecordType::Declarative(rec) => {
+                rec.create_mutable_binding(name_string, true)
+            }
+            EnvironmentRecordType::Function(rec) => rec.create_mutable_binding(name_string, true),
+            EnvironmentRecordType::Global(rec) => rec.create_mutable_binding(name_string, true),
+            EnvironmentRecordType::Object(rec) => rec.create_mutable_binding(name_string, true),
+        }
+    }
+
+    /// Initialize a binding with a value.
+    pub fn initialize_binding(&mut self, name: &str, value: JsValue) -> Result<(), JErrorType> {
+        let name_string = name.to_string();
+        let mut env = self.lex_env.borrow_mut();
+        match env.inner.as_mut() {
+            EnvironmentRecordType::Declarative(rec) => {
+                rec.initialize_binding(&mut self.ctx_stack, name_string, value)?;
+                Ok(())
+            }
+            EnvironmentRecordType::Function(rec) => {
+                rec.initialize_binding(&mut self.ctx_stack, name_string, value)?;
+                Ok(())
+            }
+            EnvironmentRecordType::Global(rec) => {
+                rec.initialize_binding(&mut self.ctx_stack, name_string, value)?;
+                Ok(())
+            }
+            EnvironmentRecordType::Object(rec) => {
+                rec.initialize_binding(&mut self.ctx_stack, name_string, value)?;
+                Ok(())
+            }
+        }
+    }
+
+    /// Initialize a var binding with a value.
+    pub fn initialize_var_binding(&mut self, name: &str, value: JsValue) -> Result<(), JErrorType> {
+        let name_string = name.to_string();
+        let mut env = self.var_env.borrow_mut();
+        match env.inner.as_mut() {
+            EnvironmentRecordType::Declarative(rec) => {
+                rec.initialize_binding(&mut self.ctx_stack, name_string, value)?;
+                Ok(())
+            }
+            EnvironmentRecordType::Function(rec) => {
+                rec.initialize_binding(&mut self.ctx_stack, name_string, value)?;
+                Ok(())
+            }
+            EnvironmentRecordType::Global(rec) => {
+                rec.initialize_binding(&mut self.ctx_stack, name_string, value)?;
+                Ok(())
+            }
+            EnvironmentRecordType::Object(rec) => {
+                rec.initialize_binding(&mut self.ctx_stack, name_string, value)?;
+                Ok(())
+            }
+        }
+    }
+
+    /// Push a new block scope (for let/const).
+    pub fn push_block_scope(&mut self) {
+        let new_env = new_declarative_environment(Some(self.lex_env.clone()));
+        self.lex_env = new_env;
+    }
+
+    /// Pop a block scope.
+    pub fn pop_block_scope(&mut self) {
+        let outer = self.lex_env.borrow().outer.clone();
+        if let Some(outer_env) = outer {
+            self.lex_env = outer_env;
+        }
+    }
+
+    /// Check if a binding exists in the current environment chain.
+    pub fn has_binding(&self, name: &str) -> bool {
+        let name_string = name.to_string();
+        let mut current_env = Some(self.lex_env.clone());
+
+        while let Some(env) = current_env {
+            let env_borrowed = env.borrow();
+            if env_borrowed.inner.as_env_record().has_binding(&name_string) {
+                return true;
+            }
+            current_env = env_borrowed.outer.clone();
+        }
+
+        false
+    }
 }
 
 impl Default for EvalContext {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Simple object for use as global object.
+pub struct SimpleObject {
+    base: ObjectBase,
+}
+
+impl SimpleObject {
+    pub fn new() -> Self {
+        SimpleObject {
+            base: ObjectBase::new(),
+        }
+    }
+}
+
+impl JsObject for SimpleObject {
+    fn get_object_base_mut(&mut self) -> &mut ObjectBase {
+        &mut self.base
+    }
+
+    fn get_object_base(&self) -> &ObjectBase {
+        &self.base
+    }
+
+    fn as_js_object(&self) -> &dyn JsObject {
+        self
+    }
+
+    fn as_js_object_mut(&mut self) -> &mut dyn JsObject {
+        self
     }
 }
 

@@ -67,7 +67,7 @@ pub struct DeclarativeEnvironmentRecord {
     binding_flags: HashMap<String, Vec<BindingFlag>>,
 }
 impl DeclarativeEnvironmentRecord {
-    fn new() -> Self {
+    pub fn new() -> Self {
         DeclarativeEnvironmentRecord {
             bindings: HashMap::new(),
             binding_flags: HashMap::new(),
@@ -82,7 +82,9 @@ impl EnvironmentRecord for DeclarativeEnvironmentRecord {
     fn create_mutable_binding(&mut self, id: String, can_delete: bool) -> Result<(), JErrorType> {
         if !self.has_binding(&id) {
             self.bindings.insert(id.to_string(), None);
-            if !can_delete {
+            if can_delete {
+                self.binding_flags.insert(id, vec![]);
+            } else {
                 self.binding_flags.insert(id, vec![BindingFlag::NoDelete]);
             }
         }
@@ -199,7 +201,7 @@ pub struct ObjectEnvironmentRecord {
     binding_object: JsObjectType,
 }
 impl ObjectEnvironmentRecord {
-    fn new(o: JsObjectType) -> Self {
+    pub fn new(o: JsObjectType) -> Self {
         ObjectEnvironmentRecord { binding_object: o }
     }
 }
@@ -296,7 +298,7 @@ pub struct FunctionEnvironmentRecord {
     new_target: Option<JsObjectType>,
 }
 impl FunctionEnvironmentRecord {
-    fn new(f: JsObjectType, new_target: Option<JsObjectType>) -> Self {
+    pub fn new(f: JsObjectType, new_target: Option<JsObjectType>) -> Self {
         // Extract values from borrow before moving f
         let (is_lexical, home_object) = {
             let func = (*f).borrow();
@@ -420,7 +422,7 @@ pub struct GlobalEnvironmentRecord {
     var_names: Vec<String>,
 }
 impl GlobalEnvironmentRecord {
-    fn new(global_object: JsObjectType) -> Self {
+    pub fn new(global_object: JsObjectType) -> Self {
         GlobalEnvironmentRecord {
             object_record: ObjectEnvironmentRecord::new(global_object),
             declarative_record: DeclarativeEnvironmentRecord::new(),

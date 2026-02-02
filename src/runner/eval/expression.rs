@@ -4,8 +4,8 @@
 //! It handles all expression types defined in the AST.
 
 use crate::parser::ast::{
-    BinaryOperator, ExpressionType, ExpressionPatternType, LiteralData, LiteralType,
-    UnaryOperator, LogicalOperator,
+    AssignmentOperator, BinaryOperator, ExpressionType, ExpressionPatternType, LiteralData,
+    LiteralType, PatternOrExpression, PatternType, UnaryOperator, LogicalOperator,
 };
 use crate::runner::ds::error::JErrorType;
 use crate::runner::ds::value::{JsValue, JsNumberType};
@@ -57,8 +57,8 @@ pub fn evaluate_expression(
             Err(JErrorType::TypeError("Update expression not yet implemented".to_string()))
         }
 
-        ExpressionType::AssignmentExpression { .. } => {
-            Err(JErrorType::TypeError("Assignment expression not yet implemented".to_string()))
+        ExpressionType::AssignmentExpression { operator, left, right, .. } => {
+            evaluate_assignment_expression(operator, left, right, ctx)
         }
 
         ExpressionType::ConditionalExpression { test, consequent, alternate, .. } => {
@@ -129,12 +129,107 @@ fn evaluate_literal(lit: &LiteralData) -> ValueResult {
 /// Evaluate an expression pattern (identifier).
 fn evaluate_expression_pattern(
     pattern: &ExpressionPatternType,
-    _ctx: &mut EvalContext,
+    ctx: &mut EvalContext,
 ) -> ValueResult {
     match pattern {
         ExpressionPatternType::Identifier(id) => {
-            Err(JErrorType::ReferenceError(format!("{} is not defined", id.name)))
+            // Look up the identifier in the environment chain
+            ctx.get_binding(&id.name)
         }
+    }
+}
+
+/// Evaluate an assignment expression.
+fn evaluate_assignment_expression(
+    operator: &AssignmentOperator,
+    left: &PatternOrExpression,
+    right: &ExpressionType,
+    ctx: &mut EvalContext,
+) -> ValueResult {
+    // Get the name to assign to
+    let name = match left {
+        PatternOrExpression::Pattern(pattern) => get_pattern_name(pattern)?,
+        PatternOrExpression::Expression(expr) => get_expression_name(expr)?,
+    };
+
+    // Evaluate the right-hand side
+    let rhs_value = evaluate_expression(right, ctx)?;
+
+    // Compute the final value based on the operator
+    let final_value = match operator {
+        AssignmentOperator::Equals => rhs_value,
+        AssignmentOperator::AddEquals => {
+            let current = ctx.get_binding(&name)?;
+            add_values(&current, &rhs_value)?
+        }
+        AssignmentOperator::SubtractEquals => {
+            let current = ctx.get_binding(&name)?;
+            subtract_values(&current, &rhs_value)?
+        }
+        AssignmentOperator::MultiplyEquals => {
+            let current = ctx.get_binding(&name)?;
+            multiply_values(&current, &rhs_value)?
+        }
+        AssignmentOperator::DivideEquals => {
+            let current = ctx.get_binding(&name)?;
+            divide_values(&current, &rhs_value)?
+        }
+        AssignmentOperator::ModuloEquals => {
+            let current = ctx.get_binding(&name)?;
+            modulo_values(&current, &rhs_value)?
+        }
+        AssignmentOperator::BitwiseLeftShiftEquals => {
+            let current = ctx.get_binding(&name)?;
+            left_shift(&current, &rhs_value)?
+        }
+        AssignmentOperator::BitwiseRightShiftEquals => {
+            let current = ctx.get_binding(&name)?;
+            right_shift(&current, &rhs_value)?
+        }
+        AssignmentOperator::BitwiseUnsignedRightShiftEquals => {
+            let current = ctx.get_binding(&name)?;
+            unsigned_right_shift(&current, &rhs_value)?
+        }
+        AssignmentOperator::BitwiseOrEquals => {
+            let current = ctx.get_binding(&name)?;
+            bitwise_or(&current, &rhs_value)?
+        }
+        AssignmentOperator::BitwiseAndEquals => {
+            let current = ctx.get_binding(&name)?;
+            bitwise_and(&current, &rhs_value)?
+        }
+        AssignmentOperator::BitwiseXorEquals => {
+            let current = ctx.get_binding(&name)?;
+            bitwise_xor(&current, &rhs_value)?
+        }
+    };
+
+    // Set the binding and return the value
+    ctx.set_binding(&name, final_value.clone())?;
+    Ok(final_value)
+}
+
+/// Get the name from a pattern (for simple identifier patterns).
+fn get_pattern_name(pattern: &PatternType) -> Result<String, JErrorType> {
+    match pattern {
+        PatternType::PatternWhichCanBeExpression(ExpressionPatternType::Identifier(id)) => {
+            Ok(id.name.clone())
+        }
+        _ => Err(JErrorType::TypeError(
+            "Complex patterns in assignment not yet supported".to_string(),
+        )),
+    }
+}
+
+/// Get the name from an expression (for simple identifier expressions).
+fn get_expression_name(expr: &ExpressionType) -> Result<String, JErrorType> {
+    match expr {
+        ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(id)) => {
+            Ok(id.name.clone())
+        }
+        _ => Err(JErrorType::TypeError(
+            "Assignment to non-identifier expressions not yet supported".to_string(),
+        )),
     }
 }
 

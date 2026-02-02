@@ -1,14 +1,14 @@
 mod arguments_object;
 mod array_object;
-mod env_record;
+pub mod env_record;
 pub mod error;
-mod execution_context;
+pub mod execution_context;
 mod function_object;
 pub mod heap;
 mod iterator_object;
-mod lex_env;
+pub mod lex_env;
 mod misc;
-mod object;
+pub mod object;
 mod object_property;
 mod operations;
 mod realm;

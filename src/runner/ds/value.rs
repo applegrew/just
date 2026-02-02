@@ -23,7 +23,7 @@ impl Clone for JsValue {
             JsValue::String(d) => JsValue::String(d.to_string()),
             JsValue::Boolean(d) => JsValue::Boolean(*d),
             JsValue::Null => JsValue::Null,
-            JsValue::Number(d) => unimplemented!(),
+            JsValue::Number(d) => JsValue::Number(d.clone()),
             JsValue::Object(o) => JsValue::Object(o.clone()),
             JsValue::Symbol(d) => JsValue::Symbol(d.clone()),
         }

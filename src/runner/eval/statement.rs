@@ -3,7 +3,8 @@
 //! This module provides statement execution logic for the JavaScript interpreter.
 
 use crate::parser::ast::{
-    StatementType, DeclarationType, VariableDeclarationData, BlockStatementData, ExpressionType,
+    ExpressionPatternType, PatternType, StatementType, DeclarationType, VariableDeclarationData,
+    VariableDeclarationKind, BlockStatementData, ExpressionType,
 };
 use crate::runner::ds::error::JErrorType;
 use crate::runner::ds::value::JsValue;
@@ -109,15 +110,22 @@ fn execute_block_statement(
     block: &BlockStatementData,
     ctx: &mut EvalContext,
 ) -> EvalResult {
+    // Create a new block scope for let/const bindings
+    ctx.push_block_scope();
+
     let mut completion = Completion::normal();
 
     for stmt in block.body.iter() {
         completion = execute_statement(stmt, ctx)?;
 
         if completion.is_abrupt() {
+            ctx.pop_block_scope();
             return Ok(completion);
         }
     }
+
+    // Pop the block scope
+    ctx.pop_block_scope();
 
     Ok(completion)
 }
@@ -147,14 +155,60 @@ fn execute_variable_declaration(
     var_decl: &VariableDeclarationData,
     ctx: &mut EvalContext,
 ) -> EvalResult {
+    let is_const = matches!(var_decl.kind, VariableDeclarationKind::Const);
+    let is_var = matches!(var_decl.kind, VariableDeclarationKind::Var);
+
     for declarator in &var_decl.declarations {
-        if let Some(init) = &declarator.init {
-            let _value = evaluate_expression(init, ctx)?;
-            // TODO: Bind the value to the identifier
+        // Get the binding name from the pattern
+        let name = get_binding_name(&declarator.id)?;
+
+        // Create the binding
+        if is_var {
+            // var declarations go in the variable environment
+            ctx.create_var_binding(&name)?;
+        } else {
+            // let/const declarations go in the lexical environment
+            ctx.create_binding(&name, is_const)?;
+        }
+
+        // Evaluate initializer and initialize the binding
+        let value = if let Some(init) = &declarator.init {
+            evaluate_expression(init, ctx)?
+        } else {
+            // const must have an initializer (checked by parser), var/let default to undefined
+            JsValue::Undefined
+        };
+
+        // Initialize the binding with the value
+        if is_var {
+            ctx.initialize_var_binding(&name, value)?;
+        } else {
+            ctx.initialize_binding(&name, value)?;
         }
     }
 
     Ok(Completion::normal())
+}
+
+/// Get the binding name from a pattern.
+fn get_binding_name(pattern: &PatternType) -> Result<String, JErrorType> {
+    match pattern {
+        PatternType::PatternWhichCanBeExpression(ExpressionPatternType::Identifier(id)) => {
+            Ok(id.name.clone())
+        }
+        PatternType::ObjectPattern { .. } => {
+            Err(JErrorType::TypeError("Object destructuring not yet supported".to_string()))
+        }
+        PatternType::ArrayPattern { .. } => {
+            Err(JErrorType::TypeError("Array destructuring not yet supported".to_string()))
+        }
+        PatternType::RestElement { .. } => {
+            Err(JErrorType::TypeError("Rest element not yet supported".to_string()))
+        }
+        PatternType::AssignmentPattern { .. } => {
+            Err(JErrorType::TypeError("Default value patterns not yet supported".to_string()))
+        }
+    }
 }
 
 /// Execute an if statement.
