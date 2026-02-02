@@ -769,3 +769,46 @@ fn test_array_destructuring_rest_values() {
     let result = run_js(code).unwrap();
     assert_eq!(result, JsValue::Number(JsNumberType::Integer(9)));
 }
+
+// ==================== PHASE 5: NEW EXPRESSION TESTS ====================
+
+#[test]
+fn test_new_basic() {
+    let code = "function Foo(x) { this.x = x; } let f = new Foo(42); f.x;";
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(42)));
+}
+
+#[test]
+fn test_new_multiple_properties() {
+    let code = "function Point(x, y) { this.x = x; this.y = y; } let p = new Point(10, 20); p.x + p.y;";
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(30)));
+}
+
+#[test]
+fn test_new_returns_object() {
+    // Verify new returns an object by checking we can set properties on it
+    let code = "function Foo() { this.x = 1; } let f = new Foo(); f.x;";
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(1)));
+}
+
+#[test]
+fn test_new_prototype_method() {
+    let code = r#"
+        function Point(x, y) { this.x = x; this.y = y; }
+        Point.prototype.sum = function() { return this.x + this.y; };
+        let p = new Point(10, 20);
+        p.sum();
+    "#;
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(30)));
+}
+
+#[test]
+fn test_new_no_args() {
+    let code = "function Counter() { this.count = 0; } let c = new Counter(); c.count;";
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(0)));
+}

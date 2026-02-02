@@ -77,8 +77,8 @@ pub fn evaluate_expression(
             evaluate_call_expression(callee, arguments, ctx)
         }
 
-        ExpressionType::NewExpression { .. } => {
-            Err(JErrorType::TypeError("New expression not yet implemented".to_string()))
+        ExpressionType::NewExpression { callee, arguments, .. } => {
+            evaluate_new_expression(callee, arguments, ctx)
         }
 
         ExpressionType::SequenceExpression { expressions, .. } => {
@@ -434,6 +434,80 @@ fn evaluate_call_expression(
 
     // Call the function
     call_value(&callee_value, this_value, args, ctx)
+}
+
+/// Evaluate a new expression (constructor call).
+fn evaluate_new_expression(
+    callee: &ExpressionType,
+    arguments: &[ExpressionOrSpreadElement],
+    ctx: &mut EvalContext,
+) -> ValueResult {
+    // Evaluate the callee to get the constructor function
+    let constructor = evaluate_expression(callee, ctx)?;
+
+    // Verify it's callable
+    let ctor_obj = match &constructor {
+        JsValue::Object(obj) => {
+            if !obj.borrow().is_callable() {
+                return Err(JErrorType::TypeError(format!(
+                    "{} is not a constructor",
+                    constructor
+                )));
+            }
+            obj.clone()
+        }
+        _ => {
+            return Err(JErrorType::TypeError(format!(
+                "{} is not a constructor",
+                constructor
+            )));
+        }
+    };
+
+    // Create a new object for 'this'
+    let new_obj = create_new_object_for_constructor(&ctor_obj)?;
+
+    // Evaluate the arguments
+    let args = evaluate_arguments(arguments, ctx)?;
+
+    // Call the constructor with the new object as 'this'
+    let result = call_value(&constructor, JsValue::Object(new_obj.clone()), args, ctx)?;
+
+    // If constructor returns an object, use that; otherwise use the new object
+    match result {
+        JsValue::Object(_) => Ok(result),
+        _ => Ok(JsValue::Object(new_obj)),
+    }
+}
+
+/// Create a new object for use in a constructor call.
+/// Sets up the prototype chain from the constructor's prototype property.
+fn create_new_object_for_constructor(
+    constructor: &JsObjectType,
+) -> Result<JsObjectType, JErrorType> {
+    use crate::runner::ds::object::{JsObject, ObjectType};
+    use crate::runner::ds::object_property::{PropertyDescriptor, PropertyKey};
+
+    // Create a new empty object
+    let mut new_obj = SimpleObject::new();
+
+    // Get the prototype from the constructor's 'prototype' property
+    let ctor_borrowed = constructor.borrow();
+    let prototype_key = PropertyKey::Str("prototype".to_string());
+
+    if let Some(PropertyDescriptor::Data(data)) =
+        ctor_borrowed.as_js_object().get_object_base().properties.get(&prototype_key)
+    {
+        if let JsValue::Object(proto_obj) = &data.value {
+            // Set the prototype field on ObjectBase (used by get_prototype_of)
+            new_obj.get_object_base_mut().prototype = Some(proto_obj.clone());
+        }
+    }
+
+    drop(ctor_borrowed);
+
+    let obj: JsObjectType = Rc::new(RefCell::new(ObjectType::Ordinary(Box::new(new_obj))));
+    Ok(obj)
 }
 
 /// Get the 'this' value for a call expression.
