@@ -1,7 +1,7 @@
 mod arguments_object;
 mod array_object;
 mod env_record;
-mod error;
+pub mod error;
 mod execution_context;
 mod function_object;
 mod iterator_object;
@@ -14,4 +14,4 @@ mod realm;
 mod scope;
 mod string_object;
 mod symbol;
-mod value;
+pub mod value;

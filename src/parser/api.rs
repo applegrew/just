@@ -1,12 +1,13 @@
 use crate::parser::ast::StatementType::BreakStatement;
 use crate::parser::ast::{
     AssignmentOperator, AssignmentPropertyData, AstBuilderValidationErrorType, BinaryOperator,
-    BlockStatementData, CatchClauseData, ClassData, DeclarationType, ExpressionOrSpreadElement,
-    ExpressionOrSuper, ExpressionPatternType, ExpressionType, ExtendedNumberLiteralType,
-    ForIteratorData, FunctionBodyData, FunctionBodyOrExpression, FunctionData, HasMeta,
-    IdentifierData, JsError, JsErrorType, LiteralData, LiteralType, LogicalOperator,
-    MemberExpressionType, Meta, NumberLiteralType, PatternOrExpression, PatternType, ProgramData,
-    PropertyData, PropertyKind, StatementType, SwitchCaseData, TemplateLiteralData, UnaryOperator,
+    BlockStatementData, CatchClauseData, ClassBodyData, ClassData, DeclarationType,
+    ExpressionOrSpreadElement, ExpressionOrSuper, ExpressionPatternType, ExpressionType,
+    ExtendedNumberLiteralType, ForIteratorData, FunctionBodyData, FunctionBodyOrExpression,
+    FunctionData, HasMeta, IdentifierData, JsError, JsErrorType, LiteralData, LiteralType,
+    LogicalOperator, MemberExpressionType, Meta, MethodDefinitionData, MethodDefinitionKind,
+    NumberLiteralType, PatternOrExpression, PatternType, ProgramData, PropertyData, PropertyKind,
+    StatementType, SwitchCaseData, TemplateElementData, TemplateLiteralData, UnaryOperator,
     UpdateOperator, VariableDeclarationData, VariableDeclarationKind,
     VariableDeclarationOrExpression, VariableDeclarationOrPattern, VariableDeclaratorData,
 };
@@ -165,6 +166,42 @@ fn get_meta(pair: &Pair<Rule>, script: &Rc<String>) -> Meta {
     }
 }
 
+/// Helper to safely get the next item from a pair iterator with proper error handling.
+/// Use this instead of `.next().unwrap()` for safer error propagation.
+fn expect_next<'a, I>(
+    iter: &mut I,
+    context: &str,
+    meta: &Meta,
+) -> Result<Pair<'a, Rule>, JsRuleError>
+where
+    I: Iterator<Item = Pair<'a, Rule>>,
+{
+    iter.next().ok_or_else(|| {
+        get_validation_error_with_meta(
+            format!("Expected more tokens in {}", context),
+            AstBuilderValidationErrorType::SyntaxError,
+            meta.clone(),
+        )
+    })
+}
+
+/// Helper to safely get the first inner pair with proper error handling.
+/// Use this instead of `.into_inner().next().unwrap()` for safer error propagation.
+fn expect_inner<'a>(
+    pair: Pair<'a, Rule>,
+    context: &str,
+    script: &Rc<String>,
+) -> Result<Pair<'a, Rule>, JsRuleError> {
+    let meta = get_meta(&pair, script);
+    pair.into_inner().next().ok_or_else(|| {
+        get_validation_error_with_meta(
+            format!("Expected inner token in {}", context),
+            AstBuilderValidationErrorType::SyntaxError,
+            meta,
+        )
+    })
+}
+
 fn build_ast_from_script(
     pairs: Pairs<Rule>,
     script: &Rc<String>,
@@ -217,14 +254,17 @@ fn build_ast_from_declaration(
     pair: Pair<Rule>,
     script: &Rc<String>,
 ) -> Result<(DeclarationType, Semantics), JsRuleError> {
-    let inner_pair = pair.into_inner().next().unwrap();
+    let inner_pair = expect_inner(pair, "build_ast_from_declaration", script)?;
     Ok(match inner_pair.as_rule() {
         Rule::hoistable_declaration | Rule::hoistable_declaration__yield => {
             let (h, h_s) = build_ast_from_hoistable_declaration(inner_pair, script)?;
             (h, Semantics::new_empty()) // empty top_level_lexically_declared_names
         }
         Rule::class_declaration | Rule::class_declaration__yield => {
-            unimplemented!()
+            let (c, c_s) = build_ast_from_class_declaration(inner_pair, script)?;
+            let mut s = Semantics::new_empty();
+            s.top_level_lexically_declared_names = c_s.bound_names;
+            (DeclarationType::ClassDeclaration(c), s)
         }
         Rule::lexical_declaration__in | Rule::lexical_declaration__in_yield => {
             let (ld, ld_s) = build_ast_from_lexical_declaration(inner_pair, script)?;
@@ -1094,11 +1134,48 @@ fn build_ast_from_binding_pattern(
             )
         }
         Rule::array_binding_pattern | Rule::array_binding_pattern__yield => {
-            todo!()
-            // PatternType::ArrayPattern {
-            //     meta,
-            //     elements: vec![],
-            // }
+            let mut elements: Vec<Option<Rc<PatternType>>> = vec![];
+            for item_pair in inner_pair.into_inner() {
+                match item_pair.as_rule() {
+                    Rule::elision => {
+                        // Each comma in elision represents a hole
+                        for _ in 0..(item_pair.as_str().matches(',').count()) {
+                            elements.push(None);
+                        }
+                    }
+                    Rule::binding_element | Rule::binding_element__yield => {
+                        let (element, element_s) =
+                            build_ast_from_binding_element(item_pair, script)?;
+                        s.merge(element_s);
+                        elements.push(Some(Rc::new(element)));
+                    }
+                    Rule::binding_rest_element | Rule::binding_rest_element__yield => {
+                        let rest_meta = get_meta(&item_pair, script);
+                        let binding_id_pair = item_pair.into_inner().next().ok_or_else(|| {
+                            get_validation_error_with_meta(
+                                "Expected binding identifier in rest element".to_string(),
+                                AstBuilderValidationErrorType::SyntaxError,
+                                rest_meta.clone(),
+                            )
+                        })?;
+                        let (id, id_s) = get_binding_identifier_data(binding_id_pair, script)?;
+                        s.merge(id_s);
+                        elements.push(Some(Rc::new(PatternType::RestElement {
+                            meta: rest_meta,
+                            argument: Rc::new(
+                                ExpressionPatternType::Identifier(id).convert_to_pattern(),
+                            ),
+                        })));
+                    }
+                    _ => {
+                        return Err(get_unexpected_error(
+                            "build_ast_from_binding_pattern:array",
+                            &item_pair,
+                        ))
+                    }
+                }
+            }
+            (PatternType::ArrayPattern { meta, elements }, s)
         }
         _ => {
             return Err(get_unexpected_error(
@@ -1107,6 +1184,72 @@ fn build_ast_from_binding_pattern(
             ))
         }
     })
+}
+
+/// Handles binding_element rule: single_name_binding | binding_pattern ~ initializer?
+fn build_ast_from_binding_element(
+    pair: Pair<Rule>,
+    script: &Rc<String>,
+) -> Result<(PatternType, Semantics), JsRuleError> {
+    let meta = get_meta(&pair, script);
+    let mut inner_iter = pair.into_inner();
+    let inner_pair = inner_iter.next().ok_or_else(|| {
+        get_validation_error_with_meta(
+            "Expected binding element content".to_string(),
+            AstBuilderValidationErrorType::SyntaxError,
+            meta.clone(),
+        )
+    })?;
+
+    match inner_pair.as_rule() {
+        Rule::single_name_binding | Rule::single_name_binding__yield => {
+            let (var_decl, s) = build_ast_from_single_name_binding(inner_pair, script)?;
+            let VariableDeclaratorData { meta, id, init } = var_decl;
+            if let Some(init_expr) = init {
+                // Has default value: create AssignmentPattern
+                Ok((
+                    PatternType::AssignmentPattern {
+                        meta,
+                        left: id,
+                        right: init_expr,
+                    },
+                    s,
+                ))
+            } else {
+                // No default value: just return the pattern (unwrap is safe since we just created this Rc)
+                Ok((Rc::try_unwrap(id).unwrap(), s))
+            }
+        }
+        Rule::binding_pattern | Rule::binding_pattern__yield => {
+            let (pattern, mut s) = build_ast_from_binding_pattern(inner_pair, script)?;
+            // Check for optional initializer
+            if let Some(init_pair) = inner_iter.next() {
+                let init_inner = init_pair.into_inner().next().ok_or_else(|| {
+                    get_validation_error_with_meta(
+                        "Expected initializer expression".to_string(),
+                        AstBuilderValidationErrorType::SyntaxError,
+                        meta.clone(),
+                    )
+                })?;
+                let (init_expr, _init_s) =
+                    build_ast_from_assignment_expression(init_inner, script)?;
+                Ok((
+                    PatternType::AssignmentPattern {
+                        meta,
+                        left: Rc::new(pattern),
+                        right: Rc::new(init_expr),
+                    },
+                    s,
+                ))
+            } else {
+                Ok((pattern, s))
+            }
+        }
+        _ => Err(get_unexpected_error(
+            "build_ast_from_binding_element",
+            &inner_pair,
+        )),
+    }
 }
 
 fn build_ast_from_binding_property(
@@ -2510,7 +2653,24 @@ fn build_ast_from_call_expression(
             )
             .convert_to_expression(),
             //Tagged template literal
-            Rule::template_literal | Rule::template_literal__yield => unimplemented!(),
+            Rule::template_literal | Rule::template_literal__yield => {
+                let (template, t_s) = build_ast_from_template_literal(pair, script)?;
+                s.merge(t_s);
+                let quasi = if let ExpressionType::TemplateLiteral(data) = template {
+                    data
+                } else {
+                    return Err(get_validation_error_with_meta(
+                        "Expected template literal".to_string(),
+                        AstBuilderValidationErrorType::SyntaxError,
+                        meta.clone(),
+                    ));
+                };
+                ExpressionType::TaggedTemplateExpression {
+                    meta,
+                    tag: Rc::new(obj),
+                    quasi,
+                }
+            }
             Rule::arguments | Rule::arguments__yield => {
                 let (a, a_s) = build_ast_from_arguments(pair, script)?;
                 s.merge(a_s);
@@ -2724,7 +2884,24 @@ fn build_ast_from_member_expression(
                         },
                     )
                     .convert_to_expression(),
-                    Rule::template_literal | Rule::template_literal__yield => unimplemented!(),
+                    Rule::template_literal | Rule::template_literal__yield => {
+                        let (template, t_s) = build_ast_from_template_literal(pair, script)?;
+                        s.merge(t_s);
+                        let quasi = if let ExpressionType::TemplateLiteral(data) = template {
+                            data
+                        } else {
+                            return Err(get_validation_error_with_meta(
+                                "Expected template literal".to_string(),
+                                AstBuilderValidationErrorType::SyntaxError,
+                                meta.clone(),
+                            ));
+                        };
+                        ExpressionType::TaggedTemplateExpression {
+                            meta,
+                            tag: Rc::new(obj),
+                            quasi,
+                        }
+                    }
                     _ => {
                         return Err(get_unexpected_error(
                             "build_ast_from_member_expression:2",
@@ -2761,7 +2938,9 @@ fn build_ast_from_primary_expression(
             let (a, mut a_s) = build_ast_from_array_literal(inner_pair, script)?;
             (a, a_s)
         }
-        Rule::object_literal | Rule::object_literal__yield => unimplemented!(), /* is_valid_simple_assignment_target&is_function_definition&is_identifier_ref=false */
+        Rule::object_literal | Rule::object_literal__yield => {
+            build_ast_from_object_literal(inner_pair, script)?
+        } /* is_valid_simple_assignment_target&is_function_definition&is_identifier_ref=false */
         Rule::generator_expression => {
             let (f, f_s) =
                 build_ast_from_generator_declaration_or_generator_expression(inner_pair, script)?;
@@ -2772,9 +2951,14 @@ fn build_ast_from_primary_expression(
                 build_ast_from_function_declaration_or_function_expression(inner_pair, script)?;
             (ExpressionType::FunctionOrGeneratorExpression(f), f_s)
         }
-        Rule::class_expression | Rule::class_expression__yield => unimplemented!(), /* is_valid_simple_assignment_target&is_identifier_ref=false */
+        Rule::class_expression | Rule::class_expression__yield => {
+            let (c, c_s) = build_ast_from_class_expression(inner_pair, script)?;
+            (ExpressionType::ClassExpression(c), c_s)
+        } /* is_valid_simple_assignment_target&is_identifier_ref=false */
         Rule::regular_expression_literal => unimplemented!(), /* is_valid_simple_assignment_target&is_function_definition&is_identifier_ref=false */
-        Rule::template_literal | Rule::template_literal__yield => unimplemented!(), /* is_valid_simple_assignment_target&is_function_definition&is_identifier_ref=false */
+        Rule::template_literal | Rule::template_literal__yield => {
+            build_ast_from_template_literal(inner_pair, script)?
+        } /* is_valid_simple_assignment_target&is_function_definition&is_identifier_ref=false */
         Rule::cover_parenthesized_expression_and_arrow_parameter_list
         | Rule::cover_parenthesized_expression_and_arrow_parameter_list__yield => {
             build_ast_from_cover_parenthesized_expression_and_arrow_parameter_list(
@@ -2794,7 +2978,7 @@ fn build_ast_from_cover_parenthesized_expression_and_arrow_parameter_list(
     pair: Pair<Rule>,
     script: &Rc<String>,
 ) -> Result<(ExpressionType, Semantics), JsRuleError> {
-    let inner_pair = pair.into_inner().next().unwrap();
+    let inner_pair = expect_inner(pair, "build_ast_from_cover_parenthesized_expression_and_arrow_parameter_list", script)?;
     build_ast_from_expression(inner_pair, script)
 }
 
@@ -2802,7 +2986,7 @@ fn build_ast_from_literal(
     pair: Pair<Rule>,
     script: &Rc<String>,
 ) -> Result<LiteralData, JsRuleError> {
-    let inner_pair = pair.into_inner().next().unwrap();
+    let inner_pair = expect_inner(pair, "build_ast_from_literal", script)?;
     let meta = get_meta(&inner_pair, script);
     Ok(match inner_pair.as_rule() {
         Rule::null_literal => LiteralData {
@@ -2835,6 +3019,184 @@ fn build_ast_from_string_literal(
         meta,
         value: LiteralType::StringLiteral(String::from(&s[1..s.len() - 1])),
     })
+}
+
+/// Builds AST from a template literal.
+/// Template literals can be:
+///   - no_substitution_template: `hello world`
+///   - template with substitutions: `hello ${name}!`
+fn build_ast_from_template_literal(
+    pair: Pair<Rule>,
+    script: &Rc<String>,
+) -> Result<(ExpressionType, Semantics), JsRuleError> {
+    let meta = get_meta(&pair, script);
+    let mut quasis: Vec<TemplateElementData> = vec![];
+    let mut expressions: Vec<Rc<ExpressionType>> = vec![];
+    let mut s = Semantics::new_empty();
+
+    for inner_pair in pair.into_inner() {
+        match inner_pair.as_rule() {
+            Rule::no_substitution_template => {
+                // Simple template with no interpolations: `hello`
+                let raw_str = inner_pair.as_str();
+                // Remove the backticks
+                let content = &raw_str[1..raw_str.len() - 1];
+                let quasi_meta = get_meta(&inner_pair, script);
+                quasis.push(TemplateElementData {
+                    meta: quasi_meta,
+                    tail: true,
+                    cooked_value: process_template_escapes(content),
+                    raw_value: content.to_string(),
+                });
+            }
+            Rule::template_head => {
+                // Head of template with substitutions: `hello ${
+                let raw_str = inner_pair.as_str();
+                // Remove ` from start and ${ from end
+                let content = &raw_str[1..raw_str.len() - 2];
+                let quasi_meta = get_meta(&inner_pair, script);
+                quasis.push(TemplateElementData {
+                    meta: quasi_meta,
+                    tail: false,
+                    cooked_value: process_template_escapes(content),
+                    raw_value: content.to_string(),
+                });
+            }
+            Rule::template_middle => {
+                // Middle part between substitutions: }...${
+                let raw_str = inner_pair.as_str();
+                // Remove } from start and ${ from end
+                let content = &raw_str[1..raw_str.len() - 2];
+                let quasi_meta = get_meta(&inner_pair, script);
+                quasis.push(TemplateElementData {
+                    meta: quasi_meta,
+                    tail: false,
+                    cooked_value: process_template_escapes(content),
+                    raw_value: content.to_string(),
+                });
+            }
+            Rule::template_tail => {
+                // End of template with substitutions: }...`
+                let raw_str = inner_pair.as_str();
+                // Remove } from start and ` from end
+                let content = &raw_str[1..raw_str.len() - 1];
+                let quasi_meta = get_meta(&inner_pair, script);
+                quasis.push(TemplateElementData {
+                    meta: quasi_meta,
+                    tail: true,
+                    cooked_value: process_template_escapes(content),
+                    raw_value: content.to_string(),
+                });
+            }
+            Rule::expression__in | Rule::expression__in_yield => {
+                let (expr, expr_s) = build_ast_from_expression(inner_pair, script)?;
+                s.merge(expr_s);
+                expressions.push(Rc::new(expr));
+            }
+            _ => {
+                return Err(get_unexpected_error(
+                    "build_ast_from_template_literal",
+                    &inner_pair,
+                ))
+            }
+        }
+    }
+
+    Ok((
+        ExpressionType::TemplateLiteral(TemplateLiteralData {
+            meta,
+            quasis,
+            expressions,
+        }),
+        s,
+    ))
+}
+
+/// Process escape sequences in template literal content.
+fn process_template_escapes(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some('n') => result.push('\n'),
+                Some('r') => result.push('\r'),
+                Some('t') => result.push('\t'),
+                Some('\\') => result.push('\\'),
+                Some('`') => result.push('`'),
+                Some('$') => result.push('$'),
+                Some('0') => result.push('\0'),
+                Some('\'') => result.push('\''),
+                Some('"') => result.push('"'),
+                Some('x') => {
+                    // Hex escape: \xHH
+                    let mut hex = String::new();
+                    for _ in 0..2 {
+                        if let Some(&c) = chars.peek() {
+                            if c.is_ascii_hexdigit() {
+                                hex.push(chars.next().unwrap());
+                            }
+                        }
+                    }
+                    if hex.len() == 2 {
+                        if let Ok(val) = u8::from_str_radix(&hex, 16) {
+                            result.push(val as char);
+                        }
+                    }
+                }
+                Some('u') => {
+                    // Unicode escape: \uHHHH or \u{H...}
+                    if chars.peek() == Some(&'{') {
+                        chars.next(); // consume '{'
+                        let mut hex = String::new();
+                        while let Some(&c) = chars.peek() {
+                            if c == '}' {
+                                chars.next();
+                                break;
+                            }
+                            if c.is_ascii_hexdigit() {
+                                hex.push(chars.next().unwrap());
+                            } else {
+                                break;
+                            }
+                        }
+                        if let Ok(val) = u32::from_str_radix(&hex, 16) {
+                            if let Some(ch) = char::from_u32(val) {
+                                result.push(ch);
+                            }
+                        }
+                    } else {
+                        let mut hex = String::new();
+                        for _ in 0..4 {
+                            if let Some(&c) = chars.peek() {
+                                if c.is_ascii_hexdigit() {
+                                    hex.push(chars.next().unwrap());
+                                }
+                            }
+                        }
+                        if hex.len() == 4 {
+                            if let Ok(val) = u16::from_str_radix(&hex, 16) {
+                                result.push(char::from_u32(val as u32).unwrap_or('\u{FFFD}'));
+                            }
+                        }
+                    }
+                }
+                Some(other) => {
+                    // Unknown escape, just include the character
+                    result.push(other);
+                }
+                None => {
+                    // Trailing backslash
+                    result.push('\\');
+                }
+            }
+        } else {
+            result.push(c);
+        }
+    }
+
+    result
 }
 
 fn build_ast_from_str_numeric_literal(
@@ -2991,7 +3353,7 @@ fn build_ast_from_array_literal(
     for inner_pair in pair.into_inner() {
         match inner_pair.as_rule() {
             Rule::elision => {
-                for _ in 1..(inner_pair.as_str().matches(',').count()) {
+                for _ in 0..(inner_pair.as_str().matches(',').count()) {
                     arguments.push(None);
                 }
             }
@@ -3001,10 +3363,8 @@ fn build_ast_from_array_literal(
                 arguments.push(Some(ExpressionOrSpreadElement::Expression(Rc::new(a))));
             }
             Rule::spread_element | Rule::spread_element__yield => {
-                let (a, a_s) = build_ast_from_assignment_expression(
-                    inner_pair.into_inner().next().unwrap(),
-                    script,
-                )?;
+                let spread_inner = expect_inner(inner_pair, "spread_element", script)?;
+                let (a, a_s) = build_ast_from_assignment_expression(spread_inner, script)?;
                 s.merge(a_s);
                 arguments.push(Some(ExpressionOrSpreadElement::SpreadElement(Rc::new(a))));
             }
@@ -3250,4 +3610,253 @@ fn build_ast_from_identifier_reference(
             s,
         ))
     }
+}
+
+/// Builds AST from a class declaration.
+/// Grammar: "class" ~ binding_identifier ~ class_tail
+fn build_ast_from_class_declaration(
+    pair: Pair<Rule>,
+    script: &Rc<String>,
+) -> Result<(ClassData, Semantics), JsRuleError> {
+    let meta = get_meta(&pair, script);
+    let mut pair_iter = pair.into_inner();
+    let mut s = Semantics::new_empty();
+
+    // binding_identifier is required for class declarations
+    let id_pair = pair_iter.next().ok_or_else(|| {
+        get_validation_error_with_meta(
+            "Expected class name".to_string(),
+            AstBuilderValidationErrorType::SyntaxError,
+            meta.clone(),
+        )
+    })?;
+    let (id, id_s) = get_binding_identifier_data(id_pair, script)?;
+    s.merge(id_s);
+
+    // Parse class_tail
+    let class_tail_pair = pair_iter.next().ok_or_else(|| {
+        get_validation_error_with_meta(
+            "Expected class body".to_string(),
+            AstBuilderValidationErrorType::SyntaxError,
+            meta.clone(),
+        )
+    })?;
+    let (super_class, body, tail_s) = build_ast_from_class_tail(class_tail_pair, script)?;
+    s.merge(tail_s);
+
+    Ok((
+        ClassData {
+            meta,
+            id: Some(id),
+            super_class,
+            body,
+        },
+        s,
+    ))
+}
+
+/// Builds AST from a class expression.
+/// Grammar: "class" ~ binding_identifier? ~ class_tail
+fn build_ast_from_class_expression(
+    pair: Pair<Rule>,
+    script: &Rc<String>,
+) -> Result<(ClassData, Semantics), JsRuleError> {
+    let meta = get_meta(&pair, script);
+    let mut pair_iter = pair.into_inner();
+    let mut s = Semantics::new_empty();
+
+    // Check if there's an optional binding_identifier
+    let first_pair = pair_iter.next();
+    let (id, class_tail_pair) = if let Some(fp) = first_pair {
+        if fp.as_rule() == Rule::binding_identifier || fp.as_rule() == Rule::binding_identifier__yield
+        {
+            let (id, _id_s) = get_binding_identifier_data(fp, script)?;
+            // For class expressions, we don't include the name in bound_names
+            let tail = pair_iter.next().ok_or_else(|| {
+                get_validation_error_with_meta(
+                    "Expected class body".to_string(),
+                    AstBuilderValidationErrorType::SyntaxError,
+                    meta.clone(),
+                )
+            })?;
+            (Some(id), tail)
+        } else {
+            // It's the class_tail
+            (None, fp)
+        }
+    } else {
+        return Err(get_validation_error_with_meta(
+            "Expected class body".to_string(),
+            AstBuilderValidationErrorType::SyntaxError,
+            meta.clone(),
+        ));
+    };
+
+    let (super_class, body, tail_s) = build_ast_from_class_tail(class_tail_pair, script)?;
+    s.merge(tail_s);
+
+    Ok((
+        ClassData {
+            meta,
+            id,
+            super_class,
+            body,
+        },
+        s,
+    ))
+}
+
+/// Builds AST from class_tail.
+/// Grammar: class_heritage? ~ "{" ~ class_body? ~ "}"
+fn build_ast_from_class_tail(
+    pair: Pair<Rule>,
+    script: &Rc<String>,
+) -> Result<(Option<Rc<ExpressionType>>, ClassBodyData, Semantics), JsRuleError> {
+    let meta = get_meta(&pair, script);
+    let mut s = Semantics::new_empty();
+    let mut super_class = None;
+    let mut methods: Vec<MethodDefinitionData> = vec![];
+
+    for inner_pair in pair.into_inner() {
+        match inner_pair.as_rule() {
+            Rule::class_heritage | Rule::class_heritage__yield => {
+                // class_heritage = "extends" ~ left_hand_side_expression
+                let lhs_pair = inner_pair.into_inner().next().ok_or_else(|| {
+                    get_validation_error_with_meta(
+                        "Expected superclass expression".to_string(),
+                        AstBuilderValidationErrorType::SyntaxError,
+                        meta.clone(),
+                    )
+                })?;
+                let (expr, expr_s) = build_ast_from_left_hand_side_expression(lhs_pair, script)?;
+                s.merge(expr_s);
+                super_class = Some(Rc::new(expr));
+            }
+            Rule::class_body | Rule::class_body__yield => {
+                // class_body = class_element_list
+                for element_pair in inner_pair.into_inner() {
+                    if let Some(method) =
+                        build_ast_from_class_element(element_pair, script, &mut s)?
+                    {
+                        methods.push(method);
+                    }
+                }
+            }
+            _ => {
+                return Err(get_unexpected_error("build_ast_from_class_tail", &inner_pair))
+            }
+        }
+    }
+
+    Ok((
+        super_class,
+        ClassBodyData { meta, body: methods },
+        s,
+    ))
+}
+
+/// Builds AST from a class_element.
+/// Grammar: method_definition | "static" ~ method_definition | ";"
+fn build_ast_from_class_element(
+    pair: Pair<Rule>,
+    script: &Rc<String>,
+    s: &mut Semantics,
+) -> Result<Option<MethodDefinitionData>, JsRuleError> {
+    let meta = get_meta(&pair, script);
+    let mut inner_iter = pair.into_inner();
+
+    // Check if empty (semicolon-only element)
+    let first_pair = match inner_iter.next() {
+        Some(p) => p,
+        None => return Ok(None), // Empty class element (;)
+    };
+
+    let (is_static, method_pair) = if first_pair.as_str() == "static" {
+        let mp = inner_iter.next().ok_or_else(|| {
+            get_validation_error_with_meta(
+                "Expected method definition after 'static'".to_string(),
+                AstBuilderValidationErrorType::SyntaxError,
+                meta.clone(),
+            )
+        })?;
+        (true, mp)
+    } else {
+        (false, first_pair)
+    };
+
+    // Parse the method definition
+    let (prop_data, method_s) = build_ast_from_method_definition(method_pair, script)?;
+    s.merge(method_s);
+
+    // Convert PropertyData to MethodDefinitionData
+    let PropertyData {
+        meta: prop_meta,
+        key,
+        value,
+        kind,
+        method: _,
+        shorthand: _,
+        computed,
+    } = prop_data;
+
+    // Extract FunctionData from the value expression
+    // We need to move out of value since FunctionData doesn't implement Clone
+    let func_data = match Rc::try_unwrap(value) {
+        Ok(ExpressionType::FunctionOrGeneratorExpression(f)) => f,
+        Ok(_) => {
+            return Err(get_validation_error_with_meta(
+                "Expected function in method definition".to_string(),
+                AstBuilderValidationErrorType::SyntaxError,
+                prop_meta.clone(),
+            ));
+        }
+        Err(rc_val) => {
+            // Rc has multiple owners, we need to reconstruct FunctionData
+            if let ExpressionType::FunctionOrGeneratorExpression(ref f) = *rc_val {
+                FunctionData {
+                    meta: f.meta.clone(),
+                    id: f.id.clone(),
+                    params: f.params.clone(),
+                    body: f.body.clone(),
+                    generator: f.generator,
+                }
+            } else {
+                return Err(get_validation_error_with_meta(
+                    "Expected function in method definition".to_string(),
+                    AstBuilderValidationErrorType::SyntaxError,
+                    prop_meta.clone(),
+                ));
+            }
+        }
+    };
+
+    // Determine method kind
+    let method_kind = match kind {
+        PropertyKind::Init => {
+            // Check if it's a constructor
+            if let ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(
+                ref id,
+            )) = *key
+            {
+                if id.name == "constructor" && !is_static {
+                    MethodDefinitionKind::Constructor
+                } else {
+                    MethodDefinitionKind::Method
+                }
+            } else {
+                MethodDefinitionKind::Method
+            }
+        }
+        PropertyKind::Get => MethodDefinitionKind::Get,
+        PropertyKind::Set => MethodDefinitionKind::Set,
+    };
+
+    Ok(Some(MethodDefinitionData {
+        meta: prop_meta,
+        key,
+        value: func_data,
+        kind: method_kind,
+        computed,
+        static_flag: is_static,
+    }))
 }
