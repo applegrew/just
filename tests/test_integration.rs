@@ -700,3 +700,72 @@ fn test_spread_function_call_mixed() {
     let result = run_js(code).unwrap();
     assert_eq!(result, JsValue::Number(JsNumberType::Integer(10)));
 }
+
+// ==================== PHASE 4: DESTRUCTURING TESTS ====================
+
+#[test]
+fn test_object_destructuring_basic() {
+    let code = "let { x, y } = { x: 1, y: 2 }; x + y;";
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(3)));
+}
+
+// TODO: Enable when parser supports rename syntax
+// #[test]
+// fn test_object_destructuring_rename() {
+//     let code = "let { x: renamed } = { x: 42 }; renamed;";
+//     let result = run_js(code).unwrap();
+//     assert_eq!(result, JsValue::Number(JsNumberType::Integer(42)));
+// }
+
+// TODO: Enable when parser supports default value syntax
+// #[test]
+// fn test_object_destructuring_default() {
+//     let code = "let { x = 10 } = {}; x;";
+//     let result = run_js(code).unwrap();
+//     assert_eq!(result, JsValue::Number(JsNumberType::Integer(10)));
+// }
+
+// TODO: Enable when parser supports default value syntax
+// #[test]
+// fn test_object_destructuring_default_not_used() {
+//     let code = "let { x = 10 } = { x: 5 }; x;";
+//     let result = run_js(code).unwrap();
+//     assert_eq!(result, JsValue::Number(JsNumberType::Integer(5)));
+// }
+
+#[test]
+fn test_array_destructuring_basic() {
+    let code = "let [a, b] = [1, 2]; a + b;";
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(3)));
+}
+
+#[test]
+fn test_array_destructuring_skip() {
+    let code = "let [, , third] = [1, 2, 3]; third;";
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(3)));
+}
+
+// TODO: Enable when parser supports default value syntax
+// #[test]
+// fn test_array_destructuring_default() {
+//     let code = "let [a = 10] = []; a;";
+//     let result = run_js(code).unwrap();
+//     assert_eq!(result, JsValue::Number(JsNumberType::Integer(10)));
+// }
+
+#[test]
+fn test_array_destructuring_rest() {
+    let code = "let [first, ...rest] = [1, 2, 3, 4]; rest.length;";
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(3)));
+}
+
+#[test]
+fn test_array_destructuring_rest_values() {
+    let code = "let [first, ...rest] = [1, 2, 3, 4]; rest[0] + rest[1] + rest[2];";
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(9)));
+}

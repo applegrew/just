@@ -3,9 +3,10 @@
 //! This module provides statement execution logic for the JavaScript interpreter.
 
 use crate::parser::ast::{
-    ExpressionPatternType, FunctionBodyData, FunctionData, PatternType, StatementType, DeclarationType,
-    VariableDeclarationData, VariableDeclarationKind, BlockStatementData, ExpressionType,
-    SwitchCaseData, CatchClauseData, ForIteratorData, VariableDeclarationOrPattern,
+    ExpressionPatternType, FunctionBodyData, FunctionData, LiteralType, NumberLiteralType,
+    PatternType, StatementType, DeclarationType, VariableDeclarationData, VariableDeclarationKind,
+    BlockStatementData, ExpressionType, SwitchCaseData, CatchClauseData, ForIteratorData,
+    VariableDeclarationOrPattern,
 };
 use crate::runner::ds::error::JErrorType;
 use crate::runner::ds::value::JsValue;
@@ -160,9 +161,6 @@ fn execute_variable_declaration(
     let is_var = matches!(var_decl.kind, VariableDeclarationKind::Var);
 
     for declarator in &var_decl.declarations {
-        // Get the binding name from the pattern
-        let name = get_binding_name(&declarator.id)?;
-
         // Evaluate initializer first (before potentially creating the binding)
         let value = if let Some(init) = &declarator.init {
             evaluate_expression(init, ctx)?
@@ -171,26 +169,224 @@ fn execute_variable_declaration(
             JsValue::Undefined
         };
 
-        // Create and initialize the binding
-        if is_var {
-            // var declarations go in the variable environment
-            // var allows re-declaration, so check if exists first
-            if ctx.has_var_binding(&name) {
-                // Just update the value
-                ctx.set_var_binding(&name, value)?;
-            } else {
-                // Create and initialize
-                ctx.create_var_binding(&name)?;
-                ctx.initialize_var_binding(&name, value)?;
-            }
-        } else {
-            // let/const declarations go in the lexical environment
-            ctx.create_binding(&name, is_const)?;
-            ctx.initialize_binding(&name, value)?;
-        }
+        // Bind the pattern to the value
+        bind_pattern(&declarator.id, value, ctx, is_const, is_var)?;
     }
 
     Ok(Completion::normal())
+}
+
+/// Bind a pattern to a value, creating bindings for all identifiers in the pattern.
+fn bind_pattern(
+    pattern: &PatternType,
+    value: JsValue,
+    ctx: &mut EvalContext,
+    is_const: bool,
+    is_var: bool,
+) -> Result<(), JErrorType> {
+    match pattern {
+        PatternType::PatternWhichCanBeExpression(ExpressionPatternType::Identifier(id)) => {
+            // Simple identifier binding
+            let name = &id.name;
+            if is_var {
+                if ctx.has_var_binding(name) {
+                    ctx.set_var_binding(name, value)?;
+                } else {
+                    ctx.create_var_binding(name)?;
+                    ctx.initialize_var_binding(name, value)?;
+                }
+            } else {
+                ctx.create_binding(name, is_const)?;
+                ctx.initialize_binding(name, value)?;
+            }
+            Ok(())
+        }
+
+        PatternType::ObjectPattern { properties, .. } => {
+            // Object destructuring: { x, y } = obj or { x: renamed } = obj
+            for prop in properties {
+                let prop_data = &prop.0;
+
+                // Get the property key name
+                let key_name = get_property_key_name(&prop_data.key)?;
+
+                // Get the value from the object
+                let prop_value = get_property_value(&value, &key_name)?;
+
+                // Bind the value to the pattern
+                // For shorthand like { x }, value is the same pattern as key
+                // For renamed like { x: renamed }, value is the renamed pattern
+                bind_pattern(&prop_data.value, prop_value, ctx, is_const, is_var)?;
+            }
+            Ok(())
+        }
+
+        PatternType::ArrayPattern { elements, .. } => {
+            // Array destructuring: [a, b] = arr
+            for (index, element) in elements.iter().enumerate() {
+                if let Some(elem_pattern) = element {
+                    // Check if it's a rest element
+                    if let PatternType::RestElement { argument, .. } = elem_pattern.as_ref() {
+                        // Rest element collects remaining elements into an array
+                        let rest_value = get_rest_elements(&value, index)?;
+                        bind_pattern(argument, rest_value, ctx, is_const, is_var)?;
+                    } else {
+                        // Regular element
+                        let elem_value = get_array_element(&value, index)?;
+                        bind_pattern(elem_pattern, elem_value, ctx, is_const, is_var)?;
+                    }
+                }
+                // None means hole/skip - do nothing
+            }
+            Ok(())
+        }
+
+        PatternType::AssignmentPattern { left, right, .. } => {
+            // Default value pattern: x = default or { x = default } = obj
+            // Use default if value is undefined
+            let actual_value = if matches!(value, JsValue::Undefined) {
+                evaluate_expression(right, ctx)?
+            } else {
+                value
+            };
+            bind_pattern(left, actual_value, ctx, is_const, is_var)
+        }
+
+        PatternType::RestElement { argument, .. } => {
+            // Rest element should be handled in array context
+            // If we get here directly, just bind the value as-is
+            bind_pattern(argument, value, ctx, is_const, is_var)
+        }
+
+        _ => Err(JErrorType::TypeError("Unsupported pattern type".to_string())),
+    }
+}
+
+/// Get the property key name from an expression (for destructuring).
+fn get_property_key_name(key_expr: &ExpressionType) -> Result<String, JErrorType> {
+    match key_expr {
+        ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(id)) => {
+            Ok(id.name.clone())
+        }
+        ExpressionType::Literal(lit_data) => {
+            match &lit_data.value {
+                LiteralType::StringLiteral(s) => Ok(s.clone()),
+                LiteralType::NumberLiteral(num) => {
+                    match num {
+                        NumberLiteralType::IntegerLiteral(n) => Ok(n.to_string()),
+                        NumberLiteralType::FloatLiteral(n) => Ok(n.to_string()),
+                    }
+                }
+                _ => Err(JErrorType::TypeError("Invalid property key in destructuring".to_string())),
+            }
+        }
+        _ => Err(JErrorType::TypeError("Computed property keys not yet supported in destructuring".to_string())),
+    }
+}
+
+/// Get a property value from an object (for destructuring).
+fn get_property_value(obj: &JsValue, key: &str) -> Result<JsValue, JErrorType> {
+    use crate::runner::ds::object_property::{PropertyDescriptor, PropertyKey};
+
+    match obj {
+        JsValue::Object(obj_ref) => {
+            let borrowed = obj_ref.borrow();
+            let base = borrowed.as_js_object().get_object_base();
+            let prop_key = PropertyKey::Str(key.to_string());
+
+            if let Some(PropertyDescriptor::Data(data)) = base.properties.get(&prop_key) {
+                Ok(data.value.clone())
+            } else {
+                Ok(JsValue::Undefined)
+            }
+        }
+        _ => Err(JErrorType::TypeError("Cannot destructure non-object".to_string())),
+    }
+}
+
+/// Get an element from an array by index (for destructuring).
+fn get_array_element(arr: &JsValue, index: usize) -> Result<JsValue, JErrorType> {
+    use crate::runner::ds::object_property::{PropertyDescriptor, PropertyKey};
+
+    match arr {
+        JsValue::Object(obj_ref) => {
+            let borrowed = obj_ref.borrow();
+            let base = borrowed.as_js_object().get_object_base();
+            let prop_key = PropertyKey::Str(index.to_string());
+
+            if let Some(PropertyDescriptor::Data(data)) = base.properties.get(&prop_key) {
+                Ok(data.value.clone())
+            } else {
+                Ok(JsValue::Undefined)
+            }
+        }
+        _ => Err(JErrorType::TypeError("Cannot destructure non-array".to_string())),
+    }
+}
+
+/// Get remaining elements from an array starting at index (for rest patterns).
+fn get_rest_elements(arr: &JsValue, start_index: usize) -> Result<JsValue, JErrorType> {
+    use crate::runner::ds::object::{JsObject, JsObjectType, ObjectType};
+    use crate::runner::ds::object_property::{PropertyDescriptor, PropertyDescriptorData, PropertyKey};
+    use crate::runner::ds::value::JsNumberType;
+    use crate::runner::plugin::types::SimpleObject;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    match arr {
+        JsValue::Object(obj_ref) => {
+            let borrowed = obj_ref.borrow();
+            let base = borrowed.as_js_object().get_object_base();
+
+            // Get original array length
+            let length = if let Some(PropertyDescriptor::Data(data)) =
+                base.properties.get(&PropertyKey::Str("length".to_string()))
+            {
+                match &data.value {
+                    JsValue::Number(JsNumberType::Integer(n)) => *n as usize,
+                    JsValue::Number(JsNumberType::Float(n)) => *n as usize,
+                    _ => 0,
+                }
+            } else {
+                0
+            };
+
+            // Create a new array with remaining elements
+            let mut rest_obj = SimpleObject::new();
+            let mut rest_index = 0;
+
+            for i in start_index..length {
+                let prop_key = PropertyKey::Str(i.to_string());
+                if let Some(PropertyDescriptor::Data(data)) = base.properties.get(&prop_key) {
+                    rest_obj.get_object_base_mut().properties.insert(
+                        PropertyKey::Str(rest_index.to_string()),
+                        PropertyDescriptor::Data(PropertyDescriptorData {
+                            value: data.value.clone(),
+                            writable: true,
+                            enumerable: true,
+                            configurable: true,
+                        }),
+                    );
+                    rest_index += 1;
+                }
+            }
+
+            // Set length
+            rest_obj.get_object_base_mut().properties.insert(
+                PropertyKey::Str("length".to_string()),
+                PropertyDescriptor::Data(PropertyDescriptorData {
+                    value: JsValue::Number(JsNumberType::Integer(rest_index as i64)),
+                    writable: true,
+                    enumerable: false,
+                    configurable: false,
+                }),
+            );
+
+            let obj: JsObjectType = Rc::new(RefCell::new(ObjectType::Ordinary(Box::new(rest_obj))));
+            Ok(JsValue::Object(obj))
+        }
+        _ => Err(JErrorType::TypeError("Cannot use rest with non-array".to_string())),
+    }
 }
 
 /// Execute a function declaration.
