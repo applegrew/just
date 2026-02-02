@@ -100,6 +100,10 @@ pub fn evaluate_expression(
         ExpressionType::ArrowFunctionExpression { .. } => {
             Err(JErrorType::TypeError("Arrow function expression not yet implemented".to_string()))
         }
+
+        ExpressionType::MemberExpression(_) => {
+            Err(JErrorType::TypeError("Member expression not yet implemented".to_string()))
+        }
     }
 }
 
@@ -122,7 +126,7 @@ fn evaluate_literal(lit: &LiteralData) -> ValueResult {
     })
 }
 
-/// Evaluate an expression pattern (identifier or member expression).
+/// Evaluate an expression pattern (identifier).
 fn evaluate_expression_pattern(
     pattern: &ExpressionPatternType,
     _ctx: &mut EvalContext,
@@ -130,9 +134,6 @@ fn evaluate_expression_pattern(
     match pattern {
         ExpressionPatternType::Identifier(id) => {
             Err(JErrorType::ReferenceError(format!("{} is not defined", id.name)))
-        }
-        ExpressionPatternType::MemberExpression(_) => {
-            Err(JErrorType::TypeError("Member expression not yet implemented".to_string()))
         }
     }
 }

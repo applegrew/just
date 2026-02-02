@@ -1,4 +1,7 @@
-use crate::parser::ast::IdentifierData;
+use crate::parser::ast::{
+    DeclarationType, ExpressionPatternType, IdentifierData, PatternType, StatementType,
+    VariableDeclarationKind,
+};
 
 pub struct TriStateBool {
     flag: Option<bool>,
@@ -136,5 +139,177 @@ impl Semantics {
         self.contains_super_call
             .merge(other.contains_super_call, true_wins);
         self
+    }
+}
+
+/// Scan a pattern and extract bound names.
+/// Returns: (bound_names, contains_expression, is_simple)
+/// - bound_names: list of identifier names bound by this pattern
+/// - contains_expression: true if the pattern contains any expressions (e.g., default values)
+/// - is_simple: true if the pattern is a simple identifier binding
+pub fn scan_pattern(pattern: &PatternType) -> (Vec<String>, bool, bool) {
+    let mut bound_names = Vec::new();
+    let mut contains_expression = false;
+    let mut is_simple = false;
+
+    match pattern {
+        PatternType::PatternWhichCanBeExpression(expr_pattern) => match expr_pattern {
+            ExpressionPatternType::Identifier(id) => {
+                bound_names.push(id.name.clone());
+                is_simple = true;
+            }
+        },
+        PatternType::ObjectPattern { properties, .. } => {
+            for prop in properties {
+                let (mut names, has_expr, _) = scan_pattern(&prop.0.value);
+                bound_names.append(&mut names);
+                if has_expr {
+                    contains_expression = true;
+                }
+            }
+        }
+        PatternType::ArrayPattern { elements, .. } => {
+            for elem in elements.iter().flatten() {
+                let (mut names, has_expr, _) = scan_pattern(elem);
+                bound_names.append(&mut names);
+                if has_expr {
+                    contains_expression = true;
+                }
+            }
+        }
+        PatternType::RestElement { argument, .. } => {
+            let (mut names, has_expr, _) = scan_pattern(argument);
+            bound_names.append(&mut names);
+            if has_expr {
+                contains_expression = true;
+            }
+        }
+        PatternType::AssignmentPattern { left, .. } => {
+            let (mut names, _, _) = scan_pattern(left);
+            bound_names.append(&mut names);
+            contains_expression = true; // AssignmentPattern always contains an expression (the default)
+        }
+    }
+
+    (bound_names, contains_expression, is_simple)
+}
+
+/// Scan a statement list for bound names from declarations.
+/// Returns bound names from var, let, const, and function declarations.
+pub fn scan_statement_list(statements: &[StatementType]) -> Vec<String> {
+    let mut bound_names = Vec::new();
+
+    for stmt in statements {
+        scan_statement(&mut bound_names, stmt);
+    }
+
+    bound_names
+}
+
+/// Helper function to scan a single statement for var-declared names.
+fn scan_statement(bound_names: &mut Vec<String>, stmt: &StatementType) {
+    match stmt {
+        StatementType::DeclarationStatement(decl) => match decl {
+            DeclarationType::VariableDeclaration(var_decl) => {
+                // Only collect var declarations at this level (let/const are block-scoped)
+                if matches!(var_decl.kind, VariableDeclarationKind::Var) {
+                    for declarator in &var_decl.declarations {
+                        let (mut names, _, _) = scan_pattern(&declarator.id);
+                        bound_names.append(&mut names);
+                    }
+                }
+            }
+            DeclarationType::FunctionOrGeneratorDeclaration(func) => {
+                if let Some(id) = &func.id {
+                    bound_names.push(id.name.clone());
+                }
+            }
+            DeclarationType::ClassDeclaration(class) => {
+                if let Some(id) = &class.id {
+                    bound_names.push(id.name.clone());
+                }
+            }
+        },
+        StatementType::BlockStatement(block) => {
+            // Recursively scan nested block statements for var declarations only
+            for nested_stmt in &block.body {
+                scan_statement(bound_names, nested_stmt);
+            }
+        }
+        StatementType::ForStatement { init, body, .. } => {
+            // Check init for var declarations
+            if let Some(init) = init {
+                if let crate::parser::ast::VariableDeclarationOrExpression::VariableDeclaration(
+                    var_decl,
+                ) = init
+                {
+                    if matches!(var_decl.kind, VariableDeclarationKind::Var) {
+                        for declarator in &var_decl.declarations {
+                            let (mut names, _, _) = scan_pattern(&declarator.id);
+                            bound_names.append(&mut names);
+                        }
+                    }
+                }
+            }
+            // Recursively scan body
+            scan_statement(bound_names, body);
+        }
+        StatementType::ForInStatement(for_data) | StatementType::ForOfStatement(for_data) => {
+            // Check left for var declarations
+            if let crate::parser::ast::VariableDeclarationOrPattern::VariableDeclaration(var_decl) =
+                &for_data.left
+            {
+                if matches!(var_decl.kind, VariableDeclarationKind::Var) {
+                    for declarator in &var_decl.declarations {
+                        let (mut names, _, _) = scan_pattern(&declarator.id);
+                        bound_names.append(&mut names);
+                    }
+                }
+            }
+            // Recursively scan body
+            scan_statement(bound_names, &for_data.body);
+        }
+        StatementType::WhileStatement { body, .. }
+        | StatementType::DoWhileStatement { body, .. } => {
+            scan_statement(bound_names, body);
+        }
+        StatementType::IfStatement {
+            consequent,
+            alternate,
+            ..
+        } => {
+            scan_statement(bound_names, consequent);
+            if let Some(alt) = alternate {
+                scan_statement(bound_names, alt);
+            }
+        }
+        StatementType::SwitchStatement { cases, .. } => {
+            for case in cases {
+                for case_stmt in &case.consequent {
+                    scan_statement(bound_names, case_stmt);
+                }
+            }
+        }
+        StatementType::TryStatement {
+            block,
+            handler,
+            finalizer,
+            ..
+        } => {
+            for block_stmt in &block.body {
+                scan_statement(bound_names, block_stmt);
+            }
+            if let Some(h) = handler {
+                for handler_stmt in &h.body.body {
+                    scan_statement(bound_names, handler_stmt);
+                }
+            }
+            if let Some(f) = finalizer {
+                for finalizer_stmt in &f.body {
+                    scan_statement(bound_names, finalizer_stmt);
+                }
+            }
+        }
+        _ => {}
     }
 }

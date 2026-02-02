@@ -3,13 +3,14 @@ use crate::parser::ast::{
     AssignmentOperator, AssignmentPropertyData, AstBuilderValidationErrorType, BinaryOperator,
     BlockStatementData, CatchClauseData, ClassBodyData, ClassData, DeclarationType,
     ExpressionOrSpreadElement, ExpressionOrSuper, ExpressionPatternType, ExpressionType,
-    ExtendedNumberLiteralType, ForIteratorData, FunctionBodyData, FunctionBodyOrExpression,
-    FunctionData, HasMeta, IdentifierData, JsError, JsErrorType, LiteralData, LiteralType,
-    LogicalOperator, MemberExpressionType, Meta, MethodDefinitionData, MethodDefinitionKind,
-    NumberLiteralType, PatternOrExpression, PatternType, ProgramData, PropertyData, PropertyKind,
-    StatementType, SwitchCaseData, TemplateElementData, TemplateLiteralData, UnaryOperator,
-    UpdateOperator, VariableDeclarationData, VariableDeclarationKind,
-    VariableDeclarationOrExpression, VariableDeclarationOrPattern, VariableDeclaratorData,
+    ExtendedNumberLiteralType, FormalParameters, ForIteratorData, FunctionBodyData,
+    FunctionBodyOrExpression, FunctionData, HasMeta, IdentifierData, JsError, JsErrorType,
+    LiteralData, LiteralType, LogicalOperator, MemberExpressionType, Meta, MethodDefinitionData,
+    MethodDefinitionKind, NumberLiteralType, PatternOrExpression, PatternType, ProgramData,
+    PropertyData, PropertyKind, StatementType, SwitchCaseData, TemplateElementData,
+    TemplateLiteralData, UnaryOperator, UpdateOperator, VariableDeclarationData,
+    VariableDeclarationKind, VariableDeclarationOrExpression, VariableDeclarationOrPattern,
+    VariableDeclaratorData,
 };
 use crate::parser::static_semantics::Semantics;
 use crate::parser::util::TAB_WIDTH;
@@ -439,7 +440,7 @@ fn build_ast_from_generator_declaration_or_generator_expression(
             meta,
             id: f_name,
             body,
-            params: args,
+            params: FormalParameters::new(args),
             generator: true,
         },
         s,
@@ -496,7 +497,7 @@ fn build_ast_from_function_declaration_or_function_expression(
             meta,
             id: f_name,
             body,
-            params: args,
+            params: FormalParameters::new(args),
             generator: false,
         },
         s,
@@ -1883,6 +1884,16 @@ fn convert_lhs_expression_to_pattern_for_assignment_operation(
 ) -> Result<PatternType, JsRuleError> {
     match lhs_exp {
         ExpressionType::ExpressionWhichCanBePattern(p) => Ok(p.convert_to_pattern()),
+        ExpressionType::MemberExpression(member_expr) => {
+            // MemberExpression is a valid assignment target (e.g., obj.prop = value)
+            // but it doesn't convert directly to a pattern in the destructuring sense.
+            // Return an error as member expressions can't be destructured.
+            Err(get_validation_error_with_meta(
+                "Member expression cannot be used as destructuring pattern".to_string(),
+                AstBuilderValidationErrorType::ReferenceError,
+                member_expr.get_meta().clone(),
+            ))
+        }
         ExpressionType::ArrayExpression {
             meta,
             elements: o_elements,
@@ -2635,23 +2646,21 @@ fn build_ast_from_call_expression(
             Rule::expression__in_yield | Rule::expression__in => {
                 let (e, mut e_s) = build_ast_from_expression(pair, script)?;
                 s.merge(e_s);
-                ExpressionPatternType::MemberExpression(
+                ExpressionType::MemberExpression(
                     MemberExpressionType::ComputedMemberExpression {
                         meta,
                         object: ExpressionOrSuper::Expression(Box::new(obj)),
                         property: Box::new(e),
                     },
                 )
-                .convert_to_expression()
             }
-            Rule::identifier_name => ExpressionPatternType::MemberExpression(
+            Rule::identifier_name => ExpressionType::MemberExpression(
                 MemberExpressionType::SimpleMemberExpression {
                     meta,
                     object: ExpressionOrSuper::Expression(Box::new(obj)),
                     property: get_identifier_data(pair, script),
                 },
-            )
-            .convert_to_expression(),
+            ),
             //Tagged template literal
             Rule::template_literal | Rule::template_literal__yield => {
                 let (template, t_s) = build_ast_from_template_literal(pair, script)?;
@@ -2798,25 +2807,23 @@ fn build_ast_from_member_expression(
                 Rule::super_property | Rule::super_property__yield => {
                     let super_pair = pair_1.into_inner().next().unwrap();
                     if super_pair.as_rule() == Rule::identifier_name {
-                        ExpressionPatternType::MemberExpression(
+                        ExpressionType::MemberExpression(
                             MemberExpressionType::SimpleMemberExpression {
                                 meta,
                                 object: ExpressionOrSuper::Super,
                                 property: get_identifier_data(super_pair, script),
                             },
                         )
-                        .convert_to_expression()
                     } else {
                         let (e, e_s) = build_ast_from_expression(super_pair, script)?;
                         s.merge(e_s);
-                        ExpressionPatternType::MemberExpression(
+                        ExpressionType::MemberExpression(
                             MemberExpressionType::ComputedMemberExpression {
                                 meta,
                                 object: ExpressionOrSuper::Super,
                                 property: Box::new(e),
                             },
                         )
-                        .convert_to_expression()
                     }
                 }
                 Rule::meta_property => {
@@ -2867,23 +2874,21 @@ fn build_ast_from_member_expression(
                     Rule::expression__in_yield | Rule::expression__in => {
                         let (st, st_s) = build_ast_from_expression(pair, script)?;
                         s.merge(st_s);
-                        ExpressionPatternType::MemberExpression(
+                        ExpressionType::MemberExpression(
                             MemberExpressionType::ComputedMemberExpression {
                                 meta,
                                 object: ExpressionOrSuper::Expression(Box::new(obj)),
                                 property: Box::new(st),
                             },
                         )
-                        .convert_to_expression()
                     }
-                    Rule::identifier_name => ExpressionPatternType::MemberExpression(
+                    Rule::identifier_name => ExpressionType::MemberExpression(
                         MemberExpressionType::SimpleMemberExpression {
                             meta,
                             object: ExpressionOrSuper::Expression(Box::new(obj)),
                             property: get_identifier_data(pair, script),
                         },
-                    )
-                    .convert_to_expression(),
+                    ),
                     Rule::template_literal | Rule::template_literal__yield => {
                         let (template, t_s) = build_ast_from_template_literal(pair, script)?;
                         s.merge(t_s);
@@ -3490,7 +3495,7 @@ fn build_ast_from_method_definition(
                     FunctionData {
                         meta: meta2,
                         id: None,
-                        params: fp,
+                        params: FormalParameters::new(fp),
                         body: Box::new(fb),
                         generator: false,
                     },
@@ -3524,7 +3529,7 @@ fn build_ast_from_method_definition(
                     FunctionData {
                         meta: meta2,
                         id: None,
-                        params: fp,
+                        params: FormalParameters::new(fp),
                         body: Box::new(fb),
                         generator: true,
                     },
@@ -3546,7 +3551,7 @@ fn build_ast_from_method_definition(
                     FunctionData {
                         meta: meta2,
                         id: None,
-                        params: vec![],
+                        params: FormalParameters::new(vec![]),
                         body: Box::new(fb),
                         generator: false,
                     },
@@ -3570,7 +3575,7 @@ fn build_ast_from_method_definition(
                     FunctionData {
                         meta: meta2,
                         id: None,
-                        params: fp,
+                        params: FormalParameters::new(fp),
                         body: Box::new(fb),
                         generator: false,
                     },

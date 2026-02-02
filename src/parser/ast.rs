@@ -109,7 +109,6 @@ impl Display for IdentifierData {
 #[derive(Debug)]
 pub enum ExpressionPatternType {
     Identifier(IdentifierData),
-    MemberExpression(MemberExpressionType), // This is 99% times Expression, till now I have only seen this become Pattern in for..in and for..of
 }
 
 impl ExpressionPatternType {
@@ -125,7 +124,6 @@ impl HasMeta for ExpressionPatternType {
     fn get_meta(&self) -> &Meta {
         match self {
             ExpressionPatternType::Identifier(data) => &data.meta,
-            ExpressionPatternType::MemberExpression(data) => data.get_meta(),
         }
     }
 
@@ -137,10 +135,6 @@ impl HasMeta for ExpressionPatternType {
                     data.to_formatted_string(script)
                 )
             }
-            ExpressionPatternType::MemberExpression(data) => format!(
-                "ExpressionPatternType::MemberExpression({})",
-                data.to_formatted_string(script)
-            ),
         }
     }
 }
@@ -149,7 +143,7 @@ impl HasMeta for ExpressionPatternType {
 pub enum ExpressionType {
     ExpressionWhichCanBePattern(ExpressionPatternType),
     Literal(LiteralData),
-    // MemberExpression(MemberExpressionType),
+    MemberExpression(MemberExpressionType),
     ThisExpression {
         meta: Meta,
     },
@@ -262,7 +256,7 @@ impl HasMeta for ExpressionType {
             ExpressionType::ClassExpression(data) => &data.meta,
             ExpressionType::MetaProperty { meta, .. } => &meta,
             ExpressionType::ExpressionWhichCanBePattern(d) => d.get_meta(),
-            // ExpressionType::MemberExpression(data) => data.get_meta(),
+            ExpressionType::MemberExpression(data) => data.get_meta(),
         }
     }
 
@@ -446,10 +440,10 @@ impl HasMeta for ExpressionType {
                 "ExpressionType::ExpressionWhichCanBePattern({})",
                 d.to_formatted_string(script)
             ),
-            // ExpressionType::MemberExpression(data) => format!(
-            //     "ExpressionType::MemberExpression({})",
-            //     data.to_formatted_string(script)
-            // ),
+            ExpressionType::MemberExpression(data) => format!(
+                "ExpressionType::MemberExpression({})",
+                data.to_formatted_string(script)
+            ),
         }
     }
 }
@@ -1367,10 +1361,31 @@ impl HasMeta for SwitchCaseData {
 }
 
 #[derive(Debug)]
+pub struct FormalParameters {
+    pub list: Vec<PatternType>,
+    pub is_simple_parameter_list: bool,
+}
+
+impl FormalParameters {
+    pub fn new(params: Vec<PatternType>) -> Self {
+        let is_simple = params.iter().all(|p| {
+            matches!(
+                p,
+                PatternType::PatternWhichCanBeExpression(ExpressionPatternType::Identifier(_))
+            )
+        });
+        FormalParameters {
+            list: params,
+            is_simple_parameter_list: is_simple,
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct FunctionData {
     pub meta: Meta,
     pub id: Option<IdentifierData>,
-    pub params: Vec<PatternType>,
+    pub params: FormalParameters,
     pub body: Box<FunctionBodyData>,
     pub generator: bool,
 }
@@ -1389,7 +1404,7 @@ impl HasMeta for FunctionData {
             )
             .add_fields(
                 "params",
-                format_vec(&self.params, |p| p.to_formatted_string(script)),
+                format_vec(&self.params.list, |p| p.to_formatted_string(script)),
             )
             .add_fields("body", self.body.to_formatted_string(script))
             .add_fields("generator", self.generator.to_string())
@@ -1521,15 +1536,11 @@ impl<V> PropertyData<V> {
                 ExpressionPatternType::Identifier(id) => {
                     Self::new_with_identifier_key(meta, id, value, kind, method, shorthand)
                 }
-                ExpressionPatternType::MemberExpression(_) => Self::new_with_computed_key(
-                    meta,
-                    e.convert_to_expression(),
-                    value,
-                    kind,
-                    method,
-                ),
             },
             ExpressionType::Literal(l) => Self::new_with_literal_key(meta, l, value, kind, method),
+            ExpressionType::MemberExpression(_) => {
+                Self::new_with_computed_key(meta, key, value, kind, method)
+            }
             _ => Self::new_with_computed_key(meta, key, value, kind, method),
         }
     }
@@ -1566,7 +1577,7 @@ impl HasMeta for PropertyData<Box<PatternType>> {
 }
 
 #[derive(Debug)]
-pub enum LiteralOrIdentifier {
+enum LiteralOrIdentifier {
     Literal(LiteralData),
     Identifier(IdentifierData),
 }

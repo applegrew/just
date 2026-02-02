@@ -1,8 +1,7 @@
 use crate::parser::ast::{
     DeclarationType, ExpressionOrSuper, ExpressionPatternType, ExpressionType, HasMeta,
-    IdentifierData, LiteralOrIdentifier, MemberExpressionType, Meta, PatternType, ProgramData,
-    StatementType, VariableDeclarationData, VariableDeclarationKind,
-    VariableDeclarationOrExpression,
+    IdentifierData, MemberExpressionType, Meta, PatternType, ProgramData, StatementType,
+    VariableDeclarationData, VariableDeclarationKind, VariableDeclarationOrExpression,
 };
 use std::collections::HashMap;
 use std::ops::Deref;
