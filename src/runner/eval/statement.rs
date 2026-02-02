@@ -5,6 +5,7 @@
 use crate::parser::ast::{
     ExpressionPatternType, FunctionBodyData, PatternType, StatementType, DeclarationType,
     VariableDeclarationData, VariableDeclarationKind, BlockStatementData, ExpressionType,
+    SwitchCaseData, CatchClauseData,
 };
 use crate::runner::ds::error::JErrorType;
 use crate::runner::ds::value::JsValue;
@@ -60,8 +61,8 @@ pub fn execute_statement(
             Err(JErrorType::TypeError("for-of not yet implemented".to_string()))
         }
 
-        StatementType::SwitchStatement { .. } => {
-            Err(JErrorType::TypeError("switch not yet implemented".to_string()))
+        StatementType::SwitchStatement { discriminant, cases, .. } => {
+            execute_switch_statement(discriminant, cases, ctx)
         }
 
         StatementType::BreakStatement { .. } => {
@@ -90,8 +91,8 @@ pub fn execute_statement(
             })
         }
 
-        StatementType::TryStatement { .. } => {
-            Err(JErrorType::TypeError("try-catch not yet implemented".to_string()))
+        StatementType::TryStatement { block, handler, finalizer, .. } => {
+            execute_try_statement(block, handler.as_ref(), finalizer.as_ref(), ctx)
         }
 
         StatementType::DebuggerStatement { .. } => {
@@ -371,4 +372,154 @@ fn execute_function_body(
     }
 
     Ok(completion)
+}
+
+/// Execute a switch statement.
+fn execute_switch_statement(
+    discriminant: &ExpressionType,
+    cases: &[SwitchCaseData],
+    ctx: &mut EvalContext,
+) -> EvalResult {
+    use super::expression::strict_equality;
+
+    // Evaluate the discriminant
+    let switch_value = evaluate_expression(discriminant, ctx)?;
+
+    // Find the matching case (or default)
+    let mut found_match = false;
+    let mut default_index: Option<usize> = None;
+    let mut start_index: Option<usize> = None;
+
+    // First pass: find the matching case
+    for (i, case) in cases.iter().enumerate() {
+        if let Some(test) = &case.test {
+            // This is a case clause
+            let case_value = evaluate_expression(test, ctx)?;
+            if strict_equality(&switch_value, &case_value) {
+                start_index = Some(i);
+                found_match = true;
+                break;
+            }
+        } else {
+            // This is the default clause
+            default_index = Some(i);
+        }
+    }
+
+    // If no match found, use default if available
+    if !found_match {
+        start_index = default_index;
+    }
+
+    // Execute statements starting from the matched case (fall-through behavior)
+    let mut completion = Completion::normal();
+
+    if let Some(start) = start_index {
+        for case in cases.iter().skip(start) {
+            for stmt in &case.consequent {
+                completion = execute_statement(stmt, ctx)?;
+
+                match completion.completion_type {
+                    CompletionType::Break => {
+                        // Break exits the switch
+                        return Ok(Completion::normal_with_value(completion.get_value()));
+                    }
+                    CompletionType::Return | CompletionType::Throw | CompletionType::Continue => {
+                        // These propagate up
+                        return Ok(completion);
+                    }
+                    CompletionType::Normal => {}
+                }
+            }
+        }
+    }
+
+    Ok(completion)
+}
+
+/// Execute a try statement.
+fn execute_try_statement(
+    block: &BlockStatementData,
+    handler: Option<&CatchClauseData>,
+    finalizer: Option<&BlockStatementData>,
+    ctx: &mut EvalContext,
+) -> EvalResult {
+    // Execute the try block
+    let try_result = execute_block_statement(block, ctx);
+
+    let mut completion = match try_result {
+        Ok(comp) => {
+            // Check if it's a throw completion
+            if comp.completion_type == CompletionType::Throw {
+                // Handle the throw in catch if available
+                if let Some(catch_clause) = handler {
+                    handle_catch(comp, catch_clause, ctx)?
+                } else {
+                    comp
+                }
+            } else {
+                comp
+            }
+        }
+        Err(err) => {
+            // Runtime error - treat as throw
+            if let Some(catch_clause) = handler {
+                let throw_completion = Completion {
+                    completion_type: CompletionType::Throw,
+                    value: Some(error_to_js_value(&err)),
+                    target: None,
+                };
+                handle_catch(throw_completion, catch_clause, ctx)?
+            } else {
+                return Err(err);
+            }
+        }
+    };
+
+    // Execute the finally block if present
+    if let Some(finally_block) = finalizer {
+        let finally_result = execute_block_statement(finally_block, ctx)?;
+
+        // If finally has an abrupt completion, it overrides the try/catch result
+        if finally_result.is_abrupt() {
+            completion = finally_result;
+        }
+    }
+
+    Ok(completion)
+}
+
+/// Handle a catch clause.
+fn handle_catch(
+    thrown: Completion,
+    catch_clause: &CatchClauseData,
+    ctx: &mut EvalContext,
+) -> EvalResult {
+    // Create a new block scope for the catch clause
+    ctx.push_block_scope();
+
+    // Bind the error to the catch parameter
+    let param_name = get_binding_name(&catch_clause.param)?;
+    let error_value = thrown.value.unwrap_or(JsValue::Undefined);
+
+    ctx.create_binding(&param_name, false)?;
+    ctx.initialize_binding(&param_name, error_value)?;
+
+    // Execute the catch block
+    let result = execute_block_statement(&catch_clause.body, ctx);
+
+    // Pop the catch scope
+    ctx.pop_block_scope();
+
+    result
+}
+
+/// Convert a JErrorType to a JsValue for catching.
+fn error_to_js_value(err: &JErrorType) -> JsValue {
+    match err {
+        JErrorType::TypeError(msg) => JsValue::String(format!("TypeError: {}", msg)),
+        JErrorType::ReferenceError(msg) => JsValue::String(format!("ReferenceError: {}", msg)),
+        JErrorType::SyntaxError(msg) => JsValue::String(format!("SyntaxError: {}", msg)),
+        JErrorType::RangeError(msg) => JsValue::String(format!("RangeError: {}", msg)),
+    }
 }

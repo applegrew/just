@@ -6,7 +6,8 @@
 use crate::parser::ast::{
     AssignmentOperator, BinaryOperator, ExpressionOrSpreadElement, ExpressionOrSuper,
     ExpressionType, ExpressionPatternType, LiteralData, LiteralType, MemberExpressionType,
-    PatternOrExpression, PatternType, PropertyData, PropertyKind, UnaryOperator, LogicalOperator,
+    PatternOrExpression, PatternType, PropertyData, PropertyKind, UnaryOperator, UpdateOperator,
+    LogicalOperator,
 };
 use crate::runner::ds::error::JErrorType;
 use crate::runner::ds::object::{JsObjectType, ObjectType};
@@ -59,8 +60,8 @@ pub fn evaluate_expression(
             evaluate_logical_expression(operator, left, right, ctx)
         }
 
-        ExpressionType::UpdateExpression { .. } => {
-            Err(JErrorType::TypeError("Update expression not yet implemented".to_string()))
+        ExpressionType::UpdateExpression { operator, argument, prefix, .. } => {
+            evaluate_update_expression(operator, argument, *prefix, ctx)
         }
 
         ExpressionType::AssignmentExpression { operator, left, right, .. } => {
@@ -796,6 +797,50 @@ fn evaluate_sequence_expression(
     Ok(result)
 }
 
+/// Evaluate an update expression (++x, x++, --x, x--).
+fn evaluate_update_expression(
+    operator: &UpdateOperator,
+    argument: &ExpressionType,
+    prefix: bool,
+    ctx: &mut EvalContext,
+) -> ValueResult {
+    // Get the variable name from the argument
+    let name = get_expression_name(argument)?;
+
+    // Get the current value
+    let current_value = ctx.get_binding(&name)?;
+
+    // Convert to number
+    let old_number = to_number(&current_value)?;
+    let old_f64 = match &old_number {
+        JsValue::Number(n) => number_to_f64(n),
+        _ => f64::NAN,
+    };
+
+    // Compute the new value based on operator
+    let new_f64 = match operator {
+        UpdateOperator::PlusPlus => old_f64 + 1.0,
+        UpdateOperator::MinusMinus => old_f64 - 1.0,
+    };
+
+    // Create the new JsValue
+    let new_value = if new_f64.fract() == 0.0 && new_f64.abs() < i64::MAX as f64 {
+        JsValue::Number(JsNumberType::Integer(new_f64 as i64))
+    } else {
+        JsValue::Number(JsNumberType::Float(new_f64))
+    };
+
+    // Store the new value
+    ctx.set_binding(&name, new_value.clone())?;
+
+    // Return old value for postfix, new value for prefix
+    if prefix {
+        Ok(new_value)
+    } else {
+        Ok(old_number)
+    }
+}
+
 // ============================================================================
 // Type conversion helpers
 // ============================================================================
@@ -996,7 +1041,7 @@ where
     Ok(JsValue::Boolean(result))
 }
 
-fn strict_equality(left: &JsValue, right: &JsValue) -> bool {
+pub fn strict_equality(left: &JsValue, right: &JsValue) -> bool {
     match (left, right) {
         (JsValue::Undefined, JsValue::Undefined) => true,
         (JsValue::Null, JsValue::Null) => true,

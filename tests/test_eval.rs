@@ -10,7 +10,7 @@ use just::runner::plugin::types::EvalContext;
 use just::runner::ds::value::{JsValue, JsNumberType};
 use just::parser::ast::{
     ExpressionType, LiteralData, LiteralType, NumberLiteralType, Meta,
-    BinaryOperator, UnaryOperator, LogicalOperator,
+    BinaryOperator, UnaryOperator, LogicalOperator, UpdateOperator,
 };
 use std::rc::Rc;
 
@@ -558,6 +558,16 @@ fn id_pattern(name: &str) -> PatternType {
     ))
 }
 
+/// Helper to create an update expression.
+fn update_expr(op: UpdateOperator, arg: ExpressionType, prefix: bool) -> ExpressionType {
+    ExpressionType::UpdateExpression {
+        meta: test_meta(),
+        operator: op,
+        argument: Box::new(arg),
+        prefix,
+    }
+}
+
 /// Helper to create a variable declaration statement.
 fn var_decl_stmt(
     kind: VariableDeclarationKind,
@@ -920,4 +930,100 @@ fn test_object_undefined_property() {
     let z_expr = member_expr(id_expr("obj"), "z");
     let z = evaluate_expression(&z_expr, &mut ctx).unwrap();
     assert_eq!(z, JsValue::Undefined);
+}
+
+// ============================================================================
+// Update expression tests (++, --)
+// ============================================================================
+
+#[test]
+fn test_prefix_increment() {
+    let mut ctx = EvalContext::new();
+
+    // var x = 5
+    let stmt = var_decl_stmt(VariableDeclarationKind::Var, "x", Some(num_expr(5)));
+    execute_statement(&stmt, &mut ctx).unwrap();
+
+    // ++x should return 6
+    let inc_expr = update_expr(UpdateOperator::PlusPlus, id_expr("x"), true);
+    let result = evaluate_expression(&inc_expr, &mut ctx).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(6)));
+
+    // x should now be 6
+    let x_val = evaluate_expression(&id_expr("x"), &mut ctx).unwrap();
+    assert_eq!(x_val, JsValue::Number(JsNumberType::Integer(6)));
+}
+
+#[test]
+fn test_postfix_increment() {
+    let mut ctx = EvalContext::new();
+
+    // var x = 5
+    let stmt = var_decl_stmt(VariableDeclarationKind::Var, "x", Some(num_expr(5)));
+    execute_statement(&stmt, &mut ctx).unwrap();
+
+    // x++ should return 5 (old value)
+    let inc_expr = update_expr(UpdateOperator::PlusPlus, id_expr("x"), false);
+    let result = evaluate_expression(&inc_expr, &mut ctx).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(5)));
+
+    // x should now be 6
+    let x_val = evaluate_expression(&id_expr("x"), &mut ctx).unwrap();
+    assert_eq!(x_val, JsValue::Number(JsNumberType::Integer(6)));
+}
+
+#[test]
+fn test_prefix_decrement() {
+    let mut ctx = EvalContext::new();
+
+    // var x = 5
+    let stmt = var_decl_stmt(VariableDeclarationKind::Var, "x", Some(num_expr(5)));
+    execute_statement(&stmt, &mut ctx).unwrap();
+
+    // --x should return 4
+    let dec_expr = update_expr(UpdateOperator::MinusMinus, id_expr("x"), true);
+    let result = evaluate_expression(&dec_expr, &mut ctx).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(4)));
+
+    // x should now be 4
+    let x_val = evaluate_expression(&id_expr("x"), &mut ctx).unwrap();
+    assert_eq!(x_val, JsValue::Number(JsNumberType::Integer(4)));
+}
+
+#[test]
+fn test_postfix_decrement() {
+    let mut ctx = EvalContext::new();
+
+    // var x = 5
+    let stmt = var_decl_stmt(VariableDeclarationKind::Var, "x", Some(num_expr(5)));
+    execute_statement(&stmt, &mut ctx).unwrap();
+
+    // x-- should return 5 (old value)
+    let dec_expr = update_expr(UpdateOperator::MinusMinus, id_expr("x"), false);
+    let result = evaluate_expression(&dec_expr, &mut ctx).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(5)));
+
+    // x should now be 4
+    let x_val = evaluate_expression(&id_expr("x"), &mut ctx).unwrap();
+    assert_eq!(x_val, JsValue::Number(JsNumberType::Integer(4)));
+}
+
+#[test]
+fn test_update_in_loop() {
+    let mut ctx = EvalContext::new();
+
+    // var i = 0
+    let var_stmt = var_decl_stmt(VariableDeclarationKind::Var, "i", Some(num_expr(0)));
+    execute_statement(&var_stmt, &mut ctx).unwrap();
+
+    // Simulate: while (i < 3) i++
+    // Just test three increments
+    for _ in 0..3 {
+        let inc_expr = update_expr(UpdateOperator::PlusPlus, id_expr("i"), false);
+        evaluate_expression(&inc_expr, &mut ctx).unwrap();
+    }
+
+    // i should be 3
+    let i_val = evaluate_expression(&id_expr("i"), &mut ctx).unwrap();
+    assert_eq!(i_val, JsValue::Number(JsNumberType::Integer(3)));
 }

@@ -5,7 +5,7 @@ use crate::runner::ds::value::JsValue;
 
 /// Completion record type.
 /// Represents the result of evaluating a statement or expression.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum CompletionType {
     /// Normal completion - execution continues.
     Normal,
