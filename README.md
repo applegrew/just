@@ -1,7 +1,5 @@
 <img src="logo/just-logo-full.png" alt="logo image" />
 
-**Next in line experimental branch for master. Contains lots of codes for AST bulding which is not related to primary experiment. They need to be in master irrespective of success or failure of primary experiment.**
-
 # just - JS on Rust
 A ground up implementation of ES6 JavaScript engine complete from parser to executor.
 
