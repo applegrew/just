@@ -163,16 +163,7 @@ fn execute_variable_declaration(
         // Get the binding name from the pattern
         let name = get_binding_name(&declarator.id)?;
 
-        // Create the binding
-        if is_var {
-            // var declarations go in the variable environment
-            ctx.create_var_binding(&name)?;
-        } else {
-            // let/const declarations go in the lexical environment
-            ctx.create_binding(&name, is_const)?;
-        }
-
-        // Evaluate initializer and initialize the binding
+        // Evaluate initializer first (before potentially creating the binding)
         let value = if let Some(init) = &declarator.init {
             evaluate_expression(init, ctx)?
         } else {
@@ -180,10 +171,21 @@ fn execute_variable_declaration(
             JsValue::Undefined
         };
 
-        // Initialize the binding with the value
+        // Create and initialize the binding
         if is_var {
-            ctx.initialize_var_binding(&name, value)?;
+            // var declarations go in the variable environment
+            // var allows re-declaration, so check if exists first
+            if ctx.has_var_binding(&name) {
+                // Just update the value
+                ctx.set_var_binding(&name, value)?;
+            } else {
+                // Create and initialize
+                ctx.create_var_binding(&name)?;
+                ctx.initialize_var_binding(&name, value)?;
+            }
         } else {
+            // let/const declarations go in the lexical environment
+            ctx.create_binding(&name, is_const)?;
             ctx.initialize_binding(&name, value)?;
         }
     }

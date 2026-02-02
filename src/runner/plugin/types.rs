@@ -253,6 +253,32 @@ impl EvalContext {
         }
     }
 
+    /// Check if a var binding exists.
+    pub fn has_var_binding(&self, name: &str) -> bool {
+        let env = self.var_env.borrow();
+        env.inner.as_env_record().has_binding(&name.to_string())
+    }
+
+    /// Set a var binding's value (for re-declaration).
+    pub fn set_var_binding(&mut self, name: &str, value: JsValue) -> Result<(), JErrorType> {
+        let name_string = name.to_string();
+        let mut env = self.var_env.borrow_mut();
+        match env.inner.as_mut() {
+            EnvironmentRecordType::Declarative(rec) => {
+                rec.set_mutable_binding(&mut self.ctx_stack, name_string, value)
+            }
+            EnvironmentRecordType::Function(rec) => {
+                rec.set_mutable_binding(&mut self.ctx_stack, name_string, value)
+            }
+            EnvironmentRecordType::Global(rec) => {
+                rec.set_mutable_binding(&mut self.ctx_stack, name_string, value)
+            }
+            EnvironmentRecordType::Object(rec) => {
+                rec.set_mutable_binding(&mut self.ctx_stack, name_string, value)
+            }
+        }
+    }
+
     /// Push a new block scope (for let/const).
     pub fn push_block_scope(&mut self) {
         let new_env = new_declarative_environment(Some(self.lex_env.clone()));
