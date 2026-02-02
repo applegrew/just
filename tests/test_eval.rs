@@ -772,3 +772,152 @@ fn test_member_access_on_null() {
     let result = evaluate_expression(&expr, &mut ctx);
     assert!(result.is_err());
 }
+
+// ============================================================================
+// Array and object literal tests
+// ============================================================================
+
+use just::parser::ast::{PropertyData, PropertyKind};
+
+/// Helper to create an array expression.
+fn array_expr(elements: Vec<ExpressionType>) -> ExpressionType {
+    use just::parser::ast::ExpressionOrSpreadElement;
+    ExpressionType::ArrayExpression {
+        meta: test_meta(),
+        elements: elements
+            .into_iter()
+            .map(|e| Some(ExpressionOrSpreadElement::Expression(Box::new(e))))
+            .collect(),
+    }
+}
+
+/// Helper to create an object expression with simple properties.
+fn object_expr(properties: Vec<(&str, ExpressionType)>) -> ExpressionType {
+    ExpressionType::ObjectExpression {
+        meta: test_meta(),
+        properties: properties
+            .into_iter()
+            .map(|(name, value)| PropertyData {
+                meta: test_meta(),
+                key: Box::new(id_expr(name)),
+                value: Box::new(value),
+                kind: PropertyKind::Init,
+                method: false,
+                shorthand: false,
+                computed: false,
+            })
+            .collect(),
+    }
+}
+
+#[test]
+fn test_empty_array() {
+    let mut ctx = EvalContext::new();
+
+    // []
+    let expr = ExpressionType::ArrayExpression {
+        meta: test_meta(),
+        elements: vec![],
+    };
+    let result = evaluate_expression(&expr, &mut ctx).unwrap();
+
+    // Should be an object
+    assert!(matches!(result, JsValue::Object(_)));
+
+    // Access length
+    let length_expr = member_expr(
+        ExpressionType::ArrayExpression {
+            meta: test_meta(),
+            elements: vec![],
+        },
+        "length",
+    );
+    let length = evaluate_expression(&length_expr, &mut ctx).unwrap();
+    assert_eq!(length, JsValue::Number(JsNumberType::Integer(0)));
+}
+
+#[test]
+fn test_array_with_elements() {
+    let mut ctx = EvalContext::new();
+
+    // [1, 2, 3]
+    let arr = array_expr(vec![num_expr(1), num_expr(2), num_expr(3)]);
+
+    // Store it
+    let stmt = var_decl_stmt(VariableDeclarationKind::Var, "arr", Some(arr));
+    execute_statement(&stmt, &mut ctx).unwrap();
+
+    // Access arr.length
+    let length_expr = member_expr(id_expr("arr"), "length");
+    let length = evaluate_expression(&length_expr, &mut ctx).unwrap();
+    assert_eq!(length, JsValue::Number(JsNumberType::Integer(3)));
+
+    // Access arr[0]
+    let elem0 = computed_member_expr(id_expr("arr"), num_expr(0));
+    let val = evaluate_expression(&elem0, &mut ctx).unwrap();
+    assert_eq!(val, JsValue::Number(JsNumberType::Integer(1)));
+
+    // Access arr[2]
+    let elem2 = computed_member_expr(id_expr("arr"), num_expr(2));
+    let val = evaluate_expression(&elem2, &mut ctx).unwrap();
+    assert_eq!(val, JsValue::Number(JsNumberType::Integer(3)));
+}
+
+#[test]
+fn test_empty_object() {
+    let mut ctx = EvalContext::new();
+
+    // {}
+    let expr = ExpressionType::ObjectExpression {
+        meta: test_meta(),
+        properties: vec![],
+    };
+    let result = evaluate_expression(&expr, &mut ctx).unwrap();
+
+    // Should be an object
+    assert!(matches!(result, JsValue::Object(_)));
+}
+
+#[test]
+fn test_object_with_properties() {
+    let mut ctx = EvalContext::new();
+
+    // { x: 1, y: 2 }
+    let obj = object_expr(vec![("x", num_expr(1)), ("y", num_expr(2))]);
+
+    // Store it
+    let stmt = var_decl_stmt(VariableDeclarationKind::Var, "obj", Some(obj));
+    execute_statement(&stmt, &mut ctx).unwrap();
+
+    // Access obj.x
+    let x_expr = member_expr(id_expr("obj"), "x");
+    let x = evaluate_expression(&x_expr, &mut ctx).unwrap();
+    assert_eq!(x, JsValue::Number(JsNumberType::Integer(1)));
+
+    // Access obj.y
+    let y_expr = member_expr(id_expr("obj"), "y");
+    let y = evaluate_expression(&y_expr, &mut ctx).unwrap();
+    assert_eq!(y, JsValue::Number(JsNumberType::Integer(2)));
+
+    // Access obj["x"] (computed)
+    let x_computed = computed_member_expr(id_expr("obj"), str_expr("x"));
+    let x2 = evaluate_expression(&x_computed, &mut ctx).unwrap();
+    assert_eq!(x2, JsValue::Number(JsNumberType::Integer(1)));
+}
+
+#[test]
+fn test_object_undefined_property() {
+    let mut ctx = EvalContext::new();
+
+    // { x: 1 }
+    let obj = object_expr(vec![("x", num_expr(1))]);
+
+    // Store it
+    let stmt = var_decl_stmt(VariableDeclarationKind::Var, "obj", Some(obj));
+    execute_statement(&stmt, &mut ctx).unwrap();
+
+    // Access obj.z (undefined)
+    let z_expr = member_expr(id_expr("obj"), "z");
+    let z = evaluate_expression(&z_expr, &mut ctx).unwrap();
+    assert_eq!(z, JsValue::Undefined);
+}

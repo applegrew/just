@@ -6,12 +6,16 @@
 use crate::parser::ast::{
     AssignmentOperator, BinaryOperator, ExpressionOrSpreadElement, ExpressionOrSuper,
     ExpressionType, ExpressionPatternType, LiteralData, LiteralType, MemberExpressionType,
-    PatternOrExpression, PatternType, UnaryOperator, LogicalOperator,
+    PatternOrExpression, PatternType, PropertyData, PropertyKind, UnaryOperator, LogicalOperator,
 };
 use crate::runner::ds::error::JErrorType;
-use crate::runner::ds::object::ObjectType;
+use crate::runner::ds::object::{JsObjectType, ObjectType};
+use crate::runner::ds::object_property::{PropertyDescriptor, PropertyDescriptorData, PropertyKey};
 use crate::runner::ds::value::{JsValue, JsNumberType};
-use crate::runner::plugin::types::EvalContext;
+use crate::runner::plugin::types::{EvalContext, SimpleObject};
+
+use std::cell::RefCell;
+use std::rc::Rc;
 
 use super::types::ValueResult;
 
@@ -31,12 +35,12 @@ pub fn evaluate_expression(
             Ok(ctx.global_this.clone().unwrap_or(JsValue::Undefined))
         }
 
-        ExpressionType::ArrayExpression { .. } => {
-            Err(JErrorType::TypeError("Array expression not yet implemented".to_string()))
+        ExpressionType::ArrayExpression { elements, .. } => {
+            evaluate_array_expression(elements, ctx)
         }
 
-        ExpressionType::ObjectExpression { .. } => {
-            Err(JErrorType::TypeError("Object expression not yet implemented".to_string()))
+        ExpressionType::ObjectExpression { properties, .. } => {
+            evaluate_object_expression(properties, ctx)
         }
 
         ExpressionType::FunctionOrGeneratorExpression(_) => {
@@ -126,6 +130,136 @@ fn evaluate_literal(lit: &LiteralData) -> ValueResult {
             return Err(JErrorType::TypeError("RegExp literal not yet implemented".to_string()));
         }
     })
+}
+
+/// Evaluate an array expression and return an array object.
+fn evaluate_array_expression(
+    elements: &[Option<ExpressionOrSpreadElement>],
+    ctx: &mut EvalContext,
+) -> ValueResult {
+    use crate::runner::ds::object::JsObject;
+
+    // Create a new array object
+    let mut array_obj = SimpleObject::new();
+
+    let mut index = 0;
+    for element in elements {
+        if let Some(elem) = element {
+            let value = match elem {
+                ExpressionOrSpreadElement::Expression(expr) => evaluate_expression(expr, ctx)?,
+                ExpressionOrSpreadElement::SpreadElement(_) => {
+                    return Err(JErrorType::TypeError(
+                        "Spread in arrays not yet supported".to_string(),
+                    ));
+                }
+            };
+
+            // Define the element as a property
+            let key = PropertyKey::Str(index.to_string());
+            array_obj.get_object_base_mut().properties.insert(
+                key,
+                PropertyDescriptor::Data(PropertyDescriptorData {
+                    value,
+                    writable: true,
+                    enumerable: true,
+                    configurable: true,
+                }),
+            );
+        }
+        // Holes (None elements) are left as undefined/missing
+        index += 1;
+    }
+
+    // Set the length property
+    array_obj.get_object_base_mut().properties.insert(
+        PropertyKey::Str("length".to_string()),
+        PropertyDescriptor::Data(PropertyDescriptorData {
+            value: JsValue::Number(JsNumberType::Integer(index as i64)),
+            writable: true,
+            enumerable: false,
+            configurable: false,
+        }),
+    );
+
+    // Wrap in JsObjectType
+    let obj: JsObjectType = Rc::new(RefCell::new(ObjectType::Ordinary(Box::new(array_obj))));
+    Ok(JsValue::Object(obj))
+}
+
+/// Evaluate an object expression and return an object.
+fn evaluate_object_expression(
+    properties: &[PropertyData<Box<ExpressionType>>],
+    ctx: &mut EvalContext,
+) -> ValueResult {
+    use crate::runner::ds::object::JsObject;
+
+    // Create a new object
+    let mut obj = SimpleObject::new();
+
+    for prop in properties {
+        // Get the property key
+        let key = get_object_property_key(&prop.key, prop.computed, ctx)?;
+
+        // Only handle init properties for now (not getters/setters)
+        match prop.kind {
+            PropertyKind::Init => {
+                // Evaluate the value
+                let value = evaluate_expression(&prop.value, ctx)?;
+
+                // Define the property
+                obj.get_object_base_mut().properties.insert(
+                    PropertyKey::Str(key),
+                    PropertyDescriptor::Data(PropertyDescriptorData {
+                        value,
+                        writable: true,
+                        enumerable: true,
+                        configurable: true,
+                    }),
+                );
+            }
+            PropertyKind::Get | PropertyKind::Set => {
+                return Err(JErrorType::TypeError(
+                    "Getter/setter properties not yet supported".to_string(),
+                ));
+            }
+        }
+    }
+
+    // Wrap in JsObjectType
+    let obj_ref: JsObjectType = Rc::new(RefCell::new(ObjectType::Ordinary(Box::new(obj))));
+    Ok(JsValue::Object(obj_ref))
+}
+
+/// Get the property key from an object literal property.
+fn get_object_property_key(
+    key_expr: &ExpressionType,
+    computed: bool,
+    ctx: &mut EvalContext,
+) -> Result<String, JErrorType> {
+    if computed {
+        // Computed property: [expr]
+        let key_value = evaluate_expression(key_expr, ctx)?;
+        Ok(to_string(&key_value))
+    } else {
+        // Static property key
+        match key_expr {
+            ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(id)) => {
+                Ok(id.name.clone())
+            }
+            ExpressionType::Literal(lit) => match &lit.value {
+                LiteralType::StringLiteral(s) => Ok(s.clone()),
+                LiteralType::NumberLiteral(n) => {
+                    use crate::parser::ast::NumberLiteralType;
+                    match n {
+                        NumberLiteralType::IntegerLiteral(i) => Ok(i.to_string()),
+                        NumberLiteralType::FloatLiteral(f) => Ok(f.to_string()),
+                    }
+                }
+                _ => Err(JErrorType::TypeError("Invalid property key".to_string())),
+            },
+            _ => Err(JErrorType::TypeError("Invalid property key".to_string())),
+        }
+    }
 }
 
 /// Evaluate an expression pattern (identifier).
