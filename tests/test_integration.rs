@@ -608,3 +608,50 @@ fn test_instanceof_object_basic() {
     let result = run_js_get_var(code, "result").unwrap();
     assert_eq!(result, JsValue::Boolean(false));
 }
+
+// ============================================================================
+// Getter and Setter Tests
+// ============================================================================
+
+#[test]
+fn test_getter_basic() {
+    let code = "let obj = { get x() { return 42; } }; obj.x;";
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(42)));
+}
+
+#[test]
+fn test_setter_basic() {
+    let code = "let obj = { _v: 0, set v(x) { this._v = x; } }; obj.v = 10; obj._v;";
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(10)));
+}
+
+#[test]
+fn test_getter_setter_combined() {
+    let code = r#"
+        let obj = {
+            _value: 0,
+            get value() { return this._value; },
+            set value(v) { this._value = v * 2; }
+        };
+        obj.value = 21;
+        obj.value;
+    "#;
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(42)));
+}
+
+#[test]
+fn test_getter_with_this() {
+    let code = r#"
+        let obj = {
+            firstName: "John",
+            lastName: "Doe",
+            get fullName() { return this.firstName + " " + this.lastName; }
+        };
+        obj.fullName;
+    "#;
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::String("John Doe".to_string()));
+}

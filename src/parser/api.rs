@@ -554,6 +554,32 @@ fn build_ast_from_formal_parameters(
     Ok((args, s))
 }
 
+/// Build AST from a single formal parameter (used for setter property_set_parameter_list).
+fn build_ast_from_single_formal_parameter(
+    pair: Pair<Rule>,
+    script: &Rc<String>,
+) -> Result<(Vec<PatternType>, Semantics), JsRuleError> {
+    let mut args: Vec<PatternType> = vec![];
+    let mut s = Semantics::new_empty();
+
+    match pair.as_rule() {
+        Rule::formal_parameter | Rule::formal_parameter__yield => {
+            // formal_parameter contains binding_element
+            let binding_element = pair.into_inner().next().unwrap();
+            let (pattern, pattern_s) = build_ast_from_binding_element(binding_element, script)?;
+            s.merge(pattern_s);
+            args.push(pattern);
+        }
+        _ => {
+            return Err(get_unexpected_error(
+                "build_ast_from_single_formal_parameter",
+                &pair,
+            ))
+        }
+    }
+    Ok((args, s))
+}
+
 fn build_ast_from_generator_body(
     pair: Pair<Rule>,
     script: &Rc<String>,
@@ -1810,12 +1836,26 @@ fn build_ast_from_assignment_expression(
                     },
                 )
             } else {
-                (
-                    PatternOrExpression::Pattern(Box::new(
-                        convert_lhs_expression_to_pattern_for_assignment_operation(lhs, Some(&s))?,
-                    )),
-                    AssignmentOperator::Equals,
-                )
+                // For simple `=` assignment, check if LHS needs pattern conversion
+                // Member expressions and identifiers stay as expressions
+                // Array/object literals become destructuring patterns
+                let left = match &lhs {
+                    ExpressionType::MemberExpression(_) => {
+                        // Member expression stays as expression (e.g., obj.prop = value)
+                        PatternOrExpression::Expression(Box::new(lhs))
+                    }
+                    ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(_)) => {
+                        // Simple identifier stays as expression (e.g., x = value)
+                        PatternOrExpression::Expression(Box::new(lhs))
+                    }
+                    _ => {
+                        // Array/object literals need pattern conversion for destructuring
+                        PatternOrExpression::Pattern(Box::new(
+                            convert_lhs_expression_to_pattern_for_assignment_operation(lhs, Some(&s))?,
+                        ))
+                    }
+                };
+                (left, AssignmentOperator::Equals)
             };
             // next_pair is now assignment_expression
             let (assignment_exp, assignment_exp_s) =
@@ -3559,7 +3599,8 @@ fn build_ast_from_method_definition(
         }
         Rule::setter => {
             let (p, p_s) = build_ast_from_property_name(inner_iter.next().unwrap(), script)?;
-            let (fp, fp_s) = build_ast_from_formal_parameters(inner_iter.next().unwrap(), script)?;
+            // Setters use property_set_parameter_list which is a single formal_parameter (silent rule)
+            let (fp, fp_s) = build_ast_from_single_formal_parameter(inner_iter.next().unwrap(), script)?;
             let (fb, fb_s) = build_ast_from_function_body(inner_iter.next().unwrap(), script)?;
             validate_bound_names_have_no_duplicates_and_also_not_present_in_var_declared_names_or_lexically_declared_names(&fp_s.bound_names,&vec![],&fb_s.lexically_declared_names)?;
             s.merge(p_s).merge(fp_s).merge(fb_s);

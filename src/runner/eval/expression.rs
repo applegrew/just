@@ -5,13 +5,14 @@
 
 use crate::parser::ast::{
     AssignmentOperator, BinaryOperator, ExpressionOrSpreadElement, ExpressionOrSuper,
-    ExpressionType, ExpressionPatternType, LiteralData, LiteralType, MemberExpressionType,
+    ExpressionType, ExpressionPatternType, FunctionData, LiteralData, LiteralType, MemberExpressionType,
     PatternOrExpression, PatternType, PropertyData, PropertyKind, UnaryOperator, UpdateOperator,
     LogicalOperator,
 };
 use crate::runner::ds::error::JErrorType;
-use crate::runner::ds::object::{JsObjectType, ObjectType};
-use crate::runner::ds::object_property::{PropertyDescriptor, PropertyDescriptorData, PropertyKey};
+use crate::runner::ds::function_object::FunctionObjectBase;
+use crate::runner::ds::object::{JsObject, JsObjectType, ObjectBase, ObjectType};
+use crate::runner::ds::object_property::{PropertyDescriptor, PropertyDescriptorAccessor, PropertyDescriptorData, PropertyKey};
 use crate::runner::ds::value::{JsValue, JsNumberType};
 use crate::runner::plugin::types::{EvalContext, SimpleObject};
 
@@ -44,8 +45,8 @@ pub fn evaluate_expression(
             evaluate_object_expression(properties, ctx)
         }
 
-        ExpressionType::FunctionOrGeneratorExpression(_) => {
-            Err(JErrorType::TypeError("Function expression not yet implemented".to_string()))
+        ExpressionType::FunctionOrGeneratorExpression(func_data) => {
+            create_function_object(func_data, ctx)
         }
 
         ExpressionType::UnaryExpression { operator, argument, .. } => {
@@ -192,16 +193,18 @@ fn evaluate_object_expression(
     properties: &[PropertyData<Box<ExpressionType>>],
     ctx: &mut EvalContext,
 ) -> ValueResult {
-    use crate::runner::ds::object::JsObject;
+    use std::collections::HashMap;
 
     // Create a new object
     let mut obj = SimpleObject::new();
+
+    // Track accessor properties to merge getter/setter pairs
+    let mut accessors: HashMap<String, (Option<JsObjectType>, Option<JsObjectType>)> = HashMap::new();
 
     for prop in properties {
         // Get the property key
         let key = get_object_property_key(&prop.key, prop.computed, ctx)?;
 
-        // Only handle init properties for now (not getters/setters)
         match prop.kind {
             PropertyKind::Init => {
                 // Evaluate the value
@@ -218,12 +221,44 @@ fn evaluate_object_expression(
                     }),
                 );
             }
-            PropertyKind::Get | PropertyKind::Set => {
-                return Err(JErrorType::TypeError(
-                    "Getter/setter properties not yet supported".to_string(),
-                ));
+            PropertyKind::Get => {
+                // The value should be a function expression
+                if let ExpressionType::FunctionOrGeneratorExpression(func_data) = prop.value.as_ref() {
+                    let getter_fn = create_function_object(func_data, ctx)?;
+                    if let JsValue::Object(getter_obj) = getter_fn {
+                        let entry = accessors.entry(key).or_insert((None, None));
+                        entry.0 = Some(getter_obj);
+                    }
+                } else {
+                    return Err(JErrorType::TypeError("Getter must be a function".to_string()));
+                }
+            }
+            PropertyKind::Set => {
+                // The value should be a function expression
+                if let ExpressionType::FunctionOrGeneratorExpression(func_data) = prop.value.as_ref() {
+                    let setter_fn = create_function_object(func_data, ctx)?;
+                    if let JsValue::Object(setter_obj) = setter_fn {
+                        let entry = accessors.entry(key).or_insert((None, None));
+                        entry.1 = Some(setter_obj);
+                    }
+                } else {
+                    return Err(JErrorType::TypeError("Setter must be a function".to_string()));
+                }
             }
         }
+    }
+
+    // Add accessor properties to the object
+    for (key, (getter, setter)) in accessors {
+        obj.get_object_base_mut().properties.insert(
+            PropertyKey::Str(key),
+            PropertyDescriptor::Accessor(PropertyDescriptorAccessor {
+                get: getter,
+                set: setter,
+                enumerable: true,
+                configurable: true,
+            }),
+        );
     }
 
     // Wrap in JsObjectType
@@ -287,8 +322,8 @@ fn evaluate_member_expression(
             let obj_value = evaluate_expression_or_super(object, ctx)?;
             let prop_name = &property.name;
 
-            // Get the property
-            get_property(&obj_value, prop_name)
+            // Get the property (with getter support)
+            get_property_with_ctx(&obj_value, prop_name, ctx)
         }
         MemberExpressionType::ComputedMemberExpression { object, property, .. } => {
             // Evaluate the object
@@ -298,8 +333,8 @@ fn evaluate_member_expression(
             let prop_value = evaluate_expression(property, ctx)?;
             let prop_name = to_property_key(&prop_value);
 
-            // Get the property
-            get_property(&obj_value, &prop_name)
+            // Get the property (with getter support)
+            get_property_with_ctx(&obj_value, &prop_name, ctx)
         }
     }
 }
@@ -500,30 +535,27 @@ fn call_function_object(
     }
 }
 
-/// Get a property from a value.
-fn get_property(value: &JsValue, prop_name: &str) -> ValueResult {
+/// Get a property from a value (without getter support - for internal use).
+fn get_property_simple(value: &JsValue, prop_name: &str) -> ValueResult {
     match value {
         JsValue::Object(obj) => {
-            use crate::runner::ds::object_property::PropertyKey;
-            use crate::runner::ds::object::JsObject;
-
             let obj_ref = obj.borrow();
             let prop_key = PropertyKey::Str(prop_name.to_string());
 
             // Check own property
             if let Some(desc) = obj_ref.as_js_object().get_own_property(&prop_key)? {
-                use crate::runner::ds::object_property::PropertyDescriptor;
                 match desc {
                     PropertyDescriptor::Data(data) => Ok(data.value.clone()),
                     PropertyDescriptor::Accessor(_) => {
-                        Err(JErrorType::TypeError("Accessor properties not yet supported".to_string()))
+                        // Can't call getter without context - return undefined
+                        Ok(JsValue::Undefined)
                     }
                 }
             } else {
                 // Check prototype chain
                 if let Some(proto) = obj_ref.as_js_object().get_prototype_of() {
                     drop(obj_ref);  // Release borrow before recursive call
-                    get_property(&JsValue::Object(proto), prop_name)
+                    get_property_simple(&JsValue::Object(proto), prop_name)
                 } else {
                     Ok(JsValue::Undefined)
                 }
@@ -558,6 +590,188 @@ fn get_property(value: &JsValue, prop_name: &str) -> ValueResult {
     }
 }
 
+/// Get a property from a value, calling getters if necessary.
+fn get_property_with_ctx(value: &JsValue, prop_name: &str, ctx: &mut EvalContext) -> ValueResult {
+    match value {
+        JsValue::Object(obj) => {
+            let prop_key = PropertyKey::Str(prop_name.to_string());
+
+            // Check own property
+            let desc = {
+                let obj_ref = obj.borrow();
+                obj_ref.as_js_object().get_own_property(&prop_key)?.cloned()
+            };
+
+            if let Some(desc) = desc {
+                match desc {
+                    PropertyDescriptor::Data(data) => Ok(data.value.clone()),
+                    PropertyDescriptor::Accessor(accessor) => {
+                        // Call the getter if it exists
+                        if let Some(getter) = accessor.get {
+                            call_accessor_function(&getter, value.clone(), vec![], ctx)
+                        } else {
+                            Ok(JsValue::Undefined)
+                        }
+                    }
+                }
+            } else {
+                // Check prototype chain
+                let proto = obj.borrow().as_js_object().get_prototype_of();
+                if let Some(proto) = proto {
+                    get_property_with_ctx(&JsValue::Object(proto), prop_name, ctx)
+                } else {
+                    Ok(JsValue::Undefined)
+                }
+            }
+        }
+        JsValue::String(s) => {
+            // String primitive property access
+            if prop_name == "length" {
+                Ok(JsValue::Number(JsNumberType::Integer(s.len() as i64)))
+            } else if let Ok(index) = prop_name.parse::<usize>() {
+                // Access character at index
+                if index < s.len() {
+                    Ok(JsValue::String(s.chars().nth(index).unwrap().to_string()))
+                } else {
+                    Ok(JsValue::Undefined)
+                }
+            } else {
+                // Other string methods not yet supported
+                Ok(JsValue::Undefined)
+            }
+        }
+        JsValue::Undefined => {
+            Err(JErrorType::TypeError("Cannot read property of undefined".to_string()))
+        }
+        JsValue::Null => {
+            Err(JErrorType::TypeError("Cannot read property of null".to_string()))
+        }
+        _ => {
+            // Primitive types - return undefined for now
+            Ok(JsValue::Undefined)
+        }
+    }
+}
+
+/// Call an accessor function (getter or setter).
+fn call_accessor_function(
+    func: &JsObjectType,
+    this_value: JsValue,
+    args: Vec<JsValue>,
+    ctx: &mut EvalContext,
+) -> ValueResult {
+    let func_ref = func.borrow();
+
+    // Check if it's our SimpleFunctionObject (stored as Ordinary with marker)
+    if let ObjectType::Ordinary(obj) = &*func_ref {
+        if is_simple_function_object(obj.as_ref()) {
+            // This is a SimpleFunctionObject - we need to call its method
+            // Since we can't downcast easily, we use unsafe to access it
+            // The object was created by create_function_object so we know it's a SimpleFunctionObject
+            let simple_func = unsafe {
+                // Get the raw pointer to the inner object and cast it
+                let ptr = obj.as_ref() as *const dyn JsObject as *const SimpleFunctionObject;
+                &*ptr
+            };
+            drop(func_ref);
+            return simple_func.call_with_this(this_value, args, ctx);
+        }
+
+        // Regular object - try to call as function (likely will fail)
+        drop(func_ref);
+        call_function_object(func, this_value, args, ctx)
+    } else if let ObjectType::Function(func_obj) = &*func_ref {
+        // It's a full function object
+        let body = func_obj.get_function_object_base().body_code.clone();
+        let params = func_obj.get_function_object_base().formal_parameters.clone();
+        let func_env = func_obj.get_function_object_base().environment.clone();
+
+        drop(func_ref);
+
+        call_function_with_body(body, params, func_env, this_value, args, ctx)
+    } else {
+        Err(JErrorType::TypeError("Not a function".to_string()))
+    }
+}
+
+/// Call a function given its body, parameters, and environment.
+fn call_function_with_body(
+    body: Rc<crate::parser::ast::FunctionBodyData>,
+    params: Rc<Vec<PatternType>>,
+    func_env: crate::runner::ds::lex_env::JsLexEnvironmentType,
+    this_value: JsValue,
+    args: Vec<JsValue>,
+    ctx: &mut EvalContext,
+) -> ValueResult {
+    use crate::runner::ds::env_record::new_declarative_environment;
+    use super::statement::execute_statement;
+    use super::types::CompletionType;
+
+    // Save current environment
+    let saved_lex_env = ctx.lex_env.clone();
+    let saved_var_env = ctx.var_env.clone();
+    let saved_this = ctx.global_this.clone();
+
+    // Create new environment for the function, with the function's closure as outer
+    let func_scope = new_declarative_environment(Some(func_env));
+    ctx.lex_env = func_scope.clone();
+    ctx.var_env = func_scope;
+    ctx.global_this = Some(this_value);
+
+    // Bind parameters to arguments
+    for (i, param) in params.iter().enumerate() {
+        if let PatternType::PatternWhichCanBeExpression(
+            ExpressionPatternType::Identifier(id)
+        ) = param {
+            let arg_value = args.get(i).cloned().unwrap_or(JsValue::Undefined);
+            ctx.create_binding(&id.name, false)?;
+            ctx.initialize_binding(&id.name, arg_value)?;
+        }
+    }
+
+    // Execute each statement in the function body
+    let mut result_completion = super::types::Completion::normal();
+
+    for stmt in body.body.iter() {
+        let completion = execute_statement(stmt, ctx)?;
+
+        match completion.completion_type {
+            CompletionType::Return => {
+                result_completion = completion;
+                break;
+            }
+            CompletionType::Throw => {
+                // Restore environment before returning error
+                ctx.lex_env = saved_lex_env;
+                ctx.var_env = saved_var_env;
+                ctx.global_this = saved_this;
+                return Err(JErrorType::TypeError(format!(
+                    "Uncaught exception: {:?}",
+                    completion.value
+                )));
+            }
+            CompletionType::Break | CompletionType::Continue => {
+                result_completion = completion;
+                break;
+            }
+            CompletionType::Normal => {
+                result_completion = completion;
+            }
+        }
+    }
+
+    // Restore the previous environment
+    ctx.lex_env = saved_lex_env;
+    ctx.var_env = saved_var_env;
+    ctx.global_this = saved_this;
+
+    // Return the result
+    match result_completion.completion_type {
+        CompletionType::Return => Ok(result_completion.get_value()),
+        _ => Ok(JsValue::Undefined),
+    }
+}
+
 /// Convert a value to a property key string.
 fn to_property_key(value: &JsValue) -> String {
     to_string(value)
@@ -570,7 +784,14 @@ fn evaluate_assignment_expression(
     right: &ExpressionType,
     ctx: &mut EvalContext,
 ) -> ValueResult {
-    // Get the name to assign to
+    // Check if this is a member expression assignment
+    if let PatternOrExpression::Expression(expr) = left {
+        if let ExpressionType::MemberExpression(member) = expr.as_ref() {
+            return evaluate_member_assignment(operator, member, right, ctx);
+        }
+    }
+
+    // Get the name to assign to (simple variable assignment)
     let name = match left {
         PatternOrExpression::Pattern(pattern) => get_pattern_name(pattern)?,
         PatternOrExpression::Expression(expr) => get_expression_name(expr)?,
@@ -631,6 +852,98 @@ fn evaluate_assignment_expression(
     // Set the binding and return the value
     ctx.set_binding(&name, final_value.clone())?;
     Ok(final_value)
+}
+
+/// Evaluate assignment to a member expression (obj.prop = value or obj[prop] = value).
+fn evaluate_member_assignment(
+    operator: &AssignmentOperator,
+    member: &MemberExpressionType,
+    right: &ExpressionType,
+    ctx: &mut EvalContext,
+) -> ValueResult {
+    // Get the object and property key
+    let (obj_value, prop_name) = match member {
+        MemberExpressionType::SimpleMemberExpression { object, property, .. } => {
+            let obj = evaluate_expression_or_super(object, ctx)?;
+            (obj, property.name.clone())
+        }
+        MemberExpressionType::ComputedMemberExpression { object, property, .. } => {
+            let obj = evaluate_expression_or_super(object, ctx)?;
+            let prop_val = evaluate_expression(property.as_ref(), ctx)?;
+            (obj, to_property_key(&prop_val))
+        }
+    };
+
+    // Evaluate the right-hand side
+    let rhs_value = evaluate_expression(right, ctx)?;
+
+    // Compute the final value based on the operator
+    let final_value = if matches!(operator, AssignmentOperator::Equals) {
+        rhs_value
+    } else {
+        let current = get_property_with_ctx(&obj_value, &prop_name, ctx)?;
+        match operator {
+            AssignmentOperator::Equals => unreachable!(),
+            AssignmentOperator::AddEquals => add_values(&current, &rhs_value)?,
+            AssignmentOperator::SubtractEquals => subtract_values(&current, &rhs_value)?,
+            AssignmentOperator::MultiplyEquals => multiply_values(&current, &rhs_value)?,
+            AssignmentOperator::DivideEquals => divide_values(&current, &rhs_value)?,
+            AssignmentOperator::ModuloEquals => modulo_values(&current, &rhs_value)?,
+            AssignmentOperator::BitwiseLeftShiftEquals => left_shift(&current, &rhs_value)?,
+            AssignmentOperator::BitwiseRightShiftEquals => right_shift(&current, &rhs_value)?,
+            AssignmentOperator::BitwiseUnsignedRightShiftEquals => unsigned_right_shift(&current, &rhs_value)?,
+            AssignmentOperator::BitwiseOrEquals => bitwise_or(&current, &rhs_value)?,
+            AssignmentOperator::BitwiseAndEquals => bitwise_and(&current, &rhs_value)?,
+            AssignmentOperator::BitwiseXorEquals => bitwise_xor(&current, &rhs_value)?,
+        }
+    };
+
+    // Set the property (with setter support)
+    set_property_with_ctx(&obj_value, &prop_name, final_value.clone(), ctx)?;
+    Ok(final_value)
+}
+
+/// Set a property on an object, calling setters if necessary.
+fn set_property_with_ctx(
+    value: &JsValue,
+    prop_name: &str,
+    new_value: JsValue,
+    ctx: &mut EvalContext,
+) -> Result<(), JErrorType> {
+    match value {
+        JsValue::Object(obj) => {
+            let prop_key = PropertyKey::Str(prop_name.to_string());
+
+            // Check for accessor property (setter)
+            let desc = {
+                let obj_ref = obj.borrow();
+                obj_ref.as_js_object().get_own_property(&prop_key)?.cloned()
+            };
+
+            if let Some(PropertyDescriptor::Accessor(accessor)) = desc {
+                // Call the setter if it exists
+                if let Some(setter) = accessor.set {
+                    call_accessor_function(&setter, value.clone(), vec![new_value], ctx)?;
+                    return Ok(());
+                }
+                // No setter - fall through to data property behavior
+            }
+
+            // Set as data property
+            let mut obj_mut = obj.borrow_mut();
+            obj_mut.as_js_object_mut().get_object_base_mut().properties.insert(
+                prop_key,
+                PropertyDescriptor::Data(PropertyDescriptorData {
+                    value: new_value,
+                    writable: true,
+                    enumerable: true,
+                    configurable: true,
+                }),
+            );
+            Ok(())
+        }
+        _ => Err(JErrorType::TypeError("Cannot set property on non-object".to_string())),
+    }
 }
 
 /// Get the name from a pattern (for simple identifier patterns).
@@ -1240,3 +1553,186 @@ fn to_string(value: &JsValue) -> String {
         JsValue::Object(_) => "[object Object]".to_string(),
     }
 }
+
+// ============================================================================
+// Function object creation
+// ============================================================================
+
+/// Simple function object that stores function metadata for evaluation.
+/// Instead of storing AST data directly, we store references to the source AST.
+pub struct SimpleFunctionObject {
+    base: ObjectBase,
+    /// Pointer to the function body (using raw pointer for simplicity)
+    body_ptr: *const crate::parser::ast::FunctionBodyData,
+    /// Pointer to the formal parameters
+    params_ptr: *const Vec<PatternType>,
+    /// The lexical environment at the time the function was created
+    environment: crate::runner::ds::lex_env::JsLexEnvironmentType,
+}
+
+// Safety: SimpleFunctionObject is only used within a single thread
+unsafe impl Send for SimpleFunctionObject {}
+unsafe impl Sync for SimpleFunctionObject {}
+
+impl SimpleFunctionObject {
+    pub fn new(
+        body_ptr: *const crate::parser::ast::FunctionBodyData,
+        params_ptr: *const Vec<PatternType>,
+        environment: crate::runner::ds::lex_env::JsLexEnvironmentType,
+    ) -> Self {
+        SimpleFunctionObject {
+            base: ObjectBase::new(),
+            body_ptr,
+            params_ptr,
+            environment,
+        }
+    }
+
+    /// Call this function with the given this value and arguments.
+    /// Safety: The AST pointers must still be valid.
+    pub fn call_with_this(
+        &self,
+        this_value: JsValue,
+        args: Vec<JsValue>,
+        ctx: &mut EvalContext,
+    ) -> ValueResult {
+        use crate::runner::ds::env_record::new_declarative_environment;
+        use super::statement::execute_statement;
+        use super::types::CompletionType;
+
+        // Get the body and params (unsafe dereference)
+        let (body, params) = unsafe {
+            (&*self.body_ptr, &*self.params_ptr)
+        };
+
+        // Save current environment
+        let saved_lex_env = ctx.lex_env.clone();
+        let saved_var_env = ctx.var_env.clone();
+        let saved_this = ctx.global_this.clone();
+
+        // Create new environment for the function, with the function's closure as outer
+        let func_scope = new_declarative_environment(Some(self.environment.clone()));
+        ctx.lex_env = func_scope.clone();
+        ctx.var_env = func_scope;
+        ctx.global_this = Some(this_value);
+
+        // Bind parameters to arguments
+        for (i, param) in params.iter().enumerate() {
+            if let PatternType::PatternWhichCanBeExpression(
+                ExpressionPatternType::Identifier(id)
+            ) = param {
+                let arg_value = args.get(i).cloned().unwrap_or(JsValue::Undefined);
+                ctx.create_binding(&id.name, false)?;
+                ctx.initialize_binding(&id.name, arg_value)?;
+            }
+        }
+
+        // Execute each statement in the function body
+        let mut result_completion = super::types::Completion::normal();
+
+        for stmt in body.body.iter() {
+            let completion = execute_statement(stmt, ctx)?;
+
+            match completion.completion_type {
+                CompletionType::Return => {
+                    result_completion = completion;
+                    break;
+                }
+                CompletionType::Throw => {
+                    // Restore environment before returning error
+                    ctx.lex_env = saved_lex_env;
+                    ctx.var_env = saved_var_env;
+                    ctx.global_this = saved_this;
+                    return Err(JErrorType::TypeError(format!(
+                        "Uncaught exception: {:?}",
+                        completion.value
+                    )));
+                }
+                CompletionType::Break | CompletionType::Continue => {
+                    result_completion = completion;
+                    break;
+                }
+                CompletionType::Normal => {
+                    result_completion = completion;
+                }
+            }
+        }
+
+        // Restore the previous environment
+        ctx.lex_env = saved_lex_env;
+        ctx.var_env = saved_var_env;
+        ctx.global_this = saved_this;
+
+        // Return the result
+        match result_completion.completion_type {
+            CompletionType::Return => Ok(result_completion.get_value()),
+            _ => Ok(JsValue::Undefined),
+        }
+    }
+}
+
+impl JsObject for SimpleFunctionObject {
+    fn get_object_base_mut(&mut self) -> &mut ObjectBase {
+        &mut self.base
+    }
+
+    fn get_object_base(&self) -> &ObjectBase {
+        &self.base
+    }
+
+    fn as_js_object(&self) -> &dyn JsObject {
+        self
+    }
+
+    fn as_js_object_mut(&mut self) -> &mut dyn JsObject {
+        self
+    }
+}
+
+/// Type ID for SimpleFunctionObject - used for downcasting
+pub fn is_simple_function_object(obj: &dyn JsObject) -> bool {
+    // Check if the object has a special marker property
+    let marker = PropertyKey::Str("__simple_function__".to_string());
+    obj.get_object_base().properties.contains_key(&marker)
+}
+
+/// Create a function object from FunctionData.
+/// Note: This creates a closure that references the AST. The AST must remain valid
+/// for the lifetime of the function object.
+pub fn create_function_object(func_data: &FunctionData, ctx: &EvalContext) -> ValueResult {
+    let body_ptr = func_data.body.as_ref() as *const _;
+    let params_ptr = &func_data.params.list as *const _;
+    let environment = ctx.lex_env.clone();
+
+    let mut func_obj = SimpleFunctionObject::new(body_ptr, params_ptr, environment);
+
+    // Create a prototype object for this function
+    let prototype = SimpleObject::new();
+    let prototype_ref: JsObjectType = Rc::new(RefCell::new(ObjectType::Ordinary(Box::new(prototype))));
+
+    // Store prototype on the function object
+    func_obj.base.properties.insert(
+        PropertyKey::Str("prototype".to_string()),
+        PropertyDescriptor::Data(PropertyDescriptorData {
+            value: JsValue::Object(prototype_ref),
+            writable: true,
+            enumerable: false,
+            configurable: false,
+        }),
+    );
+
+    // Add marker property to identify this as a SimpleFunctionObject
+    func_obj.base.properties.insert(
+        PropertyKey::Str("__simple_function__".to_string()),
+        PropertyDescriptor::Data(PropertyDescriptorData {
+            value: JsValue::Boolean(true),
+            writable: false,
+            enumerable: false,
+            configurable: false,
+        }),
+    );
+
+    let obj_ref: JsObjectType = Rc::new(RefCell::new(ObjectType::Ordinary(Box::new(func_obj))));
+    Ok(JsValue::Object(obj_ref))
+}
+
