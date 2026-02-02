@@ -5,7 +5,7 @@
 use crate::parser::ast::{
     ExpressionPatternType, FunctionBodyData, PatternType, StatementType, DeclarationType,
     VariableDeclarationData, VariableDeclarationKind, BlockStatementData, ExpressionType,
-    SwitchCaseData, CatchClauseData,
+    SwitchCaseData, CatchClauseData, ForIteratorData, VariableDeclarationOrPattern,
 };
 use crate::runner::ds::error::JErrorType;
 use crate::runner::ds::value::JsValue;
@@ -53,12 +53,12 @@ pub fn execute_statement(
             execute_for_statement(init.as_ref(), test.as_ref().map(|t| t.as_ref()), update.as_ref().map(|u| u.as_ref()), body, ctx)
         }
 
-        StatementType::ForInStatement(_) => {
-            Err(JErrorType::TypeError("for-in not yet implemented".to_string()))
+        StatementType::ForInStatement(data) => {
+            execute_for_in_statement(data, ctx)
         }
 
-        StatementType::ForOfStatement(_) => {
-            Err(JErrorType::TypeError("for-of not yet implemented".to_string()))
+        StatementType::ForOfStatement(data) => {
+            execute_for_of_statement(data, ctx)
         }
 
         StatementType::SwitchStatement { discriminant, cases, .. } => {
@@ -522,4 +522,213 @@ fn error_to_js_value(err: &JErrorType) -> JsValue {
         JErrorType::SyntaxError(msg) => JsValue::String(format!("SyntaxError: {}", msg)),
         JErrorType::RangeError(msg) => JsValue::String(format!("RangeError: {}", msg)),
     }
+}
+
+/// Execute a for-in statement (iterate over enumerable property keys).
+fn execute_for_in_statement(
+    data: &ForIteratorData,
+    ctx: &mut EvalContext,
+) -> EvalResult {
+    use crate::runner::ds::object::JsObject;
+    use crate::runner::ds::value::JsNumberType;
+
+    // Evaluate the right-hand side to get the object
+    let obj_value = evaluate_expression(&data.right, ctx)?;
+
+    // Get the property keys to iterate over
+    let keys: Vec<String> = match &obj_value {
+        JsValue::Object(obj) => {
+            let obj_ref = obj.borrow();
+            obj_ref.as_js_object().get_object_base().properties
+                .keys()
+                .filter_map(|k| match k {
+                    crate::runner::ds::object_property::PropertyKey::Str(s) => Some(s.clone()),
+                    _ => None,
+                })
+                .collect()
+        }
+        JsValue::String(s) => {
+            // For strings, iterate over indices
+            (0..s.len()).map(|i| i.to_string()).collect()
+        }
+        JsValue::Null | JsValue::Undefined => {
+            // for-in over null/undefined produces no iterations
+            return Ok(Completion::normal());
+        }
+        _ => Vec::new(),
+    };
+
+    // Execute the loop body for each key
+    let mut completion = Completion::normal();
+
+    for key in keys {
+        // Bind the key to the loop variable
+        bind_for_iterator_variable(&data.left, JsValue::String(key), ctx)?;
+
+        // Execute the body
+        completion = execute_statement(&data.body, ctx)?;
+
+        match completion.completion_type {
+            CompletionType::Break => {
+                return Ok(Completion::normal_with_value(completion.get_value()));
+            }
+            CompletionType::Continue => {
+                continue;
+            }
+            CompletionType::Return | CompletionType::Throw => {
+                return Ok(completion);
+            }
+            CompletionType::Normal => {}
+        }
+    }
+
+    Ok(completion)
+}
+
+/// Execute a for-of statement (iterate over iterable values).
+fn execute_for_of_statement(
+    data: &ForIteratorData,
+    ctx: &mut EvalContext,
+) -> EvalResult {
+    use crate::runner::ds::object::JsObject;
+    use crate::runner::ds::value::JsNumberType;
+    use crate::runner::ds::object_property::PropertyKey;
+
+    // Evaluate the right-hand side to get the iterable
+    let iterable_value = evaluate_expression(&data.right, ctx)?;
+
+    // Get the values to iterate over
+    let values: Vec<JsValue> = match &iterable_value {
+        JsValue::Object(obj) => {
+            let obj_ref = obj.borrow();
+            let base = obj_ref.as_js_object().get_object_base();
+
+            // Check for length property (array-like)
+            if let Some(prop) = base.properties.get(&PropertyKey::Str("length".to_string())) {
+                if let crate::runner::ds::object_property::PropertyDescriptor::Data(length_data) = prop {
+                    if let JsValue::Number(JsNumberType::Integer(len)) = &length_data.value {
+                        let len = *len as usize;
+                        let mut vals = Vec::with_capacity(len);
+                        for i in 0..len {
+                            let key = PropertyKey::Str(i.to_string());
+                            if let Some(prop) = base.properties.get(&key) {
+                                if let crate::runner::ds::object_property::PropertyDescriptor::Data(d) = prop {
+                                    vals.push(d.value.clone());
+                                } else {
+                                    vals.push(JsValue::Undefined);
+                                }
+                            } else {
+                                vals.push(JsValue::Undefined);
+                            }
+                        }
+                        drop(obj_ref);
+                        return execute_for_of_with_values(data, vals, ctx);
+                    }
+                }
+            }
+
+            // Otherwise, iterate over enumerable properties' values
+            base.properties
+                .values()
+                .filter_map(|prop| {
+                    if let crate::runner::ds::object_property::PropertyDescriptor::Data(d) = prop {
+                        if d.enumerable {
+                            Some(d.value.clone())
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        }
+        JsValue::String(s) => {
+            // Iterate over characters
+            s.chars().map(|c| JsValue::String(c.to_string())).collect()
+        }
+        JsValue::Null | JsValue::Undefined => {
+            return Err(JErrorType::TypeError(
+                "Cannot iterate over null or undefined".to_string(),
+            ));
+        }
+        _ => {
+            return Err(JErrorType::TypeError(
+                "Object is not iterable".to_string(),
+            ));
+        }
+    };
+
+    execute_for_of_with_values(data, values, ctx)
+}
+
+/// Helper to execute for-of with a list of values.
+fn execute_for_of_with_values(
+    data: &ForIteratorData,
+    values: Vec<JsValue>,
+    ctx: &mut EvalContext,
+) -> EvalResult {
+    let mut completion = Completion::normal();
+
+    for value in values {
+        // Bind the value to the loop variable
+        bind_for_iterator_variable(&data.left, value, ctx)?;
+
+        // Execute the body
+        completion = execute_statement(&data.body, ctx)?;
+
+        match completion.completion_type {
+            CompletionType::Break => {
+                return Ok(Completion::normal_with_value(completion.get_value()));
+            }
+            CompletionType::Continue => {
+                continue;
+            }
+            CompletionType::Return | CompletionType::Throw => {
+                return Ok(completion);
+            }
+            CompletionType::Normal => {}
+        }
+    }
+
+    Ok(completion)
+}
+
+/// Bind a value to a for-in/for-of loop variable.
+fn bind_for_iterator_variable(
+    left: &VariableDeclarationOrPattern,
+    value: JsValue,
+    ctx: &mut EvalContext,
+) -> Result<(), JErrorType> {
+    match left {
+        VariableDeclarationOrPattern::VariableDeclaration(var_decl) => {
+            // Create and initialize the variable
+            for declarator in &var_decl.declarations {
+                let name = get_binding_name(&declarator.id)?;
+                let is_var = matches!(var_decl.kind, VariableDeclarationKind::Var);
+
+                if is_var {
+                    // Check if already exists
+                    if !ctx.has_binding(&name) {
+                        ctx.create_var_binding(&name)?;
+                    }
+                    ctx.initialize_var_binding(&name, value.clone())?;
+                } else {
+                    // let/const - create new binding each iteration
+                    if !ctx.has_binding(&name) {
+                        ctx.create_binding(&name, matches!(var_decl.kind, VariableDeclarationKind::Const))?;
+                        ctx.initialize_binding(&name, value.clone())?;
+                    } else {
+                        ctx.set_binding(&name, value.clone())?;
+                    }
+                }
+            }
+        }
+        VariableDeclarationOrPattern::Pattern(pattern) => {
+            // Simple pattern assignment
+            let name = get_binding_name(pattern)?;
+            ctx.set_binding(&name, value)?;
+        }
+    }
+    Ok(())
 }
