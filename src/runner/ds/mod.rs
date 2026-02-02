@@ -4,6 +4,7 @@ mod env_record;
 pub mod error;
 mod execution_context;
 mod function_object;
+pub mod heap;
 mod iterator_object;
 mod lex_env;
 mod misc;

@@ -1,21 +1,55 @@
 //! Core types for the plugin architecture.
 
 use crate::runner::ds::error::JErrorType;
+use crate::runner::ds::heap::{Heap, HeapConfig};
 use crate::runner::ds::value::JsValue;
 use crate::parser::ast::FunctionData;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+
+/// Shared heap type for use across contexts.
+pub type SharedHeap = Rc<RefCell<Heap>>;
 
 /// Execution context passed to native functions.
 /// This will be expanded as the runtime is implemented.
 pub struct EvalContext {
-    // Placeholder - will be expanded during runtime implementation
+    /// The global `this` value.
     pub global_this: Option<JsValue>,
+    /// Shared heap for memory allocation tracking.
+    pub heap: SharedHeap,
 }
 
 impl EvalContext {
+    /// Create a new evaluation context with default heap configuration.
     pub fn new() -> Self {
-        EvalContext { global_this: None }
+        EvalContext {
+            global_this: None,
+            heap: Rc::new(RefCell::new(Heap::default())),
+        }
+    }
+
+    /// Create a new evaluation context with a specific heap configuration.
+    pub fn with_heap_config(config: HeapConfig) -> Self {
+        EvalContext {
+            global_this: None,
+            heap: Rc::new(RefCell::new(Heap::new(config))),
+        }
+    }
+
+    /// Track a heap allocation.
+    pub fn allocate(&self, bytes: usize) -> Result<(), JErrorType> {
+        self.heap.borrow_mut().allocate(bytes)
+    }
+
+    /// Track a heap deallocation.
+    pub fn deallocate(&self, bytes: usize) {
+        self.heap.borrow_mut().deallocate(bytes)
+    }
+
+    /// Get the current heap usage in bytes.
+    pub fn heap_usage(&self) -> usize {
+        self.heap.borrow().get_allocated()
     }
 }
 
