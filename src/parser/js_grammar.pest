@@ -946,8 +946,11 @@ concise_body__in = {
     !"{" ~ assignment_expression__in
     | "{" ~ function_body ~ "}"
 }
-getter = @{ "get" }
-setter = @{ "set" }
+// "get"/"set" must NOT be immediately followed by identifier chars
+// This prevents "getX()" being parsed as getter with property "X"
+// Must be atomic (@) to prevent implicit WHITESPACE consumption
+getter = @{ "get" ~ !identifier_part }
+setter = @{ "set" ~ !identifier_part }
 method_definition = {
     generator_method
     | getter ~s~ property_name ~s~ "(" ~s~ ")" ~s~ "{" ~s~ function_body ~s~ "}"

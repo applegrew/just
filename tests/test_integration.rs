@@ -869,6 +869,52 @@ fn test_class_default_constructor() {
     assert_eq!(result, JsValue::String("object".to_string()));
 }
 
+// Test that methods starting with "get"/"set" are parsed as methods, not accessors
+#[test]
+fn test_method_name_starting_with_get() {
+    let code = r#"
+        class Foo {
+            constructor(x) { this.x = x; }
+            getX() { return this.x; }
+            getValue() { return this.x * 2; }
+        }
+        let f = new Foo(21);
+        f.getValue();
+    "#;
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(42)));
+}
+
+#[test]
+fn test_method_name_starting_with_set() {
+    let code = r#"
+        class Counter {
+            constructor() { this.value = 0; }
+            setValue(v) { this.value = v; }
+            setAndDouble(v) { this.value = v * 2; }
+        }
+        let c = new Counter();
+        c.setAndDouble(10);
+        c.value;
+    "#;
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(20)));
+}
+
+#[test]
+fn test_object_method_starting_with_get() {
+    let code = r#"
+        let obj = {
+            _x: 100,
+            getX() { return this._x; },
+            get x() { return this._x * 2; }
+        };
+        obj.getX() + obj.x;
+    "#;
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(300)));
+}
+
 // TODO: Parser doesn't recognize 'static' keyword properly
 // #[test]
 // fn test_class_static_method() {
