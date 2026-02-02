@@ -985,3 +985,52 @@ fn test_class_setter() {
     let result = run_js(code).unwrap();
     assert_eq!(result, JsValue::Number(JsNumberType::Integer(10)));
 }
+
+// ==================== PHASE 7: GENERATOR TESTS ====================
+
+#[test]
+fn test_generator_basic() {
+    let code = r#"
+        function* gen() {
+            yield 1;
+            yield 2;
+        }
+        let g = gen();
+        g.next().value;
+    "#;
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(1)));
+}
+
+#[test]
+fn test_generator_done() {
+    let code = r#"
+        function* gen() {
+            yield 1;
+        }
+        let g = gen();
+        g.next();
+        g.next().done;
+    "#;
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Boolean(true));
+}
+
+#[test]
+fn test_generator_multiple_yields() {
+    let code = r#"
+        function* gen() {
+            yield 1;
+            yield 2;
+            yield 3;
+        }
+        let g = gen();
+        let sum = 0;
+        sum = sum + g.next().value;
+        sum = sum + g.next().value;
+        sum = sum + g.next().value;
+        sum;
+    "#;
+    let result = run_js(code).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(6)));
+}

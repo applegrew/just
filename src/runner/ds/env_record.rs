@@ -37,6 +37,10 @@ pub trait EnvironmentRecord {
     fn delete_binding(&mut self, name: &String) -> Result<bool, JErrorType>;
     fn has_this_binding(&self) -> bool;
     fn has_super_binding(&self) -> bool;
+    /// Get all bindings as a vector of (name, value) pairs. Used for generators.
+    fn get_all_bindings(&self) -> Option<Vec<(String, JsValue)>> {
+        None // Default implementation returns None
+    }
 }
 
 pub enum EnvironmentRecordType {
@@ -194,6 +198,16 @@ impl EnvironmentRecord for DeclarativeEnvironmentRecord {
 
     fn has_super_binding(&self) -> bool {
         false
+    }
+
+    fn get_all_bindings(&self) -> Option<Vec<(String, JsValue)>> {
+        let mut result = Vec::new();
+        for (name, value) in &self.bindings {
+            if let Some(v) = value {
+                result.push((name.clone(), v.clone()));
+            }
+        }
+        Some(result)
     }
 }
 

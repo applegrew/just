@@ -97,8 +97,19 @@ pub fn evaluate_expression(
             evaluate_class_expression(class_data, ctx)
         }
 
-        ExpressionType::YieldExpression { .. } => {
-            Err(JErrorType::TypeError("Yield expression not yet implemented".to_string()))
+        ExpressionType::YieldExpression { argument, delegate, .. } => {
+            if *delegate {
+                // yield* not yet supported
+                return Err(JErrorType::TypeError("yield* not yet implemented".to_string()));
+            }
+            // Evaluate the argument
+            let value = if let Some(arg) = argument {
+                evaluate_expression(arg, ctx)?
+            } else {
+                JsValue::Undefined
+            };
+            // Return a special error that signals a yield
+            Err(JErrorType::YieldValue(value))
         }
 
         ExpressionType::MetaProperty { .. } => {
@@ -691,7 +702,7 @@ fn call_function_object(
                             completion.value
                         )));
                     }
-                    CompletionType::Break | CompletionType::Continue => {
+                    CompletionType::Break | CompletionType::Continue | CompletionType::Yield => {
                         // These shouldn't escape function body
                         result_completion = completion;
                         break;
@@ -717,10 +728,60 @@ fn call_function_object(
             let marker = PropertyKey::Str("__simple_function__".to_string());
             let default_ctor_marker = PropertyKey::Str("__default_constructor__".to_string());
 
+            let generator_marker = PropertyKey::Str("__generator__".to_string());
+            let generator_next_marker = PropertyKey::Str("__generator_next__".to_string());
+
             if obj.get_object_base().properties.contains_key(&default_ctor_marker) {
                 // It's a default constructor (no-op) - just return undefined
                 drop(func_ref);
                 Ok(JsValue::Undefined)
+            } else if let Some(PropertyDescriptor::Data(data)) = obj.get_object_base().properties.get(&generator_next_marker) {
+                // It's a generator next method - call the generator's .next()
+                let gen_obj = match &data.value {
+                    JsValue::Object(o) => o.clone(),
+                    _ => return Err(JErrorType::TypeError("Invalid generator reference".to_string())),
+                };
+                drop(func_ref);
+
+                // Call the generator's next method
+                let mut gen_borrowed = gen_obj.borrow_mut();
+
+                // We need to cast to GeneratorObject
+                match &mut *gen_borrowed {
+                    ObjectType::Ordinary(inner_obj) => {
+                        let gen_marker = PropertyKey::Str("__generator_object__".to_string());
+                        if inner_obj.get_object_base().properties.contains_key(&gen_marker) {
+                            // Cast to GeneratorObject
+                            let gen_ptr = inner_obj.as_mut() as *mut dyn JsObject as *mut GeneratorObject;
+                            drop(gen_borrowed);
+                            // SAFETY: We know this is a GeneratorObject
+                            unsafe {
+                                let gen = &mut *gen_ptr;
+                                gen.next(ctx)
+                            }
+                        } else {
+                            Err(JErrorType::TypeError("Not a generator object".to_string()))
+                        }
+                    }
+                    _ => Err(JErrorType::TypeError("Not a generator object".to_string())),
+                }
+            } else if obj.get_object_base().properties.contains_key(&generator_marker) {
+                // It's a generator function - create a GeneratorObject instead of executing
+                let obj_ptr = obj.as_ref() as *const dyn JsObject;
+                drop(func_ref);
+
+                // SAFETY: We know this is a SimpleFunctionObject and we've dropped func_ref
+                unsafe {
+                    let simple_func = &*(obj_ptr as *const SimpleFunctionObject);
+                    // Create generator object from function data
+                    create_generator_object(
+                        simple_func.body_ptr,
+                        simple_func.params_ptr,
+                        simple_func.environment.clone(),
+                        args,
+                        ctx,
+                    )
+                }
             } else if obj.get_object_base().properties.contains_key(&marker) {
                 // It's a SimpleFunctionObject - use the call_with_this method
                 // Get a raw pointer to call call_with_this
@@ -811,6 +872,19 @@ fn get_property_with_receiver(
 ) -> ValueResult {
     match lookup_target {
         JsValue::Object(obj) => {
+            // Check if this is a generator object and we're accessing 'next'
+            let is_gen_obj = {
+                let obj_ref = obj.borrow();
+                let marker = PropertyKey::Str("__generator_object__".to_string());
+                obj_ref.as_js_object().get_object_base().properties.contains_key(&marker)
+            };
+
+            if is_gen_obj && prop_name == "next" {
+                // Return a special "next" method that calls the generator's next
+                // We create a wrapper function that holds a reference to the generator
+                return create_generator_next_method(obj.clone());
+            }
+
             let prop_key = PropertyKey::Str(prop_name.to_string());
 
             // Check own property
@@ -967,7 +1041,7 @@ fn call_function_with_body(
                     completion.value
                 )));
             }
-            CompletionType::Break | CompletionType::Continue => {
+            CompletionType::Break | CompletionType::Continue | CompletionType::Yield => {
                 result_completion = completion;
                 break;
             }
@@ -1865,7 +1939,7 @@ impl SimpleFunctionObject {
                         completion.value
                     )));
                 }
-                CompletionType::Break | CompletionType::Continue => {
+                CompletionType::Break | CompletionType::Continue | CompletionType::Yield => {
                     result_completion = completion;
                     break;
                 }
@@ -1949,7 +2023,330 @@ pub fn create_function_object(func_data: &FunctionData, ctx: &EvalContext) -> Va
         }),
     );
 
+    // Mark as generator if applicable
+    if func_data.generator {
+        func_obj.base.properties.insert(
+            PropertyKey::Str("__generator__".to_string()),
+            PropertyDescriptor::Data(PropertyDescriptorData {
+                value: JsValue::Boolean(true),
+                writable: false,
+                enumerable: false,
+                configurable: false,
+            }),
+        );
+    }
+
     let obj_ref: JsObjectType = Rc::new(RefCell::new(ObjectType::Ordinary(Box::new(func_obj))));
+    Ok(JsValue::Object(obj_ref))
+}
+
+// ============================================================================
+// Generator object
+// ============================================================================
+
+/// Generator state.
+#[derive(Debug, Clone, PartialEq)]
+pub enum GeneratorState {
+    SuspendedStart,
+    SuspendedYield,
+    Executing,
+    Completed,
+}
+
+/// Generator object that stores the suspended state of a generator function.
+pub struct GeneratorObject {
+    base: ObjectBase,
+    /// Pointer to the function body
+    body_ptr: *const crate::parser::ast::FunctionBodyData,
+    /// Pointer to the formal parameters
+    params_ptr: *const Vec<PatternType>,
+    /// The lexical environment at the time the generator was created
+    environment: crate::runner::ds::lex_env::JsLexEnvironmentType,
+    /// Current state
+    state: GeneratorState,
+    /// Current statement index (for resuming)
+    current_index: usize,
+    /// Stored local bindings (for resuming)
+    local_bindings: std::collections::HashMap<String, JsValue>,
+}
+
+// Safety: GeneratorObject is only used within a single thread
+unsafe impl Send for GeneratorObject {}
+unsafe impl Sync for GeneratorObject {}
+
+impl GeneratorObject {
+    pub fn new(
+        body_ptr: *const crate::parser::ast::FunctionBodyData,
+        params_ptr: *const Vec<PatternType>,
+        environment: crate::runner::ds::lex_env::JsLexEnvironmentType,
+    ) -> Self {
+        GeneratorObject {
+            base: ObjectBase::new(),
+            body_ptr,
+            params_ptr,
+            environment,
+            state: GeneratorState::SuspendedStart,
+            current_index: 0,
+            local_bindings: std::collections::HashMap::new(),
+        }
+    }
+
+    /// Call .next() on this generator, executing until yield or completion.
+    pub fn next(&mut self, ctx: &mut EvalContext) -> ValueResult {
+        use crate::runner::ds::env_record::new_declarative_environment;
+        use super::statement::execute_statement;
+        use super::types::CompletionType;
+
+        match self.state {
+            GeneratorState::Completed => {
+                // Return { value: undefined, done: true }
+                return create_iterator_result(JsValue::Undefined, true);
+            }
+            GeneratorState::Executing => {
+                return Err(JErrorType::TypeError("Generator is already executing".to_string()));
+            }
+            GeneratorState::SuspendedStart | GeneratorState::SuspendedYield => {
+                // Continue or start execution
+            }
+        }
+
+        self.state = GeneratorState::Executing;
+
+        // Get the body and params (unsafe dereference)
+        let body = unsafe { &*self.body_ptr };
+
+        // Save current environment
+        let saved_lex_env = ctx.lex_env.clone();
+        let saved_var_env = ctx.var_env.clone();
+
+        // Create new environment for the generator (or restore previous)
+        let func_scope = new_declarative_environment(Some(self.environment.clone()));
+        ctx.lex_env = func_scope.clone();
+        ctx.var_env = func_scope;
+
+        // Restore local bindings if resuming
+        for (name, value) in &self.local_bindings {
+            let _ = ctx.create_binding(name, false);
+            let _ = ctx.initialize_binding(name, value.clone());
+        }
+
+        // Execute statements starting from current_index
+        let mut result_value = JsValue::Undefined;
+        let mut yielded = false;
+
+        for (idx, stmt) in body.body.iter().enumerate() {
+            if idx < self.current_index {
+                continue; // Skip already executed statements
+            }
+
+            match execute_statement(stmt, ctx) {
+                Ok(completion) => {
+                    match completion.completion_type {
+                        CompletionType::Return => {
+                            result_value = completion.get_value();
+                            self.state = GeneratorState::Completed;
+                            break;
+                        }
+                        CompletionType::Yield => {
+                            // Yield the value and suspend
+                            result_value = completion.get_value();
+                            self.current_index = idx + 1;
+                            self.state = GeneratorState::SuspendedYield;
+
+                            // Save current bindings
+                            self.save_bindings(ctx);
+
+                            yielded = true;
+                            break;
+                        }
+                        CompletionType::Throw => {
+                            ctx.lex_env = saved_lex_env;
+                            ctx.var_env = saved_var_env;
+                            self.state = GeneratorState::Completed;
+                            return Err(JErrorType::TypeError(format!(
+                                "Uncaught exception: {:?}",
+                                completion.value
+                            )));
+                        }
+                        _ => {
+                            result_value = completion.get_value();
+                        }
+                    }
+                }
+                Err(JErrorType::YieldValue(value)) => {
+                    // Yield expression hit
+                    result_value = value;
+                    self.current_index = idx + 1;
+                    self.state = GeneratorState::SuspendedYield;
+
+                    // Save current bindings
+                    self.save_bindings(ctx);
+
+                    yielded = true;
+                    break;
+                }
+                Err(e) => {
+                    ctx.lex_env = saved_lex_env;
+                    ctx.var_env = saved_var_env;
+                    self.state = GeneratorState::Completed;
+                    return Err(e);
+                }
+            }
+        }
+
+        // If we didn't yield, we're done
+        if !yielded && self.state == GeneratorState::Executing {
+            self.state = GeneratorState::Completed;
+        }
+
+        // Restore the previous environment
+        ctx.lex_env = saved_lex_env;
+        ctx.var_env = saved_var_env;
+
+        // Return { value, done }
+        let done = self.state == GeneratorState::Completed;
+        create_iterator_result(result_value, done)
+    }
+
+    fn save_bindings(&mut self, ctx: &EvalContext) {
+        // This is a simplified version - in a full implementation we'd need
+        // to properly capture all bindings from the current scope
+        self.local_bindings.clear();
+
+        // Get bindings from current environment
+        let env = ctx.lex_env.borrow();
+        if let Some(bindings) = env.inner.as_env_record().get_all_bindings() {
+            for (name, value) in bindings {
+                self.local_bindings.insert(name, value);
+            }
+        }
+    }
+}
+
+impl JsObject for GeneratorObject {
+    fn get_object_base_mut(&mut self) -> &mut ObjectBase {
+        &mut self.base
+    }
+
+    fn get_object_base(&self) -> &ObjectBase {
+        &self.base
+    }
+
+    fn as_js_object(&self) -> &dyn JsObject {
+        self
+    }
+
+    fn as_js_object_mut(&mut self) -> &mut dyn JsObject {
+        self
+    }
+}
+
+/// Create an iterator result object { value, done }.
+fn create_iterator_result(value: JsValue, done: bool) -> ValueResult {
+    let mut obj = SimpleObject::new();
+
+    obj.get_object_base_mut().properties.insert(
+        PropertyKey::Str("value".to_string()),
+        PropertyDescriptor::Data(PropertyDescriptorData {
+            value,
+            writable: true,
+            enumerable: true,
+            configurable: true,
+        }),
+    );
+
+    obj.get_object_base_mut().properties.insert(
+        PropertyKey::Str("done".to_string()),
+        PropertyDescriptor::Data(PropertyDescriptorData {
+            value: JsValue::Boolean(done),
+            writable: true,
+            enumerable: true,
+            configurable: true,
+        }),
+    );
+
+    let obj_ref: JsObjectType = Rc::new(RefCell::new(ObjectType::Ordinary(Box::new(obj))));
+    Ok(JsValue::Object(obj_ref))
+}
+
+/// Create a generator object from a generator function.
+fn create_generator_object(
+    body_ptr: *const crate::parser::ast::FunctionBodyData,
+    params_ptr: *const Vec<PatternType>,
+    environment: crate::runner::ds::lex_env::JsLexEnvironmentType,
+    _args: Vec<JsValue>,
+    ctx: &mut EvalContext,
+) -> ValueResult {
+    let mut gen_obj = GeneratorObject::new(body_ptr, params_ptr, environment);
+
+    // Add marker property
+    gen_obj.base.properties.insert(
+        PropertyKey::Str("__generator_object__".to_string()),
+        PropertyDescriptor::Data(PropertyDescriptorData {
+            value: JsValue::Boolean(true),
+            writable: false,
+            enumerable: false,
+            configurable: false,
+        }),
+    );
+
+    // Store parameter values in local_bindings for when .next() is first called
+    let params = unsafe { &*params_ptr };
+    for (i, param) in params.iter().enumerate() {
+        if let PatternType::PatternWhichCanBeExpression(
+            ExpressionPatternType::Identifier(id)
+        ) = param {
+            let arg_value = _args.get(i).cloned().unwrap_or(JsValue::Undefined);
+            gen_obj.local_bindings.insert(id.name.clone(), arg_value);
+        }
+    }
+
+    // Create a 'next' method
+    // We store a reference to the generator in a closure
+    let gen_ref: JsObjectType = Rc::new(RefCell::new(ObjectType::Ordinary(Box::new(gen_obj))));
+
+    // Add next method - this is a bit hacky, we'll store the generator ref
+    // Actually, we can't easily create a closure here. Let's use a different approach:
+    // We'll mark the generator and handle .next() specially in property access.
+
+    // For simplicity, we mark it and handle next() calls specially
+    Ok(JsValue::Object(gen_ref))
+}
+
+/// Check if an object is a generator object.
+fn is_generator_object(obj: &dyn JsObject) -> bool {
+    let marker = PropertyKey::Str("__generator_object__".to_string());
+    obj.get_object_base().properties.contains_key(&marker)
+}
+
+/// Create a callable "next" method for a generator object.
+fn create_generator_next_method(gen_obj: JsObjectType) -> ValueResult {
+    // Create a simple object that holds the generator reference
+    // and is marked as a generator-next-method
+    let mut next_obj = SimpleObject::new();
+
+    next_obj.get_object_base_mut().properties.insert(
+        PropertyKey::Str("__generator_next__".to_string()),
+        PropertyDescriptor::Data(PropertyDescriptorData {
+            value: JsValue::Object(gen_obj),
+            writable: false,
+            enumerable: false,
+            configurable: false,
+        }),
+    );
+
+    // Mark it as callable
+    next_obj.get_object_base_mut().properties.insert(
+        PropertyKey::Str("__simple_function__".to_string()),
+        PropertyDescriptor::Data(PropertyDescriptorData {
+            value: JsValue::Boolean(true),
+            writable: false,
+            enumerable: false,
+            configurable: false,
+        }),
+    );
+
+    let obj_ref: JsObjectType = Rc::new(RefCell::new(ObjectType::Ordinary(Box::new(next_obj))));
     Ok(JsValue::Object(obj_ref))
 }
 

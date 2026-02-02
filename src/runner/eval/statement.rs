@@ -498,7 +498,7 @@ fn execute_while_statement(
             CompletionType::Continue => {
                 continue;
             }
-            CompletionType::Return | CompletionType::Throw => {
+            CompletionType::Return | CompletionType::Throw | CompletionType::Yield => {
                 return Ok(completion);
             }
             CompletionType::Normal => {}
@@ -524,7 +524,7 @@ fn execute_do_while_statement(
                 return Ok(Completion::normal_with_value(completion.get_value()));
             }
             CompletionType::Continue => {}
-            CompletionType::Return | CompletionType::Throw => {
+            CompletionType::Return | CompletionType::Throw | CompletionType::Yield => {
                 return Ok(completion);
             }
             CompletionType::Normal => {}
@@ -577,7 +577,7 @@ fn execute_for_statement(
                 return Ok(Completion::normal_with_value(completion.get_value()));
             }
             CompletionType::Continue => {}
-            CompletionType::Return | CompletionType::Throw => {
+            CompletionType::Return | CompletionType::Throw | CompletionType::Yield => {
                 return Ok(completion);
             }
             CompletionType::Normal => {}
@@ -603,7 +603,7 @@ fn execute_function_body(
 
         // Handle abrupt completions
         match completion.completion_type {
-            CompletionType::Return | CompletionType::Throw => {
+            CompletionType::Return | CompletionType::Throw | CompletionType::Yield => {
                 return Ok(completion);
             }
             CompletionType::Break | CompletionType::Continue => {
@@ -668,7 +668,7 @@ fn execute_switch_statement(
                         // Break exits the switch
                         return Ok(Completion::normal_with_value(completion.get_value()));
                     }
-                    CompletionType::Return | CompletionType::Throw | CompletionType::Continue => {
+                    CompletionType::Return | CompletionType::Throw | CompletionType::Continue | CompletionType::Yield => {
                         // These propagate up
                         return Ok(completion);
                     }
@@ -765,6 +765,7 @@ fn error_to_js_value(err: &JErrorType) -> JsValue {
         JErrorType::ReferenceError(msg) => JsValue::String(format!("ReferenceError: {}", msg)),
         JErrorType::SyntaxError(msg) => JsValue::String(format!("SyntaxError: {}", msg)),
         JErrorType::RangeError(msg) => JsValue::String(format!("RangeError: {}", msg)),
+        JErrorType::YieldValue(v) => v.clone(),
     }
 }
 
@@ -819,7 +820,7 @@ fn execute_for_in_statement(
             CompletionType::Continue => {
                 continue;
             }
-            CompletionType::Return | CompletionType::Throw => {
+            CompletionType::Return | CompletionType::Throw | CompletionType::Yield => {
                 return Ok(completion);
             }
             CompletionType::Normal => {}
@@ -928,7 +929,7 @@ fn execute_for_of_with_values(
             CompletionType::Continue => {
                 continue;
             }
-            CompletionType::Return | CompletionType::Throw => {
+            CompletionType::Return | CompletionType::Throw | CompletionType::Yield => {
                 return Ok(completion);
             }
             CompletionType::Normal => {}

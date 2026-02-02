@@ -17,6 +17,8 @@ pub enum CompletionType {
     Break,
     /// Continue completion - continue loop iteration.
     Continue,
+    /// Yield completion - generator yields a value.
+    Yield,
 }
 
 /// Completion record.
@@ -91,6 +93,15 @@ impl Completion {
             completion_type: CompletionType::Continue,
             value: None,
             target,
+        }
+    }
+
+    /// Create a yield completion with a value.
+    pub fn yield_value(value: JsValue) -> Self {
+        Completion {
+            completion_type: CompletionType::Yield,
+            value: Some(value),
+            target: None,
         }
     }
 
