@@ -258,8 +258,25 @@ fn test_do_while_loop() {
 // Update Expression Tests
 // ============================================================================
 
-// Note: Prefix increment/decrement has a known parser bug (issue in api.rs:2487).
-// We only test postfix forms here which work correctly.
+// ============================================================================
+// Update Expression Tests (prefix and postfix)
+// ============================================================================
+
+#[test]
+fn test_prefix_increment() {
+    let code = "var x = 5; var y = ++x;";
+    // y should get the new value (6), x should be 6
+    let result_y = run_js_get_var(code, "y").unwrap();
+    assert_eq!(result_y, JsValue::Number(JsNumberType::Integer(6)));
+}
+
+#[test]
+fn test_prefix_increment_check_var() {
+    let code = "var x = 5; ++x;";
+    // x should now be 6
+    let result = run_js_get_var(code, "x").unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(6)));
+}
 
 #[test]
 fn test_postfix_increment() {
@@ -275,6 +292,22 @@ fn test_postfix_increment_check_var() {
     // x should now be 6
     let result = run_js_get_var(code, "x").unwrap();
     assert_eq!(result, JsValue::Number(JsNumberType::Integer(6)));
+}
+
+#[test]
+fn test_prefix_decrement() {
+    let code = "var x = 5; var y = --x;";
+    // y should get the new value (4), x should be 4
+    let result_y = run_js_get_var(code, "y").unwrap();
+    assert_eq!(result_y, JsValue::Number(JsNumberType::Integer(4)));
+}
+
+#[test]
+fn test_prefix_decrement_check_var() {
+    let code = "var x = 5; --x;";
+    // x should now be 4
+    let result = run_js_get_var(code, "x").unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(4)));
 }
 
 #[test]

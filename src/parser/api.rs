@@ -2484,8 +2484,9 @@ fn build_ast_from_unary_expression(
         {
             build_ast_from_postfix_expression(first_pair, script)?
         } else {
-            let first_inner_pair = first_pair.into_inner().next().unwrap();
-            match first_inner_pair.as_str() {
+            // first_pair is unary_operator - get the operator string directly
+            let operator_str = first_pair.as_str();
+            match operator_str {
                 "++" | "--" => {
                     let u_pair = pair_iter.next().unwrap();
                     let u_pair_meta = get_meta(&u_pair, script);
@@ -2500,15 +2501,10 @@ fn build_ast_from_unary_expression(
                         (
                             ExpressionType::UpdateExpression {
                                 meta,
-                                operator: match first_inner_pair.as_str() {
+                                operator: match operator_str {
                                     "++" => UpdateOperator::PlusPlus,
                                     "--" => UpdateOperator::MinusMinus,
-                                    _ => {
-                                        return Err(get_unexpected_error(
-                                            "build_ast_from_unary_expression:1",
-                                            &first_inner_pair,
-                                        ))
-                                    }
+                                    _ => unreachable!(),
                                 },
                                 argument: Box::new(u),
                                 prefix: true,
@@ -2523,7 +2519,7 @@ fn build_ast_from_unary_expression(
                     (
                         ExpressionType::UnaryExpression {
                             meta,
-                            operator: match first_inner_pair.as_str() {
+                            operator: match operator_str {
                                 "delete" => {
                                     if let ExpressionType::ExpressionWhichCanBePattern(
                                         ExpressionPatternType::Identifier(id),
@@ -2549,7 +2545,7 @@ fn build_ast_from_unary_expression(
                                 _ => {
                                     return Err(get_unexpected_error(
                                         "build_ast_from_unary_expression:2",
-                                        &first_inner_pair,
+                                        &first_pair,
                                     ))
                                 }
                             },
