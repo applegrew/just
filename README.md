@@ -18,11 +18,17 @@ The AST complies with [ESTree](https://github.com/estree/estree) specification. 
 # Build
 cargo build
 
-# Run all tests
+# Run all tests (267 tests)
 cargo test
 
 # Run parser unit tests only
 cargo test --package just --lib parser::unit_tests
+
+# Run integration tests
+cargo test --test test_integration
+
+# Run benchmarks
+cargo run --release --bin benchmark
 ```
 
 ## Project Status
@@ -48,7 +54,8 @@ The parser supports most ES6 syntax:
 - Member expressions (dot and bracket notation)
 - Call expressions
 - Unary, binary, logical, conditional expressions
-- Assignment expressions
+- Assignment expressions (including compound: `+=`, `-=`, etc.)
+- Update expressions (`++`, `--` prefix and postfix)
 - Spread elements `...`
 - Destructuring patterns (object and array)
 - Generator expressions
@@ -70,30 +77,65 @@ The parser supports most ES6 syntax:
 - Async/await (ES2017)
 - Labeled statements
 
-### Runner/Evaluator (Work in Progress)
+### Runner/Evaluator
 
-The runtime currently supports basic expression evaluation:
+The runtime supports core JavaScript execution:
 
-**Working**
+**Expressions**
 - Literal evaluation (all types)
 - Unary operators: `typeof`, `void`, `!`, `-`, `+`, `~`
 - Binary arithmetic: `+`, `-`, `*`, `/`, `%`
 - Comparison: `<`, `>`, `<=`, `>=`, `===`, `!==`, `==`, `!=`
 - Bitwise: `&`, `|`, `^`, `<<`, `>>`, `>>>`
-- Logical: `&&`, `||` (with short-circuit)
+- Logical: `&&`, `||` (with short-circuit evaluation)
 - Conditional (ternary): `? :`
 - Sequence (comma): `,`
+- Update expressions: `++x`, `x++`, `--x`, `x--`
+- Assignment: `=`, `+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, `<<=`, `>>=`, `>>>=`
 - Type coercion for operations
 
+**Variables & Scoping**
+- Variable declarations (`var`, `let`, `const`)
+- Lexical scoping for `let`/`const`
+- Function-scoped `var` with hoisting behavior
+- Block scope support
+
+**Objects & Arrays**
+- Object literal creation
+- Array literal creation
+- Property access (dot notation: `obj.prop`)
+- Computed property access (bracket notation: `obj["prop"]`)
+- String property access (`str.length`, `str[0]`)
+
+**Functions**
+- Function declarations
+- Function calls with arguments
+- Return values
+- Closure support (functions capture their environment)
+- Parameter binding
+
+**Control Flow**
+- `if`/`else` statements
+- `while` loops
+- `do-while` loops
+- `for` loops
+- `for-in` loops (iterate over object keys)
+- `for-of` loops (iterate over iterable values)
+- `switch`/`case` statements with fall-through
+- `break` and `continue`
+- `try`/`catch`/`finally` exception handling
+- `throw` statements
+
 **Not Yet Implemented**
-- Variable references and assignment
-- Object/array creation and manipulation
-- Function calls and method invocation
-- Property access (member expressions)
+- `new` expressions (object construction)
 - Classes and inheritance
-- Generators and yield
-- Error handling (try/catch)
-- Loops (for-in, for-of)
+- Generators and `yield`
+- `eval()`
+- `delete` operator
+- `in` and `instanceof` operators
+- Getters/setters
+- Spread in function calls and arrays
+- Destructuring assignment
 
 ### Built-in Objects
 
