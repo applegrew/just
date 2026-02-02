@@ -9,7 +9,7 @@ mod iterator_object;
 pub mod lex_env;
 mod misc;
 pub mod object;
-mod object_property;
+pub mod object_property;
 mod operations;
 mod realm;
 mod scope;

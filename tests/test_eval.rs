@@ -690,3 +690,85 @@ fn test_undefined_variable_error() {
     let result = evaluate_expression(&lookup, &mut ctx);
     assert!(result.is_err());
 }
+
+// ============================================================================
+// Member expression tests
+// ============================================================================
+
+use just::parser::ast::{MemberExpressionType, ExpressionOrSuper};
+
+/// Helper to create a simple member expression (dot notation).
+fn member_expr(obj: ExpressionType, prop_name: &str) -> ExpressionType {
+    ExpressionType::MemberExpression(MemberExpressionType::SimpleMemberExpression {
+        meta: test_meta(),
+        object: ExpressionOrSuper::Expression(Box::new(obj)),
+        property: IdentifierData {
+            name: prop_name.to_string(),
+            meta: test_meta(),
+            is_binding_identifier: false,
+        },
+    })
+}
+
+/// Helper to create a computed member expression (bracket notation).
+fn computed_member_expr(obj: ExpressionType, prop: ExpressionType) -> ExpressionType {
+    ExpressionType::MemberExpression(MemberExpressionType::ComputedMemberExpression {
+        meta: test_meta(),
+        object: ExpressionOrSuper::Expression(Box::new(obj)),
+        property: Box::new(prop),
+    })
+}
+
+#[test]
+fn test_string_length_property() {
+    let mut ctx = EvalContext::new();
+
+    // "hello".length
+    let expr = member_expr(str_expr("hello"), "length");
+    let result = evaluate_expression(&expr, &mut ctx).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(5)));
+}
+
+#[test]
+fn test_string_index_access() {
+    let mut ctx = EvalContext::new();
+
+    // "hello"[1]
+    let expr = computed_member_expr(str_expr("hello"), num_expr(1));
+    let result = evaluate_expression(&expr, &mut ctx).unwrap();
+    assert_eq!(result, JsValue::String("e".to_string()));
+}
+
+#[test]
+fn test_string_index_out_of_bounds() {
+    let mut ctx = EvalContext::new();
+
+    // "hello"[10]
+    let expr = computed_member_expr(str_expr("hello"), num_expr(10));
+    let result = evaluate_expression(&expr, &mut ctx).unwrap();
+    assert_eq!(result, JsValue::Undefined);
+}
+
+#[test]
+fn test_member_access_on_undefined() {
+    let mut ctx = EvalContext::new();
+
+    // Store undefined in a variable and try to access property
+    let stmt = var_decl_stmt(VariableDeclarationKind::Var, "x", None);
+    execute_statement(&stmt, &mut ctx).unwrap();
+
+    // x.foo should throw TypeError
+    let expr = member_expr(id_expr("x"), "foo");
+    let result = evaluate_expression(&expr, &mut ctx);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_member_access_on_null() {
+    let mut ctx = EvalContext::new();
+
+    // null.foo should throw TypeError
+    let expr = member_expr(null_expr(), "foo");
+    let result = evaluate_expression(&expr, &mut ctx);
+    assert!(result.is_err());
+}

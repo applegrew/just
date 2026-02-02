@@ -4,8 +4,9 @@
 //! It handles all expression types defined in the AST.
 
 use crate::parser::ast::{
-    AssignmentOperator, BinaryOperator, ExpressionType, ExpressionPatternType, LiteralData,
-    LiteralType, PatternOrExpression, PatternType, UnaryOperator, LogicalOperator,
+    AssignmentOperator, BinaryOperator, ExpressionOrSuper, ExpressionType, ExpressionPatternType,
+    LiteralData, LiteralType, MemberExpressionType, PatternOrExpression, PatternType,
+    UnaryOperator, LogicalOperator,
 };
 use crate::runner::ds::error::JErrorType;
 use crate::runner::ds::value::{JsValue, JsNumberType};
@@ -101,8 +102,8 @@ pub fn evaluate_expression(
             Err(JErrorType::TypeError("Arrow function expression not yet implemented".to_string()))
         }
 
-        ExpressionType::MemberExpression(_) => {
-            Err(JErrorType::TypeError("Member expression not yet implemented".to_string()))
+        ExpressionType::MemberExpression(member_expr) => {
+            evaluate_member_expression(member_expr, ctx)
         }
     }
 }
@@ -137,6 +138,110 @@ fn evaluate_expression_pattern(
             ctx.get_binding(&id.name)
         }
     }
+}
+
+/// Evaluate a member expression (property access).
+fn evaluate_member_expression(
+    member_expr: &MemberExpressionType,
+    ctx: &mut EvalContext,
+) -> ValueResult {
+    match member_expr {
+        MemberExpressionType::SimpleMemberExpression { object, property, .. } => {
+            // Evaluate the object
+            let obj_value = evaluate_expression_or_super(object, ctx)?;
+            let prop_name = &property.name;
+
+            // Get the property
+            get_property(&obj_value, prop_name)
+        }
+        MemberExpressionType::ComputedMemberExpression { object, property, .. } => {
+            // Evaluate the object
+            let obj_value = evaluate_expression_or_super(object, ctx)?;
+
+            // Evaluate the property expression to get the key
+            let prop_value = evaluate_expression(property, ctx)?;
+            let prop_name = to_property_key(&prop_value);
+
+            // Get the property
+            get_property(&obj_value, &prop_name)
+        }
+    }
+}
+
+/// Evaluate an ExpressionOrSuper.
+fn evaluate_expression_or_super(
+    expr_or_super: &ExpressionOrSuper,
+    ctx: &mut EvalContext,
+) -> ValueResult {
+    match expr_or_super {
+        ExpressionOrSuper::Expression(expr) => evaluate_expression(expr, ctx),
+        ExpressionOrSuper::Super => {
+            Err(JErrorType::TypeError("super not yet supported".to_string()))
+        }
+    }
+}
+
+/// Get a property from a value.
+fn get_property(value: &JsValue, prop_name: &str) -> ValueResult {
+    match value {
+        JsValue::Object(obj) => {
+            use crate::runner::ds::object_property::PropertyKey;
+            use crate::runner::ds::object::JsObject;
+
+            let obj_ref = obj.borrow();
+            let prop_key = PropertyKey::Str(prop_name.to_string());
+
+            // Check own property
+            if let Some(desc) = obj_ref.as_js_object().get_own_property(&prop_key)? {
+                use crate::runner::ds::object_property::PropertyDescriptor;
+                match desc {
+                    PropertyDescriptor::Data(data) => Ok(data.value.clone()),
+                    PropertyDescriptor::Accessor(_) => {
+                        Err(JErrorType::TypeError("Accessor properties not yet supported".to_string()))
+                    }
+                }
+            } else {
+                // Check prototype chain
+                if let Some(proto) = obj_ref.as_js_object().get_prototype_of() {
+                    drop(obj_ref);  // Release borrow before recursive call
+                    get_property(&JsValue::Object(proto), prop_name)
+                } else {
+                    Ok(JsValue::Undefined)
+                }
+            }
+        }
+        JsValue::String(s) => {
+            // String primitive property access
+            if prop_name == "length" {
+                Ok(JsValue::Number(JsNumberType::Integer(s.len() as i64)))
+            } else if let Ok(index) = prop_name.parse::<usize>() {
+                // Access character at index
+                if index < s.len() {
+                    Ok(JsValue::String(s.chars().nth(index).unwrap().to_string()))
+                } else {
+                    Ok(JsValue::Undefined)
+                }
+            } else {
+                // Other string methods not yet supported
+                Ok(JsValue::Undefined)
+            }
+        }
+        JsValue::Undefined => {
+            Err(JErrorType::TypeError("Cannot read property of undefined".to_string()))
+        }
+        JsValue::Null => {
+            Err(JErrorType::TypeError("Cannot read property of null".to_string()))
+        }
+        _ => {
+            // Primitive types - return undefined for now
+            Ok(JsValue::Undefined)
+        }
+    }
+}
+
+/// Convert a value to a property key string.
+fn to_property_key(value: &JsValue) -> String {
+    to_string(value)
 }
 
 /// Evaluate an assignment expression.
