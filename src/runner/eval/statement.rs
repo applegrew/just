@@ -3,8 +3,8 @@
 //! This module provides statement execution logic for the JavaScript interpreter.
 
 use crate::parser::ast::{
-    ExpressionPatternType, PatternType, StatementType, DeclarationType, VariableDeclarationData,
-    VariableDeclarationKind, BlockStatementData, ExpressionType,
+    ExpressionPatternType, FunctionBodyData, PatternType, StatementType, DeclarationType,
+    VariableDeclarationData, VariableDeclarationKind, BlockStatementData, ExpressionType,
 };
 use crate::runner::ds::error::JErrorType;
 use crate::runner::ds::value::JsValue;
@@ -98,9 +98,9 @@ pub fn execute_statement(
             Ok(Completion::normal())
         }
 
-        StatementType::FunctionBody(_) => {
-            // Function body is handled separately
-            Ok(Completion::normal())
+        StatementType::FunctionBody(body) => {
+            // Execute each statement in the function body
+            execute_function_body(body, ctx)
         }
     }
 }
@@ -340,6 +340,33 @@ fn execute_for_statement(
 
         if let Some(update) = update {
             evaluate_expression(update, ctx)?;
+        }
+    }
+
+    Ok(completion)
+}
+
+/// Execute a function body.
+fn execute_function_body(
+    body: &FunctionBodyData,
+    ctx: &mut EvalContext,
+) -> EvalResult {
+    let mut completion = Completion::normal();
+
+    for stmt in body.body.iter() {
+        completion = execute_statement(stmt, ctx)?;
+
+        // Handle abrupt completions
+        match completion.completion_type {
+            CompletionType::Return | CompletionType::Throw => {
+                return Ok(completion);
+            }
+            CompletionType::Break | CompletionType::Continue => {
+                // Break/continue inside a function body without a loop is an error
+                // but for now we just return the completion
+                return Ok(completion);
+            }
+            CompletionType::Normal => {}
         }
     }
 

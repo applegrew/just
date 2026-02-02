@@ -4,11 +4,12 @@
 //! It handles all expression types defined in the AST.
 
 use crate::parser::ast::{
-    AssignmentOperator, BinaryOperator, ExpressionOrSuper, ExpressionType, ExpressionPatternType,
-    LiteralData, LiteralType, MemberExpressionType, PatternOrExpression, PatternType,
-    UnaryOperator, LogicalOperator,
+    AssignmentOperator, BinaryOperator, ExpressionOrSpreadElement, ExpressionOrSuper,
+    ExpressionType, ExpressionPatternType, LiteralData, LiteralType, MemberExpressionType,
+    PatternOrExpression, PatternType, UnaryOperator, LogicalOperator,
 };
 use crate::runner::ds::error::JErrorType;
+use crate::runner::ds::object::ObjectType;
 use crate::runner::ds::value::{JsValue, JsNumberType};
 use crate::runner::plugin::types::EvalContext;
 
@@ -66,8 +67,8 @@ pub fn evaluate_expression(
             evaluate_conditional_expression(test, consequent, alternate, ctx)
         }
 
-        ExpressionType::CallExpression { .. } => {
-            Err(JErrorType::TypeError("Call expression not yet implemented".to_string()))
+        ExpressionType::CallExpression { callee, arguments, .. } => {
+            evaluate_call_expression(callee, arguments, ctx)
         }
 
         ExpressionType::NewExpression { .. } => {
@@ -178,6 +179,189 @@ fn evaluate_expression_or_super(
         ExpressionOrSuper::Super => {
             Err(JErrorType::TypeError("super not yet supported".to_string()))
         }
+    }
+}
+
+/// Evaluate a call expression (function call).
+fn evaluate_call_expression(
+    callee: &ExpressionOrSuper,
+    arguments: &[ExpressionOrSpreadElement],
+    ctx: &mut EvalContext,
+) -> ValueResult {
+    // Evaluate the callee to get the function
+    let callee_value = evaluate_expression_or_super(callee, ctx)?;
+
+    // Get the 'this' value for the call
+    let this_value = get_call_this_value(callee, ctx);
+
+    // Evaluate the arguments
+    let args = evaluate_arguments(arguments, ctx)?;
+
+    // Call the function
+    call_value(&callee_value, this_value, args, ctx)
+}
+
+/// Get the 'this' value for a call expression.
+fn get_call_this_value(callee: &ExpressionOrSuper, ctx: &mut EvalContext) -> JsValue {
+    match callee {
+        ExpressionOrSuper::Expression(expr) => {
+            match expr.as_ref() {
+                // For member expressions, 'this' is the object
+                ExpressionType::MemberExpression(member) => {
+                    match member {
+                        MemberExpressionType::SimpleMemberExpression { object, .. } |
+                        MemberExpressionType::ComputedMemberExpression { object, .. } => {
+                            match object {
+                                ExpressionOrSuper::Expression(obj_expr) => {
+                                    evaluate_expression(obj_expr, ctx).unwrap_or(JsValue::Undefined)
+                                }
+                                ExpressionOrSuper::Super => JsValue::Undefined,
+                            }
+                        }
+                    }
+                }
+                // For other expressions, 'this' is undefined (or global in non-strict)
+                _ => ctx.global_this.clone().unwrap_or(JsValue::Undefined),
+            }
+        }
+        ExpressionOrSuper::Super => JsValue::Undefined,
+    }
+}
+
+/// Evaluate call arguments.
+fn evaluate_arguments(
+    arguments: &[ExpressionOrSpreadElement],
+    ctx: &mut EvalContext,
+) -> Result<Vec<JsValue>, JErrorType> {
+    let mut args = Vec::with_capacity(arguments.len());
+    for arg in arguments {
+        match arg {
+            ExpressionOrSpreadElement::Expression(expr) => {
+                args.push(evaluate_expression(expr, ctx)?);
+            }
+            ExpressionOrSpreadElement::SpreadElement(_) => {
+                return Err(JErrorType::TypeError("Spread in calls not yet supported".to_string()));
+            }
+        }
+    }
+    Ok(args)
+}
+
+/// Call a value as a function.
+fn call_value(
+    callee: &JsValue,
+    this_value: JsValue,
+    args: Vec<JsValue>,
+    ctx: &mut EvalContext,
+) -> ValueResult {
+    match callee {
+        JsValue::Object(obj) => {
+            let obj_ref = obj.borrow();
+            if obj_ref.is_callable() {
+                drop(obj_ref);
+                // For now, we'll call through our execution context stack
+                // This is a simplified implementation that doesn't fully support
+                // user-defined functions yet, but will work for native functions
+                // stored in NativeFunctionObject
+                call_function_object(obj, this_value, args, ctx)
+            } else {
+                Err(JErrorType::TypeError(format!(
+                    "{} is not a function",
+                    callee
+                )))
+            }
+        }
+        _ => Err(JErrorType::TypeError(format!(
+            "{} is not a function",
+            callee
+        ))),
+    }
+}
+
+/// Call a function object.
+fn call_function_object(
+    func: &crate::runner::ds::object::JsObjectType,
+    _this_value: JsValue,
+    args: Vec<JsValue>,
+    ctx: &mut EvalContext,
+) -> ValueResult {
+    let func_ref = func.borrow();
+
+    // Check if it's a function object
+    if let ObjectType::Function(func_obj) = &*func_ref {
+        // Get function metadata (these are Rc so cloning is cheap)
+        let body = func_obj.get_function_object_base().body_code.clone();
+        let params = func_obj.get_function_object_base().formal_parameters.clone();
+        let func_env = func_obj.get_function_object_base().environment.clone();
+
+        drop(func_ref);
+
+        // Create a new function scope
+        let saved_lex_env = ctx.lex_env.clone();
+        let saved_var_env = ctx.var_env.clone();
+
+        // Create new environment for the function, with the function's closure as outer
+        use crate::runner::ds::env_record::new_declarative_environment;
+        let func_scope = new_declarative_environment(Some(func_env));
+        ctx.lex_env = func_scope.clone();
+        ctx.var_env = func_scope;
+
+        // Bind parameters to arguments
+        for (i, param) in params.iter().enumerate() {
+            if let crate::parser::ast::PatternType::PatternWhichCanBeExpression(
+                ExpressionPatternType::Identifier(id)
+            ) = param {
+                let arg_value = args.get(i).cloned().unwrap_or(JsValue::Undefined);
+                ctx.create_binding(&id.name, false)?;
+                ctx.initialize_binding(&id.name, arg_value)?;
+            }
+        }
+
+        // Execute each statement in the function body
+        use super::statement::execute_statement;
+        use super::types::CompletionType;
+
+        let mut result_completion = super::types::Completion::normal();
+
+        for stmt in body.body.iter() {
+            let completion = execute_statement(stmt, ctx)?;
+
+            match completion.completion_type {
+                CompletionType::Return => {
+                    result_completion = completion;
+                    break;
+                }
+                CompletionType::Throw => {
+                    // Restore environment before returning error
+                    ctx.lex_env = saved_lex_env;
+                    ctx.var_env = saved_var_env;
+                    return Err(JErrorType::TypeError(format!(
+                        "Uncaught exception: {:?}",
+                        completion.value
+                    )));
+                }
+                CompletionType::Break | CompletionType::Continue => {
+                    // These shouldn't escape function body
+                    result_completion = completion;
+                    break;
+                }
+                CompletionType::Normal => {
+                    result_completion = completion;
+                }
+            }
+        }
+
+        // Restore the previous environment
+        ctx.lex_env = saved_lex_env;
+        ctx.var_env = saved_var_env;
+
+        // Return the result
+        match result_completion.completion_type {
+            CompletionType::Return => Ok(result_completion.get_value()),
+            _ => Ok(JsValue::Undefined),
+        }
+    } else {
+        Err(JErrorType::TypeError("Object is not callable".to_string()))
     }
 }
 
