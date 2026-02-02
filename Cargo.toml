@@ -14,3 +14,7 @@ pest_consume_macros = "1.0.6"
 uuid = { version = "0.8", features = ["v4"] }
 lazy_static = "1.4.0"
 
+[[bin]]
+name = "benchmark"
+path = "benches/benchmark_runner.rs"
+
