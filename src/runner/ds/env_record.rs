@@ -213,7 +213,7 @@ impl EnvironmentRecord for ObjectEnvironmentRecord {
 
     fn create_mutable_binding(&mut self, name: String, can_delete: bool) -> Result<(), JErrorType> {
         define_property_or_throw(
-            self.binding_object.get_mut().as_js_object_mut(),
+            (*self.binding_object).borrow_mut().as_js_object_mut(),
             PropertyKey::Str(name),
             PropertyDescriptorSetter::new_from_property_descriptor(PropertyDescriptor::Data(
                 PropertyDescriptorData {
@@ -297,16 +297,22 @@ pub struct FunctionEnvironmentRecord {
 }
 impl FunctionEnvironmentRecord {
     fn new(f: JsObjectType, new_target: Option<JsObjectType>) -> Self {
-        let func = (*f).borrow().as_js_function_object();
+        // Extract values from borrow before moving f
+        let (is_lexical, home_object) = {
+            let func = (*f).borrow();
+            let func_obj = func.as_js_function_object();
+            let base = func_obj.get_function_object_base();
+            (
+                base.is_lexical,
+                base.home_object.as_ref().map(|ho| ho.clone()),
+            )
+        };
         FunctionEnvironmentRecord {
             base_env: DeclarativeEnvironmentRecord::new(),
             this_value: None,
-            is_lexical_binding: func.get_function_object_base().is_lexical,
+            is_lexical_binding: is_lexical,
             function_object: f,
-            home_object: match &func.get_function_object_base().home_object {
-                None => None,
-                Some(ho) => Some(ho.clone()),
-            },
+            home_object,
             new_target,
         }
     }
@@ -680,11 +686,7 @@ impl EnvironmentRecord for GlobalEnvironmentRecord {
                     &PropertyKey::Str(name.to_string()),
                 )? {
                     if self.object_record.delete_binding(name)? {
-                        self.var_names = self
-                            .var_names
-                            .into_iter()
-                            .filter(|n| n != name)
-                            .collect::<Vec<String>>();
+                        self.var_names.retain(|n| n != name);
                         true
                     } else {
                         false

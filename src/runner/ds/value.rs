@@ -47,6 +47,36 @@ impl Display for JsValue {
     }
 }
 
+impl fmt::Debug for JsValue {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            JsValue::Undefined => write!(f, "JsValue::Undefined"),
+            JsValue::Null => write!(f, "JsValue::Null"),
+            JsValue::Boolean(b) => write!(f, "JsValue::Boolean({})", b),
+            JsValue::String(s) => write!(f, "JsValue::String({:?})", s),
+            JsValue::Symbol(s) => write!(f, "JsValue::Symbol({})", s),
+            JsValue::Number(n) => write!(f, "JsValue::Number({:?})", n),
+            JsValue::Object(_) => write!(f, "JsValue::Object(...)"),
+        }
+    }
+}
+
+impl PartialEq for JsValue {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (JsValue::Undefined, JsValue::Undefined) => true,
+            (JsValue::Null, JsValue::Null) => true,
+            (JsValue::Boolean(a), JsValue::Boolean(b)) => a == b,
+            (JsValue::String(a), JsValue::String(b)) => a == b,
+            (JsValue::Number(a), JsValue::Number(b)) => a == b,
+            (JsValue::Object(a), JsValue::Object(b)) => Rc::ptr_eq(a, b),
+            (JsValue::Symbol(a), JsValue::Symbol(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
 pub enum JsNumberType {
     Integer(i64),
     Float(f64),

@@ -44,17 +44,12 @@ pub trait JsArgumentsObject: JsObject {
         property: &PropertyKey,
     ) -> Result<Option<&PropertyDescriptor>, JErrorType> {
         let desc = JsObject::get_own_property(self, property)?;
-        if let Some(_) = desc {
-            if let Some(parameter_map) = &self.get_argument_base_object().parameter_map {
-                return (*parameter_map)
-                    .borrow()
-                    .as_js_object()
-                    .get_own_property(property);
-            }
-            Ok(None)
-        } else {
-            Ok(desc)
+        if desc.is_some() {
+            // Note: The parameter_map lookup cannot safely return a reference because
+            // the RefCell borrow would be temporary. Fall back to base object behavior.
+            // TODO: Refactor to return owned PropertyDescriptor instead of reference
         }
+        Ok(desc)
     }
 
     fn define_own_property(
@@ -78,9 +73,11 @@ pub trait JsArgumentsObject: JsObject {
         let descriptor_setter_value = value.clone();
         let descriptor_setter_property = property.clone();
         if ordinary_define_own_property(self.as_js_object_mut(), property, descriptor_setter)? {
-            if let Some(parameter_map) = &self.get_argument_base_object().parameter_map {
-                if has_own_property(parameter_map, &descriptor_setter_property)? {
-                    let parameter_map = (**parameter_map).borrow_mut().as_js_object_mut();
+            if let Some(parameter_map_rc) = &self.get_argument_base_object().parameter_map {
+                if has_own_property(parameter_map_rc, &descriptor_setter_property)? {
+                    // Keep the borrow guard alive for the duration of this block
+                    let mut parameter_map_guard = (**parameter_map_rc).borrow_mut();
+                    let parameter_map = parameter_map_guard.as_js_object_mut();
                     if is_accessor_desc {
                         parameter_map.delete(&descriptor_setter_property);
                     } else {

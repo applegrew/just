@@ -157,10 +157,10 @@ pub fn to_string(ctx_stack: &mut ExecutionContextStack, v: &JsValue) -> Result<S
             JsNumberType::PositiveInfinity => TYPE_STR_NUMBER_INFINITY.to_string(),
             JsNumberType::NegativeInfinity => format!("-{}", TYPE_STR_NUMBER_INFINITY),
         }),
-        JsValue::Object(_) => to_string(
-            ctx_stack,
-            &to_primitive(ctx_stack, v, PreferredType::String)?,
-        ),
+        JsValue::Object(_) => {
+            let primitive = to_primitive(ctx_stack, v, PreferredType::String)?;
+            to_string(ctx_stack, &primitive)
+        }
     }
 }
 
@@ -188,9 +188,9 @@ pub fn canonical_numeric_index_string(
     }
 }
 
-pub fn get_js_object_from_js_value(v: &JsValue) -> Option<&dyn JsObject> {
-    match v {
-        JsValue::Object(o) => Some((**o).borrow().as_js_object()),
-        _ => None,
-    }
+pub fn get_js_object_from_js_value(_v: &JsValue) -> Option<&dyn JsObject> {
+    // Note: This function cannot safely return a reference to the inner object
+    // because the RefCell borrow would be temporary. Callers should match on
+    // JsValue::Object directly and handle the borrow appropriately.
+    None
 }

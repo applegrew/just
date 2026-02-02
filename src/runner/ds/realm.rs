@@ -254,19 +254,22 @@ pub fn create_intrinsics() -> HashMap<WellKnownIntrinsics, JsObjectType> {
     intrinsics
 }
 
-pub fn set_realm_global_object(r: &mut CodeRealm, mut global_obj: Option<JsObjectType>) {
-    let inner_global_obj;
-    if let Some(g) = &global_obj {
-        inner_global_obj = g;
+pub fn set_realm_global_object(r: &mut CodeRealm, global_obj: Option<JsObjectType>) {
+    let (final_global_obj, inner_global_obj) = if let Some(g) = global_obj {
+        let inner = g.clone();
+        (Some(g), inner)
     } else {
-        inner_global_obj = r.get_intrinsics_value(&WellKnownIntrinsics::ObjectPrototype);
-        global_obj = Some(inner_global_obj.clone());
-    }
-    r.global_this = global_obj;
-    r.global_env = Some(new_global_environment(inner_global_obj.clone()));
+        let intrinsic = r.get_intrinsics_value(&WellKnownIntrinsics::ObjectPrototype).clone();
+        (Some(intrinsic.clone()), intrinsic)
+    };
+    r.global_this = final_global_obj;
+    r.global_env = Some(new_global_environment(inner_global_obj));
 }
 
 pub fn set_default_global_bindings(r: &mut CodeRealm) -> Result<(), JErrorType> {
+    // Get intrinsic values first to avoid borrow conflicts
+    let is_finite_intrinsic = r.get_intrinsics_value(&WellKnownIntrinsics::IsFinite).clone();
+
     if let Some(global_obj) = &mut r.global_this {
         define_property_or_throw(
             (**global_obj).borrow_mut().as_js_object_mut(),
@@ -309,10 +312,7 @@ pub fn set_default_global_bindings(r: &mut CodeRealm) -> Result<(), JErrorType> 
             PropertyKey::Str("isFinite".to_string()),
             PropertyDescriptorSetter::new_from_property_descriptor(PropertyDescriptor::Data(
                 PropertyDescriptorData {
-                    value: JsValue::Object(
-                        r.get_intrinsics_value(&WellKnownIntrinsics::IsFinite)
-                            .clone(),
-                    ),
+                    value: JsValue::Object(is_finite_intrinsic),
                     writable: false,
                     enumerable: false,
                     configurable: false,

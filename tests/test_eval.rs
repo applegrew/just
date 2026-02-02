@@ -17,11 +17,9 @@ use std::rc::Rc;
 /// Helper to create a simple meta for tests.
 fn test_meta() -> Meta {
     Meta {
-        start: 0,
-        end: 0,
-        offset: 0,
-        line: 1,
-        col: 0,
+        start_index: 0,
+        end_index: 0,
+        script: Rc::new(String::new()),
     }
 }
 
@@ -30,7 +28,6 @@ fn num_expr(n: i64) -> ExpressionType {
     ExpressionType::Literal(LiteralData {
         meta: test_meta(),
         value: LiteralType::NumberLiteral(NumberLiteralType::IntegerLiteral(n)),
-        raw: n.to_string(),
     })
 }
 
@@ -39,7 +36,6 @@ fn float_expr(f: f64) -> ExpressionType {
     ExpressionType::Literal(LiteralData {
         meta: test_meta(),
         value: LiteralType::NumberLiteral(NumberLiteralType::FloatLiteral(f)),
-        raw: f.to_string(),
     })
 }
 
@@ -48,7 +44,6 @@ fn str_expr(s: &str) -> ExpressionType {
     ExpressionType::Literal(LiteralData {
         meta: test_meta(),
         value: LiteralType::StringLiteral(s.to_string()),
-        raw: format!("\"{}\"", s),
     })
 }
 
@@ -57,7 +52,6 @@ fn bool_expr(b: bool) -> ExpressionType {
     ExpressionType::Literal(LiteralData {
         meta: test_meta(),
         value: LiteralType::BooleanLiteral(b),
-        raw: b.to_string(),
     })
 }
 
@@ -66,7 +60,6 @@ fn null_expr() -> ExpressionType {
     ExpressionType::Literal(LiteralData {
         meta: test_meta(),
         value: LiteralType::NullLiteral,
-        raw: "null".to_string(),
     })
 }
 
@@ -299,14 +292,10 @@ fn test_strict_inequality() {
 #[test]
 fn test_loose_equality_null_undefined() {
     let mut ctx = EvalContext::new();
-    // null == undefined should be true
-    let null_expr = ExpressionType::Literal(LiteralData {
-        meta: test_meta(),
-        value: LiteralType::NullLiteral,
-        raw: "null".to_string(),
-    });
-    // Note: We don't have undefined literal, this test would need to be adjusted
-    let expr = binary_expr(BinaryOperator::LooselyEqual, null_expr.clone(), null_expr);
+    // null == null should be true
+    let null_expr1 = null_expr();
+    let null_expr2 = null_expr();
+    let expr = binary_expr(BinaryOperator::LooselyEqual, null_expr1, null_expr2);
     let result = evaluate_expression(&expr, &mut ctx).unwrap();
     assert_eq!(result, JsValue::Boolean(true));
 }

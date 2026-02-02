@@ -253,8 +253,10 @@ pub trait JsObject {
         value: JsValue,
         receiver: JsValueOrSelf,
     ) -> Result<bool, JErrorType> {
-        let self_mutable_obj = self.as_js_object_mut();
-        match self.get_own_property(&property)? {
+        // Get own property first (immutable borrow)
+        let own_prop = self.get_own_property(&property)?;
+
+        match own_prop {
             None => match self.get_prototype_of() {
                 None => {
                     self.get_object_base_mut().properties.insert(
@@ -275,7 +277,7 @@ pub trait JsObject {
             },
             Some(pd) => match pd {
                 PropertyDescriptor::Data(PropertyDescriptorData {
-                    value, writable, ..
+                    value: _, writable, ..
                 }) => {
                     if *writable {
                         match receiver {
@@ -283,12 +285,12 @@ pub trait JsObject {
                                 JsValue::Object(o) => {
                                     let mut ot_obj = (**o).borrow_mut();
                                     let obj = (*ot_obj).as_js_object_mut();
-                                    set_or_update_data_descriptor(obj, property, value)
+                                    set_or_update_data_descriptor(obj, property, &value)
                                 }
                                 _ => Ok(false),
                             },
                             JsValueOrSelf::SelfValue => {
-                                set_or_update_data_descriptor(self_mutable_obj, property, value)
+                                set_or_update_data_descriptor(self.as_js_object_mut(), property, &value)
                             }
                         }
                     } else {
@@ -539,8 +541,8 @@ pub fn ordinary_define_own_property<J: JsObject + ?Sized>(
                                     && ((!current_get.is_none() && desc_get.is_none())
                                         || (current_get.is_none() && !desc_get.is_none())
                                         || !same_object(
-                                            &(*current_get.unwrap()).borrow(),
-                                            &(*desc_get.unwrap()).borrow(),
+                                            &(*current_get.as_ref().unwrap()).borrow(),
+                                            &(*desc_get.as_ref().unwrap()).borrow(),
                                         ))
                                 {
                                     return Ok(false);
@@ -656,7 +658,8 @@ pub fn get_prototype_from_constructor(
         let realm = get_function_realm(&*(*constructor).borrow())?;
         let proto = (*realm)
             .borrow()
-            .get_intrinsics_value(intrinsic_default_proto);
-        Ok(proto.clone())
+            .get_intrinsics_value(intrinsic_default_proto)
+            .clone();
+        Ok(proto)
     }
 }
