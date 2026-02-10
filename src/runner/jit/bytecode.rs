@@ -96,6 +96,13 @@ pub enum OpCode {
     /// Initialize a let/const binding with the value on top of the stack.
     InitBinding,
 
+    /// Get a local slot by index (operand: local slot index).
+    GetLocal,
+    /// Set a local slot by index (operand: local slot index).
+    SetLocal,
+    /// Initialize a local slot (operand: local slot index).
+    InitLocal,
+
     // ── Control Flow ─────────────────────────────────────────
     /// Unconditional jump (operand: absolute offset).
     Jump,
@@ -113,6 +120,8 @@ pub enum OpCode {
     Pop,
     /// Duplicate the top of the stack.
     Dup,
+    /// Duplicate the top two stack values (a,b -> a,b,a,b).
+    Dup2,
 
     // ── Scope ────────────────────────────────────────────────
     /// Push a new block scope.
@@ -197,6 +206,9 @@ pub struct Chunk {
     /// Indexed by operand in GetVar/SetVar/etc. opcodes.
     /// Separate from constants to allow zero-copy `&str` access in the VM.
     pub names: Vec<String>,
+    /// Local slots table. Each entry stores an index into `names`.
+    /// Slot index is used by GetLocal/SetLocal/InitLocal opcodes.
+    pub locals: Vec<u32>,
 }
 
 impl Chunk {
@@ -205,6 +217,7 @@ impl Chunk {
             code: Vec::new(),
             constants: Vec::new(),
             names: Vec::new(),
+            locals: Vec::new(),
         }
     }
 
@@ -245,6 +258,20 @@ impl Chunk {
         idx as u32
     }
 
+    /// Add a local slot for a name index and return its slot index.
+    pub fn add_local(&mut self, name_idx: u32) -> u32 {
+        let slot = self.locals.len();
+        self.locals.push(name_idx);
+        slot as u32
+    }
+
+    /// Get a local slot's name (zero-copy reference).
+    #[inline]
+    pub fn get_local_name(&self, slot: u32) -> &str {
+        let name_idx = self.locals[slot as usize];
+        self.get_name(name_idx)
+    }
+
     /// Get a name by index (zero-copy reference).
     #[inline]
     pub fn get_name(&self, idx: u32) -> &str {
@@ -280,6 +307,10 @@ impl Chunk {
                 | OpCode::GetVarForUpdate => {
                     let name_str = self.get_name(instr.operand);
                     out.push_str(&format!("  \"{}\"", name_str));
+                }
+                OpCode::GetLocal | OpCode::SetLocal | OpCode::InitLocal => {
+                    let name_str = self.get_local_name(instr.operand);
+                    out.push_str(&format!("  slot={} \"{}\"", instr.operand, name_str));
                 }
                 OpCode::Jump | OpCode::JumpIfFalse | OpCode::JumpIfTrue => {
                     out.push_str(&format!("  -> {:04}", instr.operand));

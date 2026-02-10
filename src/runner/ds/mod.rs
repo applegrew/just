@@ -10,7 +10,7 @@ pub mod lex_env;
 mod misc;
 pub mod object;
 pub mod object_property;
-mod operations;
+pub mod operations;
 pub mod realm;
 mod scope;
 mod string_object;

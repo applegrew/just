@@ -32,6 +32,8 @@ pub struct EvalContext {
     pub ctx_stack: ExecutionContextStack,
     /// Whether we're in strict mode.
     pub strict: bool,
+    /// Lexical environment version for cache invalidation.
+    pub lex_env_version: u64,
 }
 
 impl EvalContext {
@@ -50,6 +52,7 @@ impl EvalContext {
             var_env: global_env,
             ctx_stack: ExecutionContextStack::new(),
             strict: false,
+            lex_env_version: 0,
         }
     }
 
@@ -67,7 +70,13 @@ impl EvalContext {
             var_env: global_env,
             ctx_stack: ExecutionContextStack::new(),
             strict: false,
+            lex_env_version: 0,
         }
+    }
+
+    /// Current lexical environment version.
+    pub fn current_lex_env_version(&self) -> u64 {
+        self.lex_env_version
     }
 
     /// Track a heap allocation.
@@ -89,6 +98,44 @@ impl EvalContext {
     pub fn get_binding(&mut self, name: &str) -> Result<JsValue, JErrorType> {
         let name_string = name.to_string();
         self.resolve_binding(&name_string)
+    }
+
+    /// Look up a binding and return the environment where it was found.
+    pub fn get_binding_with_env(
+        &mut self,
+        name: &str,
+    ) -> Result<(JsValue, JsLexEnvironmentType), JErrorType> {
+        let name_string = name.to_string();
+        let mut current_env = Some(self.lex_env.clone());
+
+        while let Some(env) = current_env {
+            let env_borrowed = env.borrow();
+            if env_borrowed.inner.as_env_record().has_binding(&name_string) {
+                drop(env_borrowed);
+                let value = env
+                    .borrow()
+                    .inner
+                    .as_env_record()
+                    .get_binding_value(&mut self.ctx_stack, &name_string)?;
+                return Ok((value, env));
+            }
+            current_env = env_borrowed.outer.clone();
+        }
+
+        Err(JErrorType::ReferenceError(format!("{} is not defined", name)))
+    }
+
+    /// Get a binding from a specific environment (used by inline caches).
+    pub fn get_binding_in_env(
+        &mut self,
+        env: &JsLexEnvironmentType,
+        name: &str,
+    ) -> Result<JsValue, JErrorType> {
+        let name_string = name.to_string();
+        env.borrow()
+            .inner
+            .as_env_record()
+            .get_binding_value(&mut self.ctx_stack, &name_string)
     }
 
     /// Resolve a binding by walking up the environment chain.
@@ -115,6 +162,44 @@ impl EvalContext {
     pub fn set_binding(&mut self, name: &str, value: JsValue) -> Result<(), JErrorType> {
         let name_string = name.to_string();
         self.resolve_and_set_binding(&name_string, value)
+    }
+
+    /// Set a binding and return the environment where it was set.
+    pub fn set_binding_with_env(
+        &mut self,
+        name: &str,
+        value: JsValue,
+    ) -> Result<JsLexEnvironmentType, JErrorType> {
+        let name_string = name.to_string();
+        let mut current_env = Some(self.lex_env.clone());
+
+        while let Some(env) = current_env.clone() {
+            let has_binding = env.borrow().inner.as_env_record().has_binding(&name_string);
+            if has_binding {
+                self.set_binding_in_env(&env, &name_string, value)?;
+                return Ok(env);
+            }
+            current_env = env.borrow().outer.clone();
+        }
+
+        if !self.strict {
+            let env = self.var_env.clone();
+            self.set_binding_in_env(&env, &name_string, value)?;
+            return Ok(env);
+        }
+
+        Err(JErrorType::ReferenceError(format!("{} is not defined", name)))
+    }
+
+    /// Set a binding in a specific environment (inline cache fast-path).
+    pub fn set_binding_in_env_cached(
+        &mut self,
+        env: &JsLexEnvironmentType,
+        name: &str,
+        value: JsValue,
+    ) -> Result<(), JErrorType> {
+        let name_string = name.to_string();
+        self.set_binding_in_env(env, &name_string, value)
     }
 
     /// Resolve and set a binding by walking up the environment chain.
@@ -168,27 +253,31 @@ impl EvalContext {
         match env.inner.as_mut() {
             EnvironmentRecordType::Declarative(rec) => {
                 if is_const {
-                    rec.create_immutable_binding(name_string)
+                    rec.create_immutable_binding(name_string)?
                 } else {
-                    rec.create_mutable_binding(name_string, false)
+                    rec.create_mutable_binding(name_string, false)?
                 }
             }
             EnvironmentRecordType::Function(rec) => {
                 if is_const {
-                    rec.create_immutable_binding(name_string)
+                    rec.create_immutable_binding(name_string)?
                 } else {
-                    rec.create_mutable_binding(name_string, false)
+                    rec.create_mutable_binding(name_string, false)?
                 }
             }
             EnvironmentRecordType::Global(rec) => {
                 if is_const {
-                    rec.create_immutable_binding(name_string)
+                    rec.create_immutable_binding(name_string)?
                 } else {
-                    rec.create_mutable_binding(name_string, false)
+                    rec.create_mutable_binding(name_string, false)?
                 }
             }
-            EnvironmentRecordType::Object(rec) => rec.create_mutable_binding(name_string, false),
+            EnvironmentRecordType::Object(rec) => {
+                rec.create_mutable_binding(name_string, false)?
+            }
         }
+        self.lex_env_version = self.lex_env_version.wrapping_add(1);
+        Ok(())
     }
 
     /// Create a var binding in the variable environment.
@@ -197,12 +286,14 @@ impl EvalContext {
         let name_string = name.to_string();
         match env.inner.as_mut() {
             EnvironmentRecordType::Declarative(rec) => {
-                rec.create_mutable_binding(name_string, true)
+                rec.create_mutable_binding(name_string, true)?
             }
-            EnvironmentRecordType::Function(rec) => rec.create_mutable_binding(name_string, true),
-            EnvironmentRecordType::Global(rec) => rec.create_mutable_binding(name_string, true),
-            EnvironmentRecordType::Object(rec) => rec.create_mutable_binding(name_string, true),
+            EnvironmentRecordType::Function(rec) => rec.create_mutable_binding(name_string, true)?,
+            EnvironmentRecordType::Global(rec) => rec.create_mutable_binding(name_string, true)?,
+            EnvironmentRecordType::Object(rec) => rec.create_mutable_binding(name_string, true)?,
         }
+        self.lex_env_version = self.lex_env_version.wrapping_add(1);
+        Ok(())
     }
 
     /// Initialize a binding with a value.
@@ -283,6 +374,7 @@ impl EvalContext {
     pub fn push_block_scope(&mut self) {
         let new_env = new_declarative_environment(Some(self.lex_env.clone()));
         self.lex_env = new_env;
+        self.lex_env_version = self.lex_env_version.wrapping_add(1);
     }
 
     /// Pop a block scope.
@@ -291,6 +383,7 @@ impl EvalContext {
         if let Some(outer_env) = outer {
             self.lex_env = outer_env;
         }
+        self.lex_env_version = self.lex_env_version.wrapping_add(1);
     }
 
     /// Check if a binding exists in the current environment chain.

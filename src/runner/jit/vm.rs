@@ -8,6 +8,10 @@ use crate::runner::ds::error::JErrorType;
 use crate::runner::ds::value::{JsNumberType, JsValue};
 use crate::runner::plugin::registry::BuiltInRegistry;
 use crate::runner::plugin::types::EvalContext;
+use crate::runner::ds::lex_env::JsLexEnvironmentType;
+use crate::runner::ds::object_property::PropertyKey;
+use crate::runner::ds::value::JsValueOrSelf;
+use crate::runner::ds::operations::type_conversion::to_string;
 
 use super::bytecode::{Chunk, OpCode};
 
@@ -19,6 +23,18 @@ pub enum VmResult {
     Error(JErrorType),
 }
 
+#[derive(Clone)]
+struct EnvCacheEntry {
+    version: u64,
+    env: JsLexEnvironmentType,
+}
+
+#[derive(Clone)]
+struct PropCacheEntry {
+    obj: crate::runner::ds::object::JsObjectType,
+    prop: String,
+}
+
 /// The bytecode virtual machine.
 pub struct Vm<'a> {
     chunk: &'a Chunk,
@@ -26,6 +42,14 @@ pub struct Vm<'a> {
     ip: usize,
     /// Operand stack.
     stack: Vec<JsValue>,
+    /// Local slots for fast var access.
+    locals: Vec<JsValue>,
+    /// Inline caches for GetVar.
+    get_var_cache: Vec<Option<EnvCacheEntry>>,
+    /// Inline caches for SetVar.
+    set_var_cache: Vec<Option<EnvCacheEntry>>,
+    /// Inline caches for GetProp.
+    get_prop_cache: Vec<Option<PropCacheEntry>>,
     /// Evaluation context (variables, scoping, heap).
     ctx: EvalContext,
     /// Built-in object registry for method calls.
@@ -38,13 +62,18 @@ impl<'a> Vm<'a> {
             chunk,
             ip: 0,
             stack: Vec::with_capacity(256),
+            locals: vec![JsValue::Undefined; chunk.locals.len()],
+            get_var_cache: vec![None; chunk.code.len()],
+            set_var_cache: vec![None; chunk.code.len()],
+            get_prop_cache: vec![None; chunk.code.len()],
             ctx,
             registry,
         }
     }
 
     /// Consume the VM and return the evaluation context (for variable inspection after execution).
-    pub fn into_ctx(self) -> EvalContext {
+    pub fn into_ctx(mut self) -> EvalContext {
+        self.sync_locals_into_ctx();
         self.ctx
     }
 
@@ -55,7 +84,8 @@ impl<'a> Vm<'a> {
                 return VmResult::Ok(self.stack.pop().unwrap_or(JsValue::Undefined));
             }
 
-            let instr = &self.chunk.code[self.ip];
+            let instr_index = self.ip;
+            let instr = &self.chunk.code[instr_index];
             let op = instr.op;
             let operand = instr.operand;
             let operand2 = instr.operand2;
@@ -231,7 +261,7 @@ impl<'a> Vm<'a> {
                 // ── Variables ────────────────────────────────
                 OpCode::GetVar => {
                     let name = self.chunk.get_name(operand);
-                    match self.ctx.get_binding(name) {
+                    match self.get_var_cached(instr_index, name) {
                         Ok(val) => self.stack.push(val),
                         Err(e) => return VmResult::Error(e),
                     }
@@ -239,7 +269,7 @@ impl<'a> Vm<'a> {
                 OpCode::SetVar => {
                     let name = self.chunk.get_name(operand);
                     let val = self.stack.pop().unwrap_or(JsValue::Undefined);
-                    if let Err(e) = self.ctx.set_binding(name, val) {
+                    if let Err(e) = self.set_var_cached(instr_index, name, val) {
                         return VmResult::Error(e);
                     }
                 }
@@ -284,6 +314,19 @@ impl<'a> Vm<'a> {
                     }
                 }
 
+                OpCode::GetLocal => {
+                    let slot = operand as usize;
+                    let val = self.locals.get(slot).cloned().unwrap_or(JsValue::Undefined);
+                    self.stack.push(val);
+                }
+                OpCode::SetLocal | OpCode::InitLocal => {
+                    let slot = operand as usize;
+                    let val = self.stack.pop().unwrap_or(JsValue::Undefined);
+                    if let Some(local) = self.locals.get_mut(slot) {
+                        *local = val;
+                    }
+                }
+
                 // ── Control Flow ─────────────────────────────
                 OpCode::Jump => {
                     self.ip = operand as usize;
@@ -314,6 +357,15 @@ impl<'a> Vm<'a> {
                         self.stack.push(top.clone());
                     }
                 }
+                OpCode::Dup2 => {
+                    if self.stack.len() >= 2 {
+                        let len = self.stack.len();
+                        let first = self.stack[len - 2].clone();
+                        let second = self.stack[len - 1].clone();
+                        self.stack.push(first);
+                        self.stack.push(second);
+                    }
+                }
 
                 // ── Scope ────────────────────────────────────
                 OpCode::PushScope => {
@@ -325,27 +377,46 @@ impl<'a> Vm<'a> {
 
                 // ── Objects & Properties ─────────────────────
                 OpCode::GetProp => {
-                    let _obj = self.stack.pop().unwrap_or(JsValue::Undefined);
-                    let _prop_name = self.chunk.get_name(operand);
-                    // Simplified: property access not fully supported in JIT yet
-                    self.stack.push(JsValue::Undefined);
+                    let obj_val = self.stack.pop().unwrap_or(JsValue::Undefined);
+                    let prop_name = self.chunk.get_name(operand);
+                    match self.get_prop_cached(instr_index, &obj_val, prop_name) {
+                        Ok(val) => self.stack.push(val),
+                        Err(e) => return VmResult::Error(e),
+                    }
                 }
                 OpCode::SetProp => {
-                    let _val = self.stack.pop().unwrap_or(JsValue::Undefined);
-                    let _obj = self.stack.pop().unwrap_or(JsValue::Undefined);
-                    // Simplified
-                    self.stack.push(JsValue::Undefined);
+                    let val = self.stack.pop().unwrap_or(JsValue::Undefined);
+                    let obj_val = self.stack.pop().unwrap_or(JsValue::Undefined);
+                    let prop_name = self.chunk.get_name(operand);
+                    if let Err(e) = self.set_prop_value(&obj_val, prop_name, val.clone()) {
+                        return VmResult::Error(e);
+                    }
+                    self.stack.push(val);
                 }
                 OpCode::GetElem => {
-                    let _key = self.stack.pop().unwrap_or(JsValue::Undefined);
-                    let _obj = self.stack.pop().unwrap_or(JsValue::Undefined);
-                    self.stack.push(JsValue::Undefined);
+                    let key_val = self.stack.pop().unwrap_or(JsValue::Undefined);
+                    let obj_val = self.stack.pop().unwrap_or(JsValue::Undefined);
+                    let prop_name = match self.to_property_key(&key_val) {
+                        Ok(key) => key,
+                        Err(e) => return VmResult::Error(e),
+                    };
+                    match self.get_prop_cached(instr_index, &obj_val, &prop_name) {
+                        Ok(val) => self.stack.push(val),
+                        Err(e) => return VmResult::Error(e),
+                    }
                 }
                 OpCode::SetElem => {
-                    let _val = self.stack.pop().unwrap_or(JsValue::Undefined);
-                    let _key = self.stack.pop().unwrap_or(JsValue::Undefined);
-                    let _obj = self.stack.pop().unwrap_or(JsValue::Undefined);
-                    self.stack.push(JsValue::Undefined);
+                    let val = self.stack.pop().unwrap_or(JsValue::Undefined);
+                    let key_val = self.stack.pop().unwrap_or(JsValue::Undefined);
+                    let obj_val = self.stack.pop().unwrap_or(JsValue::Undefined);
+                    let prop_name = match self.to_property_key(&key_val) {
+                        Ok(key) => key,
+                        Err(e) => return VmResult::Error(e),
+                    };
+                    if let Err(e) = self.set_prop_value(&obj_val, &prop_name, val.clone()) {
+                        return VmResult::Error(e);
+                    }
+                    self.stack.push(val);
                 }
 
                 // ── Function calls ───────────────────────────
@@ -399,11 +470,11 @@ impl<'a> Vm<'a> {
                 // ── Pre/Post increment/decrement ─────────────
                 OpCode::PreIncVar => {
                     let name = self.chunk.get_name(operand);
-                    match self.ctx.get_binding(name) {
+                    match self.get_var_cached(instr_index, name) {
                         Ok(val) => {
                             let num = self.to_f64(&val) + 1.0;
                             let new_val = self.f64_to_jsvalue(num);
-                            if let Err(e) = self.ctx.set_binding(name, new_val.clone()) {
+                            if let Err(e) = self.set_var_cached(instr_index, name, new_val.clone()) {
                                 return VmResult::Error(e);
                             }
                             self.stack.push(new_val);
@@ -413,11 +484,11 @@ impl<'a> Vm<'a> {
                 }
                 OpCode::PreDecVar => {
                     let name = self.chunk.get_name(operand);
-                    match self.ctx.get_binding(name) {
+                    match self.get_var_cached(instr_index, name) {
                         Ok(val) => {
                             let num = self.to_f64(&val) - 1.0;
                             let new_val = self.f64_to_jsvalue(num);
-                            if let Err(e) = self.ctx.set_binding(name, new_val.clone()) {
+                            if let Err(e) = self.set_var_cached(instr_index, name, new_val.clone()) {
                                 return VmResult::Error(e);
                             }
                             self.stack.push(new_val);
@@ -427,12 +498,12 @@ impl<'a> Vm<'a> {
                 }
                 OpCode::PostIncVar => {
                     let name = self.chunk.get_name(operand);
-                    match self.ctx.get_binding(name) {
+                    match self.get_var_cached(instr_index, name) {
                         Ok(val) => {
                             let old_val = val.clone();
                             let num = self.to_f64(&val) + 1.0;
                             let new_val = self.f64_to_jsvalue(num);
-                            if let Err(e) = self.ctx.set_binding(name, new_val) {
+                            if let Err(e) = self.set_var_cached(instr_index, name, new_val) {
                                 return VmResult::Error(e);
                             }
                             self.stack.push(old_val);
@@ -442,12 +513,12 @@ impl<'a> Vm<'a> {
                 }
                 OpCode::PostDecVar => {
                     let name = self.chunk.get_name(operand);
-                    match self.ctx.get_binding(name) {
+                    match self.get_var_cached(instr_index, name) {
                         Ok(val) => {
                             let old_val = val.clone();
                             let num = self.to_f64(&val) - 1.0;
                             let new_val = self.f64_to_jsvalue(num);
-                            if let Err(e) = self.ctx.set_binding(name, new_val) {
+                            if let Err(e) = self.set_var_cached(instr_index, name, new_val) {
                                 return VmResult::Error(e);
                             }
                             self.stack.push(old_val);
@@ -458,7 +529,7 @@ impl<'a> Vm<'a> {
 
                 OpCode::GetVarForUpdate => {
                     let name = self.chunk.get_name(operand);
-                    match self.ctx.get_binding(name) {
+                    match self.get_var_cached(instr_index, name) {
                         Ok(val) => self.stack.push(val),
                         Err(e) => return VmResult::Error(e),
                     }
@@ -467,7 +538,6 @@ impl<'a> Vm<'a> {
         }
     }
 
-    // ════════════════════════════════════════════════════════════
     // Helper methods
     // ════════════════════════════════════════════════════════════
 
@@ -483,6 +553,131 @@ impl<'a> Vm<'a> {
                 None
             }
             _ => None,
+        }
+    }
+
+    fn get_var_cached(&mut self, instr_index: usize, name: &str) -> Result<JsValue, JErrorType> {
+        if let Some(Some(entry)) = self.get_var_cache.get(instr_index) {
+            if entry.version == self.ctx.current_lex_env_version() {
+                if let Ok(val) = self.ctx.get_binding_in_env(&entry.env, name) {
+                    return Ok(val);
+                }
+            }
+        }
+
+        let (val, env) = self.ctx.get_binding_with_env(name)?;
+        let entry = EnvCacheEntry {
+            version: self.ctx.current_lex_env_version(),
+            env,
+        };
+        if let Some(slot) = self.get_var_cache.get_mut(instr_index) {
+            *slot = Some(entry);
+        }
+        Ok(val)
+    }
+
+    fn set_var_cached(
+        &mut self,
+        instr_index: usize,
+        name: &str,
+        value: JsValue,
+    ) -> Result<(), JErrorType> {
+        if let Some(Some(entry)) = self.set_var_cache.get(instr_index) {
+            if entry.version == self.ctx.current_lex_env_version() {
+                if self
+                    .ctx
+                    .set_binding_in_env_cached(&entry.env, name, value.clone())
+                    .is_ok()
+                {
+                    return Ok(());
+                }
+            }
+        }
+
+        let env = self.ctx.set_binding_with_env(name, value)?;
+        let entry = EnvCacheEntry {
+            version: self.ctx.current_lex_env_version(),
+            env,
+        };
+        if let Some(slot) = self.set_var_cache.get_mut(instr_index) {
+            *slot = Some(entry);
+        }
+        Ok(())
+    }
+
+    fn get_prop_cached(
+        &mut self,
+        instr_index: usize,
+        obj_val: &JsValue,
+        prop_name: &str,
+    ) -> Result<JsValue, JErrorType> {
+        if let JsValue::Object(obj) = obj_val {
+            if let Some(Some(entry)) = self.get_prop_cache.get(instr_index) {
+                if std::rc::Rc::ptr_eq(obj, &entry.obj) && entry.prop == prop_name {
+                    let prop_key = PropertyKey::Str(prop_name.to_string());
+                    return obj
+                        .borrow()
+                        .as_js_object()
+                        .get(&mut self.ctx.ctx_stack, &prop_key, JsValueOrSelf::SelfValue);
+                }
+            }
+
+            let prop_key = PropertyKey::Str(prop_name.to_string());
+            let val = obj
+                .borrow()
+                .as_js_object()
+                .get(&mut self.ctx.ctx_stack, &prop_key, JsValueOrSelf::SelfValue)?;
+            let entry = PropCacheEntry {
+                obj: obj.clone(),
+                prop: prop_name.to_string(),
+            };
+            if let Some(slot) = self.get_prop_cache.get_mut(instr_index) {
+                *slot = Some(entry);
+            }
+            Ok(val)
+        } else if matches!(obj_val, JsValue::Undefined | JsValue::Null) {
+            Err(JErrorType::TypeError("Cannot read property of null/undefined".to_string()))
+        } else {
+            Ok(JsValue::Undefined)
+        }
+    }
+
+    fn set_prop_value(
+        &mut self,
+        obj_val: &JsValue,
+        prop_name: &str,
+        value: JsValue,
+    ) -> Result<(), JErrorType> {
+        match obj_val {
+            JsValue::Object(obj) => {
+                let prop_key = PropertyKey::Str(prop_name.to_string());
+                let mut obj_ref = obj.borrow_mut();
+                let ok = obj_ref
+                    .as_js_object_mut()
+                    .set(&mut self.ctx.ctx_stack, prop_key, value, JsValueOrSelf::SelfValue)?;
+                if ok {
+                    Ok(())
+                } else {
+                    Err(JErrorType::TypeError("Failed to set property".to_string()))
+                }
+            }
+            _ => Err(JErrorType::TypeError("Cannot set property on non-object".to_string())),
+        }
+    }
+
+    fn to_property_key(&mut self, value: &JsValue) -> Result<String, JErrorType> {
+        to_string(&mut self.ctx.ctx_stack, value)
+    }
+
+    fn sync_locals_into_ctx(&mut self) {
+        for (slot, val) in self.locals.iter().enumerate() {
+            let name = self.chunk.get_local_name(slot as u32);
+            if !self.ctx.has_var_binding(name) {
+                let _ = self.ctx.create_var_binding(name);
+                let _ = self.ctx.initialize_var_binding(name, val.clone());
+            } else {
+                let _ = self.ctx.set_var_binding(name, val.clone());
+            }
         }
     }
 
@@ -554,7 +749,10 @@ impl<'a> Vm<'a> {
     }
 
     fn to_number_value(&self, val: JsValue) -> JsValue {
-        self.f64_to_jsvalue(self.to_f64(&val))
+        match val {
+            JsValue::Number(_) => val,
+            _ => self.f64_to_jsvalue(self.to_f64(&val)),
+        }
     }
 
     // ── Arithmetic helpers ───────────────────────────────────
@@ -572,22 +770,46 @@ impl<'a> Vm<'a> {
                 JsValue::String(format!("{}{}", self.to_display_string(&a), sb))
             }
             _ => {
-                let na = self.to_f64(&a);
-                let nb = self.to_f64(&b);
-                self.f64_to_jsvalue(na + nb)
+                if let Some(val) = self.fast_number_binop(&a, &b, |x, y| x + y) {
+                    return val;
+                }
+                self.f64_to_jsvalue(self.to_f64(&a) + self.to_f64(&b))
             }
         }
     }
 
     fn js_sub(&self, a: JsValue, b: JsValue) -> JsValue {
+        if let Some(val) = self.fast_number_binop(&a, &b, |x, y| x - y) {
+            return val;
+        }
         self.f64_to_jsvalue(self.to_f64(&a) - self.to_f64(&b))
     }
 
     fn js_mul(&self, a: JsValue, b: JsValue) -> JsValue {
+        if let Some(val) = self.fast_number_binop(&a, &b, |x, y| x * y) {
+            return val;
+        }
         self.f64_to_jsvalue(self.to_f64(&a) * self.to_f64(&b))
     }
 
     fn js_div(&self, a: JsValue, b: JsValue) -> JsValue {
+        if let Some(nb) = self.as_number(&b) {
+            let nb = self.num_to_f64(nb);
+            if nb == 0.0 {
+                let na = self.to_f64(&a);
+                if na == 0.0 || na.is_nan() {
+                    return JsValue::Number(JsNumberType::NaN);
+                } else if na > 0.0 {
+                    return JsValue::Number(JsNumberType::PositiveInfinity);
+                } else {
+                    return JsValue::Number(JsNumberType::NegativeInfinity);
+                }
+            }
+            if let Some(val) = self.fast_number_binop(&a, &b, |x, y| x / y) {
+                return val;
+            }
+        }
+
         let nb = self.to_f64(&b);
         if nb == 0.0 {
             let na = self.to_f64(&a);
@@ -604,6 +826,9 @@ impl<'a> Vm<'a> {
     }
 
     fn js_mod(&self, a: JsValue, b: JsValue) -> JsValue {
+        if let Some(val) = self.fast_number_binop(&a, &b, |x, y| x % y) {
+            return val;
+        }
         let na = self.to_f64(&a);
         let nb = self.to_f64(&b);
         if nb == 0.0 {
@@ -614,8 +839,33 @@ impl<'a> Vm<'a> {
     }
 
     fn js_negate(&self, a: JsValue) -> JsValue {
-        let n = self.to_f64(&a);
-        self.f64_to_jsvalue(-n)
+        if let JsValue::Number(n) = &a {
+            return self.f64_to_jsvalue(-self.num_to_f64(n));
+        }
+        self.f64_to_jsvalue(-self.to_f64(&a))
+    }
+
+    fn as_number<'b>(&self, v: &'b JsValue) -> Option<&'b JsNumberType> {
+        match v {
+            JsValue::Number(n) => Some(n),
+            _ => None,
+        }
+    }
+
+    fn fast_number_binop(
+        &self,
+        a: &JsValue,
+        b: &JsValue,
+        op: fn(f64, f64) -> f64,
+    ) -> Option<JsValue> {
+        match (self.as_number(a), self.as_number(b)) {
+            (Some(na), Some(nb)) => {
+                let fa = self.num_to_f64(na);
+                let fb = self.num_to_f64(nb);
+                Some(self.f64_to_jsvalue(op(fa, fb)))
+            }
+            _ => None,
+        }
     }
 
     // ── Comparison helpers ───────────────────────────────────

@@ -12,6 +12,7 @@ use crate::parser::ast::{
     VariableDeclarationKind, VariableDeclarationOrExpression,
 };
 use crate::runner::ds::value::{JsNumberType, JsValue};
+use std::collections::{HashMap, HashSet};
 
 use super::bytecode::{Chunk, Instruction, OpCode};
 
@@ -28,6 +29,10 @@ pub struct Compiler {
     chunk: Chunk,
     /// Stack of active loop contexts for break/continue.
     loop_stack: Vec<LoopContext>,
+    /// Local slot indices for fast var access.
+    locals: HashMap<String, u32>,
+    /// Lexical scopes for let/const shadowing.
+    lexical_scopes: Vec<HashSet<String>>,
 }
 
 impl Compiler {
@@ -35,7 +40,44 @@ impl Compiler {
         Compiler {
             chunk: Chunk::new(),
             loop_stack: Vec::new(),
+            locals: HashMap::new(),
+            lexical_scopes: vec![HashSet::new()],
         }
+    }
+
+    fn get_local_slot(&self, name: &str) -> Option<u32> {
+        self.locals.get(name).copied()
+    }
+
+    fn get_or_add_local_slot(&mut self, name: &str) -> u32 {
+        if let Some(slot) = self.locals.get(name) {
+            return *slot;
+        }
+        let name_idx = self.chunk.add_name(name);
+        let slot = self.chunk.add_local(name_idx);
+        self.locals.insert(name.to_string(), slot);
+        slot
+    }
+
+    fn push_lexical_scope(&mut self) {
+        self.lexical_scopes.push(HashSet::new());
+    }
+
+    fn pop_lexical_scope(&mut self) {
+        self.lexical_scopes.pop();
+    }
+
+    fn declare_lexical(&mut self, name: &str) {
+        if let Some(scope) = self.lexical_scopes.last_mut() {
+            scope.insert(name.to_string());
+        }
+    }
+
+    fn is_lexically_shadowed(&self, name: &str) -> bool {
+        self.lexical_scopes
+            .iter()
+            .rev()
+            .any(|scope| scope.contains(name))
     }
 
     /// Compile a full program AST into bytecode.
@@ -146,17 +188,21 @@ impl Compiler {
     }
 
     fn compile_block(&mut self, block: &BlockStatementData) {
+        self.push_lexical_scope();
         self.chunk.emit_op(OpCode::PushScope);
         for stmt in block.body.iter() {
             self.compile_statement(stmt);
         }
         self.chunk.emit_op(OpCode::PopScope);
+        self.pop_lexical_scope();
     }
 
     fn compile_function_body(&mut self, body: &FunctionBodyData) {
+        self.push_lexical_scope();
         for stmt in body.body.iter() {
             self.compile_statement(stmt);
         }
+        self.pop_lexical_scope();
     }
 
     fn compile_declaration(&mut self, decl: &DeclarationType) {
@@ -168,10 +214,9 @@ impl Compiler {
                 // Declare the function name and bind it.
                 // For now, emit as a var declaration with undefined.
                 if let Some(ref id) = func_data.id {
-                    let name_idx = self.chunk.add_name(&id.name);
-                    self.chunk.emit_with(OpCode::DeclareVar, name_idx);
+                    let slot = self.get_or_add_local_slot(&id.name);
                     self.chunk.emit_op(OpCode::Undefined);
-                    self.chunk.emit_with(OpCode::InitVar, name_idx);
+                    self.chunk.emit_with(OpCode::InitLocal, slot);
                 }
             }
             DeclarationType::ClassDeclaration(_class_data) => {
@@ -192,6 +237,20 @@ impl Compiler {
                 ExpressionPatternType::Identifier(ref id),
             ) = declarator.id.as_ref()
             {
+                if matches!(var_decl.kind, VariableDeclarationKind::Var) {
+                    let slot = self.get_or_add_local_slot(&id.name);
+                    if let Some(ref init_expr) = declarator.init {
+                        self.compile_expression(init_expr);
+                    } else {
+                        self.chunk.emit_op(OpCode::Undefined);
+                    }
+                    self.chunk.emit_with(OpCode::InitLocal, slot);
+                    continue;
+                }
+
+                // Track lexical declarations to prevent var slot usage in nested scopes.
+                self.declare_lexical(&id.name);
+
                 let name_idx = self.chunk.add_name(&id.name);
                 self.chunk.emit_with(declare_op, name_idx);
 
@@ -282,6 +341,7 @@ impl Compiler {
         update: Option<&ExpressionType>,
         body: &StatementType,
     ) {
+        self.push_lexical_scope();
         self.chunk.emit_op(OpCode::PushScope);
 
         // Init
@@ -340,6 +400,7 @@ impl Compiler {
         }
 
         self.chunk.emit_op(OpCode::PopScope);
+        self.pop_lexical_scope();
     }
 
     fn compile_for_in(&mut self, _data: &ForIteratorData) {
@@ -581,6 +642,12 @@ impl Compiler {
     fn compile_expression_pattern(&mut self, pattern: &ExpressionPatternType) {
         match pattern {
             ExpressionPatternType::Identifier(id) => {
+                if !self.is_lexically_shadowed(&id.name) {
+                    if let Some(slot) = self.get_local_slot(&id.name) {
+                        self.chunk.emit_with(OpCode::GetLocal, slot);
+                        return;
+                    }
+                }
                 let name_idx = self.chunk.add_name(&id.name);
                 self.chunk.emit_with(OpCode::GetVar, name_idx);
             }
@@ -666,6 +733,44 @@ impl Compiler {
             ExpressionPatternType::Identifier(ref id),
         ) = argument
         {
+            if !self.is_lexically_shadowed(&id.name) {
+                if let Some(slot) = self.get_local_slot(&id.name) {
+                    let one_idx = self
+                        .chunk
+                        .add_constant(JsValue::Number(JsNumberType::Integer(1)));
+                    match (op, prefix) {
+                        (UpdateOperator::PlusPlus, true) => {
+                            self.chunk.emit_with(OpCode::GetLocal, slot);
+                            self.chunk.emit_with(OpCode::Constant, one_idx);
+                            self.chunk.emit_op(OpCode::Add);
+                            self.chunk.emit_op(OpCode::Dup);
+                            self.chunk.emit_with(OpCode::SetLocal, slot);
+                        }
+                        (UpdateOperator::MinusMinus, true) => {
+                            self.chunk.emit_with(OpCode::GetLocal, slot);
+                            self.chunk.emit_with(OpCode::Constant, one_idx);
+                            self.chunk.emit_op(OpCode::Sub);
+                            self.chunk.emit_op(OpCode::Dup);
+                            self.chunk.emit_with(OpCode::SetLocal, slot);
+                        }
+                        (UpdateOperator::PlusPlus, false) => {
+                            self.chunk.emit_with(OpCode::GetLocal, slot);
+                            self.chunk.emit_op(OpCode::Dup);
+                            self.chunk.emit_with(OpCode::Constant, one_idx);
+                            self.chunk.emit_op(OpCode::Add);
+                            self.chunk.emit_with(OpCode::SetLocal, slot);
+                        }
+                        (UpdateOperator::MinusMinus, false) => {
+                            self.chunk.emit_with(OpCode::GetLocal, slot);
+                            self.chunk.emit_op(OpCode::Dup);
+                            self.chunk.emit_with(OpCode::Constant, one_idx);
+                            self.chunk.emit_op(OpCode::Sub);
+                            self.chunk.emit_with(OpCode::SetLocal, slot);
+                        }
+                    }
+                    return;
+                }
+            }
             let name_idx = self.chunk.add_name(&id.name);
             match (op, prefix) {
                 (UpdateOperator::PlusPlus, true) => {
@@ -697,8 +802,26 @@ impl Compiler {
         let name = self.extract_assignment_target_name(left);
 
         if let Some(name) = name {
+            if !self.is_lexically_shadowed(&name) {
+                if let Some(slot) = self.get_local_slot(&name) {
+                    match op {
+                        AssignmentOperator::Equals => {
+                            self.compile_expression(right);
+                            self.chunk.emit_op(OpCode::Dup);
+                            self.chunk.emit_with(OpCode::SetLocal, slot);
+                        }
+                        _ => {
+                            self.chunk.emit_with(OpCode::GetLocal, slot);
+                            self.compile_expression(right);
+                            self.compile_compound_op(op);
+                            self.chunk.emit_op(OpCode::Dup);
+                            self.chunk.emit_with(OpCode::SetLocal, slot);
+                        }
+                    }
+                    return;
+                }
+            }
             let name_idx = self.chunk.add_name(&name);
-
             match op {
                 AssignmentOperator::Equals => {
                     self.compile_expression(right);
@@ -747,12 +870,64 @@ impl Compiler {
 
     fn compile_member_assignment(
         &mut self,
-        _op: &AssignmentOperator,
-        _left: &PatternOrExpression,
+        op: &AssignmentOperator,
+        left: &PatternOrExpression,
         right: &ExpressionType,
     ) {
-        // For member expression assignments like obj.prop = val
-        // Simplified: just evaluate right side and discard
+        if let PatternOrExpression::Expression(expr) = left {
+            if let ExpressionType::MemberExpression(member) = expr.as_ref() {
+                match member {
+                    MemberExpressionType::SimpleMemberExpression { object, property, .. } => {
+                        match object {
+                            ExpressionOrSuper::Expression(obj_expr) => {
+                                self.compile_expression(obj_expr);
+                            }
+                            ExpressionOrSuper::Super => {
+                                self.chunk.emit_op(OpCode::Undefined);
+                            }
+                        }
+
+                        let prop_idx = self.chunk.add_name(&property.name);
+                        if matches!(op, AssignmentOperator::Equals) {
+                            self.compile_expression(right);
+                            self.chunk.emit_with(OpCode::SetProp, prop_idx);
+                        } else {
+                            self.chunk.emit_op(OpCode::Dup);
+                            self.chunk.emit_with(OpCode::GetProp, prop_idx);
+                            self.compile_expression(right);
+                            self.compile_compound_op(op);
+                            self.chunk.emit_with(OpCode::SetProp, prop_idx);
+                        }
+                        return;
+                    }
+                    MemberExpressionType::ComputedMemberExpression { object, property, .. } => {
+                        match object {
+                            ExpressionOrSuper::Expression(obj_expr) => {
+                                self.compile_expression(obj_expr);
+                            }
+                            ExpressionOrSuper::Super => {
+                                self.chunk.emit_op(OpCode::Undefined);
+                            }
+                        }
+                        self.compile_expression(property);
+
+                        if matches!(op, AssignmentOperator::Equals) {
+                            self.compile_expression(right);
+                            self.chunk.emit_op(OpCode::SetElem);
+                        } else {
+                            self.chunk.emit_op(OpCode::Dup2);
+                            self.chunk.emit_op(OpCode::GetElem);
+                            self.compile_expression(right);
+                            self.compile_compound_op(op);
+                            self.chunk.emit_op(OpCode::SetElem);
+                        }
+                        return;
+                    }
+                }
+            }
+        }
+
+        // Fallback: evaluate right side only.
         self.compile_expression(right);
     }
 
