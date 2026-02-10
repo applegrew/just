@@ -68,6 +68,21 @@ impl RegJit {
         builder.declare_var(reg_var, ptr_ty);
         builder.def_var(reg_var, regs_ptr);
 
+        let mut local_regs = vec![None; chunk.names.len()];
+        for local in &chunk.locals {
+            if let Some(slot) = local_regs.get_mut(local.name_idx as usize) {
+                *slot = Some(local.reg);
+            }
+        }
+        let mut lexical_names = vec![false; chunk.names.len()];
+        for instr in &chunk.code {
+            if matches!(instr.op, RegOpCode::DeclareLet | RegOpCode::DeclareConst | RegOpCode::InitBinding) {
+                if let Some(slot) = lexical_names.get_mut(instr.imm as usize) {
+                    *slot = true;
+                }
+            }
+        }
+
         let mut blocks = Vec::with_capacity(chunk.code.len());
         for _ in 0..chunk.code.len() {
             blocks.push(builder.create_block());
@@ -131,10 +146,95 @@ impl RegJit {
                     };
                     self.store_reg(&mut builder, reg_var, instr.dst, res);
                 }
+                RegOpCode::GetVar => {
+                    let name_idx = instr.imm as usize;
+                    if name_idx >= local_regs.len() || lexical_names[name_idx] {
+                        return Err(JErrorType::TypeError(
+                            "JIT supports only local var GetVar".to_string(),
+                        ));
+                    }
+                    let local_reg = local_regs[name_idx].ok_or_else(|| {
+                        JErrorType::TypeError("JIT supports only local var GetVar".to_string())
+                    })?;
+                    if instr.dst != local_reg {
+                        let val = self.load_reg(&mut builder, reg_var, local_reg);
+                        self.store_reg(&mut builder, reg_var, instr.dst, val);
+                    }
+                }
+                RegOpCode::SetVar => {
+                    let name_idx = instr.imm as usize;
+                    if name_idx >= local_regs.len() || lexical_names[name_idx] {
+                        return Err(JErrorType::TypeError(
+                            "JIT supports only local var SetVar".to_string(),
+                        ));
+                    }
+                    let local_reg = local_regs[name_idx].ok_or_else(|| {
+                        JErrorType::TypeError("JIT supports only local var SetVar".to_string())
+                    })?;
+                    if instr.src1 != local_reg {
+                        let val = self.load_reg(&mut builder, reg_var, instr.src1);
+                        self.store_reg(&mut builder, reg_var, local_reg, val);
+                    }
+                }
+                RegOpCode::DeclareVar => {
+                    let name_idx = instr.imm as usize;
+                    if name_idx >= local_regs.len() || lexical_names[name_idx] {
+                        return Err(JErrorType::TypeError(
+                            "JIT supports only local var DeclareVar".to_string(),
+                        ));
+                    }
+                    let _local_reg = local_regs[name_idx].ok_or_else(|| {
+                        JErrorType::TypeError("JIT supports only local var DeclareVar".to_string())
+                    })?;
+                }
+                RegOpCode::InitVar => {
+                    let name_idx = instr.imm as usize;
+                    if name_idx >= local_regs.len() || lexical_names[name_idx] {
+                        return Err(JErrorType::TypeError(
+                            "JIT supports only local var InitVar".to_string(),
+                        ));
+                    }
+                    let local_reg = local_regs[name_idx].ok_or_else(|| {
+                        JErrorType::TypeError("JIT supports only local var InitVar".to_string())
+                    })?;
+                    if instr.src1 != local_reg {
+                        let val = self.load_reg(&mut builder, reg_var, instr.src1);
+                        self.store_reg(&mut builder, reg_var, local_reg, val);
+                    }
+                }
                 RegOpCode::Mod => {
-                    return Err(JErrorType::TypeError(
-                        "JIT prototype does not support modulo yet".to_string(),
-                    ));
+                    let a = self.load_reg(&mut builder, reg_var, instr.src1);
+                    let b = self.load_reg(&mut builder, reg_var, instr.src2);
+                    let zero = builder.ins().f64const(0.0);
+                    let b_is_zero = builder.ins().fcmp(FloatCC::Equal, b, zero);
+                    let b_is_nan = builder.ins().fcmp(FloatCC::Unordered, b, b);
+                    let a_is_nan = builder.ins().fcmp(FloatCC::Unordered, a, a);
+                    let b_bad = builder.ins().bor(b_is_zero, b_is_nan);
+                    let is_bad = builder.ins().bor(b_bad, a_is_nan);
+
+                    let ok_block = builder.create_block();
+                    let bad_block = builder.create_block();
+                    let cont_block = next_block.unwrap_or(exit_block);
+
+                    builder.ins().brif(is_bad, bad_block, &[], ok_block, &[]);
+                    builder.seal_block(block);
+
+                    builder.switch_to_block(ok_block);
+                    let div = builder.ins().fdiv(a, b);
+                    let quot = builder.ins().fcvt_to_sint(types::I64, div);
+                    let quot_f = builder.ins().fcvt_from_sint(types::F64, quot);
+                    let prod = builder.ins().fmul(quot_f, b);
+                    let res = builder.ins().fsub(a, prod);
+                    self.store_reg(&mut builder, reg_var, instr.dst, res);
+                    builder.ins().jump(cont_block, &[]);
+                    builder.seal_block(ok_block);
+
+                    builder.switch_to_block(bad_block);
+                    let nan = builder.ins().f64const(f64::NAN);
+                    self.store_reg(&mut builder, reg_var, instr.dst, nan);
+                    builder.ins().jump(cont_block, &[]);
+                    builder.seal_block(bad_block);
+                    continue;
                 }
                 RegOpCode::Negate => {
                     let a = self.load_reg(&mut builder, reg_var, instr.src1);
@@ -179,7 +279,8 @@ impl RegJit {
                     let a = self.load_reg(&mut builder, reg_var, instr.src1);
                     let b = self.load_reg(&mut builder, reg_var, instr.src2);
                     let mask = builder.ins().iconst(types::I32, 0x1f);
-                    let shift = builder.ins().band(self.emit_to_u32(&mut builder, b), mask);
+                    let b_u32 = self.emit_to_u32(&mut builder, b);
+                    let shift = builder.ins().band(b_u32, mask);
                     let res = match instr.op {
                         RegOpCode::ShiftLeft => {
                             let a_i32 = self.emit_to_i32(&mut builder, a);
