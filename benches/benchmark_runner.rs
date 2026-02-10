@@ -6,6 +6,8 @@ extern crate just;
 
 use just::parser::JsParser;
 use just::runner::eval::statement::execute_statement;
+use just::runner::jit;
+use just::runner::plugin::registry::BuiltInRegistry;
 use just::runner::plugin::types::EvalContext;
 use just::runner::ds::value::{JsValue, JsNumberType};
 use std::time::{Duration, Instant};
@@ -27,6 +29,24 @@ fn run_benchmark(name: &str, code: &str, iterations: u32) -> Duration {
     start.elapsed()
 }
 
+/// Run a JIT benchmark and return the execution time.
+fn run_benchmark_jit(name: &str, code: &str, iterations: u32) -> Duration {
+    let ast = JsParser::parse_to_ast_from_str(code)
+        .expect(&format!("Failed to parse benchmark: {}", name));
+
+    let chunk = jit::compile(&ast);
+    let registry = BuiltInRegistry::with_core();
+
+    let start = Instant::now();
+
+    for _ in 0..iterations {
+        let ctx = EvalContext::new();
+        let _ = jit::execute(&chunk, ctx, &registry);
+    }
+
+    start.elapsed()
+}
+
 /// Get the result of running code.
 fn run_and_get_var(code: &str, var_name: &str) -> JsValue {
     let ast = JsParser::parse_to_ast_from_str(code).unwrap();
@@ -34,6 +54,14 @@ fn run_and_get_var(code: &str, var_name: &str) -> JsValue {
     for stmt in &ast.body {
         let _ = execute_statement(stmt, &mut ctx);
     }
+    ctx.get_binding(var_name).unwrap_or(JsValue::Undefined)
+}
+
+/// Get the result of running code via JIT.
+fn run_and_get_var_jit(code: &str, var_name: &str) -> JsValue {
+    let ast = JsParser::parse_to_ast_from_str(code).unwrap();
+    let registry = BuiltInRegistry::with_core();
+    let (_, mut ctx) = jit::compile_and_run_with_ctx(&ast, &registry);
     ctx.get_binding(var_name).unwrap_or(JsValue::Undefined)
 }
 
@@ -143,6 +171,7 @@ for (var k = 0; k < 100; k = k + 1) {
 fn main() {
     println!("=======================================================");
     println!("  Just JavaScript Engine - Performance Benchmarks");
+    println!("  Tree-Walking Interpreter vs Bytecode JIT");
     println!("=======================================================\n");
 
     let benchmarks: Vec<(&str, &str, u32)> = vec![
@@ -158,24 +187,32 @@ fn main() {
         ("GCD (100 iterations)", BENCH_GCD, 200),
     ];
 
-    println!("{:<30} {:>15} {:>15}", "Benchmark", "Total Time", "Per Iteration");
-    println!("{}", "-".repeat(62));
+    println!("{:<30} {:>14} {:>14} {:>10}", "Benchmark", "Interpreter", "JIT", "Speedup");
+    println!("{}", "-".repeat(70));
 
-    let mut total_time = Duration::ZERO;
+    let mut total_interp = Duration::ZERO;
+    let mut total_jit = Duration::ZERO;
 
     for (name, code, iterations) in &benchmarks {
-        let duration = run_benchmark(name, code, *iterations);
-        let per_iter = duration / *iterations;
-        total_time += duration;
+        let interp_dur = run_benchmark(name, code, *iterations);
+        let jit_dur = run_benchmark_jit(name, code, *iterations);
+        total_interp += interp_dur;
+        total_jit += jit_dur;
+
+        let speedup = interp_dur.as_secs_f64() / jit_dur.as_secs_f64();
 
         println!(
-            "{:<30} {:>12.2?} {:>12.2?}",
-            name, duration, per_iter
+            "{:<30} {:>12.2?} {:>12.2?} {:>9.2}x",
+            name, interp_dur, jit_dur, speedup
         );
     }
 
-    println!("{}", "-".repeat(62));
-    println!("{:<30} {:>12.2?}", "TOTAL", total_time);
+    println!("{}", "-".repeat(70));
+    let total_speedup = total_interp.as_secs_f64() / total_jit.as_secs_f64();
+    println!(
+        "{:<30} {:>12.2?} {:>12.2?} {:>9.2}x",
+        "TOTAL", total_interp, total_jit, total_speedup
+    );
 
     // Verify correctness
     println!("\n=======================================================");
@@ -190,14 +227,28 @@ fn main() {
         ("Prime Count", BENCH_PRIME_SIEVE, "count", 25),
     ];
 
+    println!("{:<20} {:>12} {:>12} {:>12}", "Test", "Expected", "Interp", "JIT");
+    println!("{}", "-".repeat(58));
+
     for (name, code, var, expected) in verifications {
-        let result = run_and_get_var(code, var);
-        let actual = match result {
+        let interp_result = run_and_get_var(code, var);
+        let jit_result = run_and_get_var_jit(code, var);
+
+        let interp_val = match interp_result {
             JsValue::Number(JsNumberType::Integer(n)) => n,
             _ => -1,
         };
-        let status = if actual == expected { "✓" } else { "✗" };
-        println!("{} {}: expected {}, got {}", status, name, expected, actual);
+        let jit_val = match jit_result {
+            JsValue::Number(JsNumberType::Integer(n)) => n,
+            _ => -1,
+        };
+
+        let i_status = if interp_val == expected { "✓" } else { "✗" };
+        let j_status = if jit_val == expected { "✓" } else { "✗" };
+        println!(
+            "{:<20} {:>12} {:>4} {:>7} {:>4} {:>7}",
+            name, expected, i_status, interp_val, j_status, jit_val
+        );
     }
 
     println!("\n=======================================================");
