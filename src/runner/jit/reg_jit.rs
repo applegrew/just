@@ -344,6 +344,25 @@ impl RegJit {
                     builder.seal_block(block);
                     continue;
                 }
+                RegOpCode::GetProp | RegOpCode::GetElem => {
+                    let val = builder.ins().f64const(f64::NAN);
+                    self.store_reg(&mut builder, reg_var, instr.dst, val);
+                }
+                RegOpCode::SetProp => {
+                    let val = self.load_reg(&mut builder, reg_var, instr.src2);
+                    self.store_reg(&mut builder, reg_var, instr.dst, val);
+                }
+                RegOpCode::SetElem => {
+                    // No-op placeholder: value already lives in dst register.
+                }
+                RegOpCode::Call => {
+                    let val = builder.ins().f64const(f64::NAN);
+                    self.store_reg(&mut builder, reg_var, instr.dst, val);
+                }
+                RegOpCode::CallMethod => {
+                    let val = builder.ins().f64const(f64::NAN);
+                    self.store_reg(&mut builder, reg_var, instr.dst, val);
+                }
                 RegOpCode::Return | RegOpCode::Halt => {
                     let val = if instr.op == RegOpCode::Return {
                         self.load_reg(&mut builder, reg_var, instr.src1)
