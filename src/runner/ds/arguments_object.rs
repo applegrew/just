@@ -79,11 +79,11 @@ pub trait JsArgumentsObject: JsObject {
                     let mut parameter_map_guard = (**parameter_map_rc).borrow_mut();
                     let parameter_map = parameter_map_guard.as_js_object_mut();
                     if is_accessor_desc {
-                        parameter_map.delete(&descriptor_setter_property);
+                        let _ = parameter_map.delete(&descriptor_setter_property);
                     } else {
                         let descriptor_setter_property2 = descriptor_setter_property.clone();
                         if is_value_present {
-                            set_from_js_object(
+                            let _ = set_from_js_object(
                                 ctx_stack,
                                 parameter_map,
                                 descriptor_setter_property,
@@ -91,7 +91,7 @@ pub trait JsArgumentsObject: JsObject {
                             );
                         }
                         if is_writable_and_is_false {
-                            parameter_map.delete(&descriptor_setter_property2);
+                            let _ = parameter_map.delete(&descriptor_setter_property2);
                         }
                     }
                 }
@@ -133,7 +133,7 @@ pub trait JsArgumentsObject: JsObject {
         if is_same {
             if let Some(map) = &mut self.get_argument_base_object_mut().parameter_map {
                 if has_own_property(map, &property)? {
-                    set(ctx_stack, map, property, value);
+                    let _ = set(ctx_stack, map, property, value);
                 }
             }
         }
@@ -144,7 +144,7 @@ pub trait JsArgumentsObject: JsObject {
         let result = JsObject::delete(self, property)?;
         if let Some(map) = &self.get_argument_base_object_mut().parameter_map {
             if result && has_own_property(map, &property)? {
-                (**map).borrow_mut().as_js_object_mut().delete(property);
+                let _ = (**map).borrow_mut().as_js_object_mut().delete(property);
             }
         }
         Ok(result)
@@ -161,7 +161,7 @@ impl CoreArgumentsObject {
             base: ObjectBase::new(),
             arguments_base: ArgumentsBaseObject::new(),
         };
-        create_unmapped_arguments_object(&mut o, code_realm, arguments_list);
+        let _ = create_unmapped_arguments_object(&mut o, code_realm, arguments_list);
         o
     }
 }
@@ -217,7 +217,7 @@ pub fn create_unmapped_arguments_object(
     )?;
     let mut arg_iter = arguments_list.into_iter();
     for idx in 0..len {
-        create_data_property(
+        let _ = create_data_property(
             obj.as_js_object_mut(),
             PropertyKey::Str(to_string_int(idx)),
             arg_iter.next().unwrap(),

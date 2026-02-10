@@ -172,7 +172,7 @@ fn string_get_index_property<'a>(
 pub fn string_create(string_obj: &mut dyn JsStringObject, prototype: Option<JsObjectType>) {
     string_obj.get_object_base_mut().prototype = prototype;
     string_obj.get_object_base_mut().is_extensible = true;
-    ordinary_define_own_property(
+    let _ = ordinary_define_own_property(
         string_obj,
         STRING_LENGTH_PROP.clone(),
         PropertyDescriptorSetter::new_from_property_descriptor(PropertyDescriptor::Data(

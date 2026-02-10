@@ -173,7 +173,7 @@ pub fn array_set_length(
                             loop {
                                 idx -= 1;
                                 if !array.delete(&PropertyKey::Str(to_string_int(idx as i64)))? {
-                                    ordinary_define_own_property(
+                                    let _ = ordinary_define_own_property(
                                         array,
                                         ARRAY_LENGTH_PROP.clone(),
                                         PropertyDescriptorSetter {
@@ -251,7 +251,7 @@ pub fn finish_array_create(
     };
     array_obj.get_object_base_mut().prototype = Some(final_proto);
     array_obj.get_object_base_mut().is_extensible = true;
-    ordinary_define_own_property(
+    let _ = ordinary_define_own_property(
         array_obj,
         ARRAY_LENGTH_PROP.clone(),
         PropertyDescriptorSetter::new_from_property_descriptor(PropertyDescriptor::Data(

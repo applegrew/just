@@ -13,6 +13,10 @@ pest_consume = "1.0.6"
 pest_consume_macros = "1.0.6"
 uuid = { version = "0.8", features = ["v4"] }
 lazy_static = "1.4.0"
+cranelift = "0.104"
+cranelift-jit = "0.104"
+cranelift-module = "0.104"
+cranelift-native = "0.104"
 
 [[bin]]
 name = "benchmark"
