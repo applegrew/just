@@ -94,6 +94,11 @@ impl EvalContext {
         self.heap.borrow().get_allocated()
     }
 
+    /// Create a tracked SimpleObject that participates in heap accounting.
+    pub fn new_tracked_object(&self) -> Result<SimpleObject, JErrorType> {
+        SimpleObject::new_tracked(self.heap.clone())
+    }
+
     /// Look up a binding in the environment chain.
     pub fn get_binding(&mut self, name: &str) -> Result<JsValue, JErrorType> {
         let name_string = name.to_string();
@@ -412,12 +417,34 @@ impl Default for EvalContext {
 /// Simple object for use as global object.
 pub struct SimpleObject {
     base: ObjectBase,
+    heap: Option<SharedHeap>,
+    allocated_bytes: usize,
 }
 
 impl SimpleObject {
     pub fn new() -> Self {
         SimpleObject {
             base: ObjectBase::new(),
+            heap: None,
+            allocated_bytes: 0,
+        }
+    }
+
+    pub fn new_tracked(heap: SharedHeap) -> Result<Self, JErrorType> {
+        const SIMPLE_OBJECT_ALLOCATION_BYTES: usize = 64;
+        heap.borrow_mut().allocate(SIMPLE_OBJECT_ALLOCATION_BYTES)?;
+        Ok(SimpleObject {
+            base: ObjectBase::new(),
+            heap: Some(heap),
+            allocated_bytes: SIMPLE_OBJECT_ALLOCATION_BYTES,
+        })
+    }
+}
+
+impl Drop for SimpleObject {
+    fn drop(&mut self) {
+        if let Some(heap) = &self.heap {
+            heap.borrow_mut().deallocate(self.allocated_bytes);
         }
     }
 }
@@ -569,3 +596,4 @@ impl PluginInfo {
         self
     }
 }
+

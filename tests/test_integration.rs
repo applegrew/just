@@ -768,6 +768,41 @@ fn test_array_destructuring_rest_values() {
     assert_eq!(result, JsValue::Number(JsNumberType::Integer(9)));
 }
 
+// =========================================================================
+// Heap accounting tests
+// =========================================================================
+
+#[test]
+fn test_heap_usage_releases_objects_mid_script() {
+    let code = r#"
+        let obj = { a: 1, nested: { b: 2 }, arr: [1, 2, 3] };
+        obj = null;
+        42;
+    "#;
+    let ast = JsParser::parse_to_ast_from_str(code)
+        .map_err(|e| format!("Parse error: {:?}", e))
+        .unwrap();
+
+    let mut ctx = EvalContext::new();
+    let baseline = ctx.heap_usage();
+
+    execute_statement(&ast.body[0], &mut ctx)
+        .map_err(|e| format!("Runtime error: {:?}", e))
+        .unwrap();
+    let after_alloc = ctx.heap_usage();
+    assert!(after_alloc > baseline);
+
+    execute_statement(&ast.body[1], &mut ctx)
+        .map_err(|e| format!("Runtime error: {:?}", e))
+        .unwrap();
+    assert_eq!(ctx.heap_usage(), baseline);
+
+    execute_statement(&ast.body[2], &mut ctx)
+        .map_err(|e| format!("Runtime error: {:?}", e))
+        .unwrap();
+    assert_eq!(ctx.heap_usage(), baseline);
+}
+
 // ==================== PHASE 5: NEW EXPRESSION TESTS ====================
 
 #[test]

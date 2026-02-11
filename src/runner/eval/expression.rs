@@ -151,8 +151,8 @@ fn evaluate_array_expression(
 ) -> ValueResult {
     use crate::runner::ds::object::JsObject;
 
-    // Create a new array object
-    let mut array_obj = SimpleObject::new();
+    // Create a new array object (tracked for heap accounting)
+    let mut array_obj = ctx.new_tracked_object()?;
 
     let mut index = 0;
     for element in elements {
@@ -270,8 +270,8 @@ fn evaluate_object_expression(
 ) -> ValueResult {
     use std::collections::HashMap;
 
-    // Create a new object
-    let mut obj = SimpleObject::new();
+    // Create a new object (tracked for heap accounting)
+    let mut obj = ctx.new_tracked_object()?;
 
     // Track accessor properties to merge getter/setter pairs
     let mut accessors: HashMap<String, (Option<JsObjectType>, Option<JsObjectType>)> = HashMap::new();
@@ -1221,7 +1221,6 @@ fn get_rest_elements_for_assignment(
 ) -> Result<JsValue, JErrorType> {
     use crate::runner::ds::object::{JsObject, JsObjectType, ObjectType};
     use crate::runner::ds::object_property::{PropertyDescriptor, PropertyDescriptorData, PropertyKey};
-    use crate::runner::plugin::types::SimpleObject;
     use std::cell::RefCell;
     use std::rc::Rc;
 
@@ -1247,7 +1246,7 @@ fn get_rest_elements_for_assignment(
         }
     };
 
-    let mut rest_obj = SimpleObject::new();
+    let mut rest_obj = ctx.new_tracked_object()?;
     let mut rest_index = 0;
 
     for i in start_index..length {
