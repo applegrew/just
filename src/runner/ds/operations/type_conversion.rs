@@ -2,7 +2,7 @@ use crate::parser::ast::{ExtendedNumberLiteralType, NumberLiteralType};
 use crate::parser::JsParser;
 use crate::runner::ds::error::JErrorType;
 use crate::runner::ds::execution_context::ExecutionContextStack;
-use crate::runner::ds::object::{JsObject, ObjectType};
+use crate::runner::ds::object::ObjectType;
 use crate::runner::ds::object_property::PropertyKey;
 use crate::runner::ds::operations::object::get_method;
 use crate::runner::ds::symbol::SYMBOL_TO_PRIMITIVE;
@@ -37,15 +37,13 @@ pub fn get_type(a: &JsValue) -> &'static str {
 }
 
 pub enum PreferredType {
-    Default,
     String,
-    Number,
 }
 
 pub fn to_primitive(
     ctx_stack: &mut ExecutionContextStack,
     v: &JsValue,
-    preferred_type: PreferredType,
+    _preferred_type: PreferredType,
 ) -> Result<JsValue, JErrorType> {
     match v {
         JsValue::Undefined => Ok(v.clone()),
@@ -55,7 +53,7 @@ pub fn to_primitive(
         JsValue::Symbol(_) => Ok(v.clone()),
         JsValue::Number(_) => Ok(v.clone()),
         JsValue::Object(_) => {
-            let m = get_method(ctx_stack, v, &PropertyKey::Sym(SYMBOL_TO_PRIMITIVE.clone()));
+            let _m = get_method(ctx_stack, v, &PropertyKey::Sym(SYMBOL_TO_PRIMITIVE.clone()));
             todo!()
         }
     }
@@ -79,29 +77,6 @@ pub fn to_object(v: &JsValue) -> Result<JsValue, JErrorType> {
     }
 }
 
-pub fn to_number(
-    ctx_stack: &mut ExecutionContextStack,
-    v: &JsValue,
-) -> Result<JsNumberType, JErrorType> {
-    match v {
-        JsValue::Undefined => Ok(JsNumberType::NaN),
-        JsValue::Null => Ok(JsNumberType::Integer(0)),
-        JsValue::Boolean(b) => Ok(JsNumberType::Integer(match *b {
-            true => 1,
-            false => 0,
-        })),
-        JsValue::String(s) => Ok(parse_string_to_number(s, false)),
-        JsValue::Symbol(s) => Err(JErrorType::TypeError(format!(
-            "'{}' symbol cannot be converted to number",
-            s
-        ))),
-        JsValue::Number(n) => Ok(n.clone()),
-        JsValue::Object(o) => {
-            let pv = to_primitive(ctx_stack, v, PreferredType::Default)?;
-            to_number(ctx_stack, &pv)
-        }
-    }
-}
 
 fn parse_string_to_number(s: &String, is_nan_mode: bool) -> JsNumberType {
     let res = JsParser::parse_numeric_string(s, is_nan_mode);
@@ -124,10 +99,6 @@ fn parse_string_to_number(s: &String, is_nan_mode: bool) -> JsNumberType {
     }
 }
 
-pub fn to_unit_32(ctx_stack: &mut ExecutionContextStack, v: &JsValue) -> Result<u32, JErrorType> {
-    let n = to_number(ctx_stack, v)?;
-    Ok(to_unit32_from_js_number_type(&n))
-}
 
 fn to_unit32_from_js_number_type(n: &JsNumberType) -> u32 {
     match n {
@@ -188,9 +159,3 @@ pub fn canonical_numeric_index_string(
     }
 }
 
-pub fn get_js_object_from_js_value(_v: &JsValue) -> Option<&dyn JsObject> {
-    // Note: This function cannot safely return a reference to the inner object
-    // because the RefCell borrow would be temporary. Callers should match on
-    // JsValue::Object directly and handle the borrow appropriately.
-    None
-}

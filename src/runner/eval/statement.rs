@@ -257,8 +257,6 @@ fn bind_pattern(
             // If we get here directly, just bind the value as-is
             bind_pattern(argument, value, ctx, is_const, is_var)
         }
-
-        _ => Err(JErrorType::TypeError("Unsupported pattern type".to_string())),
     }
 }
 
@@ -514,10 +512,8 @@ fn execute_do_while_statement(
     test: &ExpressionType,
     ctx: &mut EvalContext,
 ) -> EvalResult {
-    let mut completion = Completion::normal();
-
     loop {
-        completion = execute_statement(body, ctx)?;
+        let completion = execute_statement(body, ctx)?;
 
         match completion.completion_type {
             CompletionType::Break => {
@@ -536,7 +532,7 @@ fn execute_do_while_statement(
         }
     }
 
-    Ok(completion)
+    Ok(Completion::normal())
 }
 
 /// Execute a for statement.
@@ -774,9 +770,6 @@ fn execute_for_in_statement(
     data: &ForIteratorData,
     ctx: &mut EvalContext,
 ) -> EvalResult {
-    use crate::runner::ds::object::JsObject;
-    use crate::runner::ds::value::JsNumberType;
-
     // Evaluate the right-hand side to get the object
     let obj_value = evaluate_expression(&data.right, ctx)?;
 
@@ -835,7 +828,6 @@ fn execute_for_of_statement(
     data: &ForIteratorData,
     ctx: &mut EvalContext,
 ) -> EvalResult {
-    use crate::runner::ds::object::JsObject;
     use crate::runner::ds::value::JsNumberType;
     use crate::runner::ds::object_property::PropertyKey;
 

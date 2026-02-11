@@ -1,15 +1,10 @@
-use crate::runner::ds::function_object::JsFunctionObject;
-use crate::runner::ds::object::{JsObjectType, ObjectType};
-use crate::runner::ds::operations::test_and_comparison::{same_js_object, same_object, same_value};
+use crate::runner::ds::object::JsObjectType;
+use crate::runner::ds::operations::test_and_comparison::{same_object, same_value};
 use crate::runner::ds::symbol::SymbolData;
 use crate::runner::ds::value::JsValue;
-use std::borrow::Borrow;
-use std::cell::RefCell;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
-use std::ops::Deref;
-use std::rc::Rc;
 
 pub enum PropertyKey {
     Str(String),
@@ -300,13 +295,13 @@ impl PartialEq for PropertyDescriptor {
             }
             PropertyDescriptor::Accessor(PropertyDescriptorAccessor {
                 set: setter,
-                get: getter,
+                get: _getter,
                 enumerable,
                 configurable,
             }) => {
                 if let PropertyDescriptor::Accessor(PropertyDescriptorAccessor {
                     set: other_setter,
-                    get: other_getter,
+                    get: _other_getter,
                     enumerable: other_enumerable,
                     configurable: other_configurable,
                 }) = other

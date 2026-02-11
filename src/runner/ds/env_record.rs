@@ -9,7 +9,6 @@ use crate::runner::ds::object_property::{
 };
 use crate::runner::ds::operations::object::{define_property_or_throw, get, has_own_property, set};
 use crate::runner::ds::value::JsValue;
-use std::borrow::BorrowMut;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -307,9 +306,9 @@ pub struct FunctionEnvironmentRecord {
     base_env: DeclarativeEnvironmentRecord,
     this_value: Option<JsValue>,
     is_lexical_binding: bool,
-    function_object: JsObjectType,
+    _function_object: JsObjectType,
     home_object: Option<JsObjectType>,
-    new_target: Option<JsObjectType>,
+    _new_target: Option<JsObjectType>,
 }
 impl FunctionEnvironmentRecord {
     pub fn new(f: JsObjectType, new_target: Option<JsObjectType>) -> Self {
@@ -327,9 +326,9 @@ impl FunctionEnvironmentRecord {
             base_env: DeclarativeEnvironmentRecord::new(),
             this_value: None,
             is_lexical_binding: is_lexical,
-            function_object: f,
+            _function_object: f,
             home_object,
-            new_target,
+            _new_target: new_target,
         }
     }
 

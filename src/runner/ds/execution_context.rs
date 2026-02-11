@@ -1,9 +1,6 @@
-use crate::runner::ds::function_object::JsFunctionObject;
-use crate::runner::ds::lex_env::{JsLexEnvironmentType, LexEnvironment};
+use crate::runner::ds::lex_env::JsLexEnvironmentType;
 use crate::runner::ds::object::JsObjectType;
-use crate::runner::ds::realm::{CodeRealm, JsCodeRealmType};
-use std::cell::RefCell;
-use std::rc::Rc;
+use crate::runner::ds::realm::JsCodeRealmType;
 
 pub struct ExecutionContext {
     pub function: Option<JsObjectType>,

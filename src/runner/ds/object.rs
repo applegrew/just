@@ -1,6 +1,5 @@
-use crate::runner::ds::array_object::JsArrayObject;
 use crate::runner::ds::error::JErrorType;
-use crate::runner::ds::execution_context::{ExecutionContext, ExecutionContextStack};
+use crate::runner::ds::execution_context::ExecutionContextStack;
 use crate::runner::ds::function_object::JsFunctionObject;
 use crate::runner::ds::iterator_object::JsIteratorObject;
 use crate::runner::ds::object_property::{
@@ -65,14 +64,14 @@ impl ObjectType {
 
     pub fn as_js_function_object(&self) -> &dyn JsFunctionObject {
         match self {
-            ObjectType::Ordinary(o) => panic!("Not callable hence cannot get as JsFunctionObject"),
+            ObjectType::Ordinary(_o) => panic!("Not callable hence cannot get as JsFunctionObject"),
             ObjectType::Function(o) => o.as_js_function_object(),
         }
     }
 
     pub fn as_js_function_object_mut(&mut self) -> &mut dyn JsFunctionObject {
         match self {
-            ObjectType::Ordinary(o) => panic!("Not callable hence cannot get as JsFunctionObject"),
+            ObjectType::Ordinary(_o) => panic!("Not callable hence cannot get as JsFunctionObject"),
             ObjectType::Function(o) => o.as_js_function_object_mut(),
         }
     }

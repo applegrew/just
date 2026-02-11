@@ -17,7 +17,7 @@ impl<'a> StructBuilder<'a> {
         }
     }
 
-    pub fn add_fields(&'a mut self, field_name: &'a str, value: String) -> &'a mut StructBuilder {
+    pub fn add_fields(&'a mut self, field_name: &'a str, value: String) -> &'a mut StructBuilder<'a> {
         self.fields.push(field_name);
         self.field_values.push(value);
         self
@@ -53,7 +53,7 @@ pub fn spaces(time: usize) -> String {
     " ".repeat(time)
 }
 
-pub fn format_struct(struct_name: &str) -> StructBuilder {
+pub fn format_struct(struct_name: &str) -> StructBuilder<'_> {
     StructBuilder::new(struct_name)
 }
 

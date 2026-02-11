@@ -840,6 +840,7 @@ pub enum ExtendedNumberLiteralType {
     Infinity,
     NegativeInfinity,
 }
+#[cfg(test)]
 impl ExtendedNumberLiteralType {
     pub(crate) fn exactly_eq(&self, other: &Self) -> bool {
         match self {
@@ -847,38 +848,18 @@ impl ExtendedNumberLiteralType {
                 if let ExtendedNumberLiteralType::Std(other_n) = other {
                     match n {
                         NumberLiteralType::IntegerLiteral(i) => {
-                            if let NumberLiteralType::IntegerLiteral(other_i) = other_n {
-                                i == other_i
-                            } else {
-                                false
-                            }
+                            matches!(other_n, NumberLiteralType::IntegerLiteral(other_i) if i == other_i)
                         }
                         NumberLiteralType::FloatLiteral(f) => {
-                            if let NumberLiteralType::FloatLiteral(other_f) = other_n {
-                                f == other_f
-                            } else {
-                                false
-                            }
+                            matches!(other_n, NumberLiteralType::FloatLiteral(other_f) if f == other_f)
                         }
                     }
                 } else {
                     false
                 }
             }
-            ExtendedNumberLiteralType::Infinity => {
-                if let ExtendedNumberLiteralType::Infinity = other {
-                    true
-                } else {
-                    false
-                }
-            }
-            ExtendedNumberLiteralType::NegativeInfinity => {
-                if let ExtendedNumberLiteralType::NegativeInfinity = other {
-                    true
-                } else {
-                    false
-                }
-            }
+            ExtendedNumberLiteralType::Infinity => matches!(other, ExtendedNumberLiteralType::Infinity),
+            ExtendedNumberLiteralType::NegativeInfinity => matches!(other, ExtendedNumberLiteralType::NegativeInfinity),
         }
     }
 }
@@ -1577,27 +1558,6 @@ impl HasMeta for PropertyData<Box<PatternType>> {
 }
 
 #[derive(Debug)]
-enum LiteralOrIdentifier {
-    Literal(LiteralData),
-    Identifier(IdentifierData),
-}
-impl HasMeta for LiteralOrIdentifier {
-    fn get_meta(&self) -> &Meta {
-        match self {
-            LiteralOrIdentifier::Literal(d) => d.get_meta(),
-            LiteralOrIdentifier::Identifier(d) => d.get_meta(),
-        }
-    }
-
-    fn to_formatted_string(&self, script: &str) -> String {
-        match self {
-            LiteralOrIdentifier::Literal(d) => d.to_formatted_string(script),
-            LiteralOrIdentifier::Identifier(d) => d.to_formatted_string(script),
-        }
-    }
-}
-
-#[derive(Debug)]
 pub struct AssignmentPropertyData(pub PropertyData<Box<PatternType>>);
 impl AssignmentPropertyData {
     pub(crate) fn new_with_identifier_key(
@@ -1613,30 +1573,6 @@ impl AssignmentPropertyData {
             PropertyKind::Init,
             false,
             shorthand,
-        ))
-    }
-
-    pub(crate) fn new_with_literal_key(meta: Meta, key: LiteralData, value: PatternType) -> Self {
-        AssignmentPropertyData(PropertyData::new_with_literal_key(
-            meta,
-            key,
-            Box::new(value),
-            PropertyKind::Init,
-            false,
-        ))
-    }
-
-    pub(crate) fn new_with_computed_key(
-        meta: Meta,
-        key: ExpressionType,
-        value: PatternType,
-    ) -> Self {
-        AssignmentPropertyData(PropertyData::new_with_computed_key(
-            meta,
-            key,
-            Box::new(value),
-            PropertyKind::Init,
-            false,
         ))
     }
 

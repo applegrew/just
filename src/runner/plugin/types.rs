@@ -7,7 +7,7 @@ use crate::runner::ds::error::JErrorType;
 use crate::runner::ds::execution_context::ExecutionContextStack;
 use crate::runner::ds::heap::{Heap, HeapConfig};
 use crate::runner::ds::lex_env::JsLexEnvironmentType;
-use crate::runner::ds::object::{CoreObject, JsObject, JsObjectType, ObjectBase, ObjectType};
+use crate::runner::ds::object::{JsObject, JsObjectType, ObjectBase, ObjectType};
 use crate::runner::ds::value::JsValue;
 use crate::parser::ast::FunctionData;
 use std::cell::RefCell;

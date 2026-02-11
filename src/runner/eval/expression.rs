@@ -10,7 +10,6 @@ use crate::parser::ast::{
     UpdateOperator, LogicalOperator,
 };
 use crate::runner::ds::error::JErrorType;
-use crate::runner::ds::function_object::FunctionObjectBase;
 use crate::runner::ds::object::{JsObject, JsObjectType, ObjectBase, ObjectType};
 use crate::runner::ds::object_property::{PropertyDescriptor, PropertyDescriptorAccessor, PropertyDescriptorData, PropertyKey};
 use crate::runner::ds::value::{JsValue, JsNumberType};
@@ -801,60 +800,6 @@ fn call_function_object(
     }
 }
 
-/// Get a property from a value (without getter support - for internal use).
-fn get_property_simple(value: &JsValue, prop_name: &str) -> ValueResult {
-    match value {
-        JsValue::Object(obj) => {
-            let obj_ref = obj.borrow();
-            let prop_key = PropertyKey::Str(prop_name.to_string());
-
-            // Check own property
-            if let Some(desc) = obj_ref.as_js_object().get_own_property(&prop_key)? {
-                match desc {
-                    PropertyDescriptor::Data(data) => Ok(data.value.clone()),
-                    PropertyDescriptor::Accessor(_) => {
-                        // Can't call getter without context - return undefined
-                        Ok(JsValue::Undefined)
-                    }
-                }
-            } else {
-                // Check prototype chain
-                if let Some(proto) = obj_ref.as_js_object().get_prototype_of() {
-                    drop(obj_ref);  // Release borrow before recursive call
-                    get_property_simple(&JsValue::Object(proto), prop_name)
-                } else {
-                    Ok(JsValue::Undefined)
-                }
-            }
-        }
-        JsValue::String(s) => {
-            // String primitive property access
-            if prop_name == "length" {
-                Ok(JsValue::Number(JsNumberType::Integer(s.len() as i64)))
-            } else if let Ok(index) = prop_name.parse::<usize>() {
-                // Access character at index
-                if index < s.len() {
-                    Ok(JsValue::String(s.chars().nth(index).unwrap().to_string()))
-                } else {
-                    Ok(JsValue::Undefined)
-                }
-            } else {
-                // Other string methods not yet supported
-                Ok(JsValue::Undefined)
-            }
-        }
-        JsValue::Undefined => {
-            Err(JErrorType::TypeError("Cannot read property of undefined".to_string()))
-        }
-        JsValue::Null => {
-            Err(JErrorType::TypeError("Cannot read property of null".to_string()))
-        }
-        _ => {
-            // Primitive types - return undefined for now
-            Ok(JsValue::Undefined)
-        }
-    }
-}
 
 /// Get a property from a value, calling getters if necessary.
 fn get_property_with_ctx(value: &JsValue, prop_name: &str, ctx: &mut EvalContext) -> ValueResult {
@@ -2066,7 +2011,7 @@ pub struct GeneratorObject {
     /// Pointer to the function body
     body_ptr: *const crate::parser::ast::FunctionBodyData,
     /// Pointer to the formal parameters
-    params_ptr: *const Vec<PatternType>,
+    _params_ptr: *const Vec<PatternType>,
     /// The lexical environment at the time the generator was created
     environment: crate::runner::ds::lex_env::JsLexEnvironmentType,
     /// Current state
@@ -2090,7 +2035,7 @@ impl GeneratorObject {
         GeneratorObject {
             base: ObjectBase::new(),
             body_ptr,
-            params_ptr,
+            _params_ptr: params_ptr,
             environment,
             state: GeneratorState::SuspendedStart,
             current_index: 0,
@@ -2282,7 +2227,7 @@ fn create_generator_object(
     params_ptr: *const Vec<PatternType>,
     environment: crate::runner::ds::lex_env::JsLexEnvironmentType,
     _args: Vec<JsValue>,
-    ctx: &mut EvalContext,
+    _ctx: &mut EvalContext,
 ) -> ValueResult {
     let mut gen_obj = GeneratorObject::new(body_ptr, params_ptr, environment);
 
@@ -2318,12 +2263,6 @@ fn create_generator_object(
 
     // For simplicity, we mark it and handle next() calls specially
     Ok(JsValue::Object(gen_ref))
-}
-
-/// Check if an object is a generator object.
-fn is_generator_object(obj: &dyn JsObject) -> bool {
-    let marker = PropertyKey::Str("__generator_object__".to_string());
-    obj.get_object_base().properties.contains_key(&marker)
 }
 
 /// Create a callable "next" method for a generator object.

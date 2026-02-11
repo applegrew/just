@@ -6,8 +6,6 @@
 extern crate just;
 
 use just::parser::JsParser;
-use just::parser::ast::StatementType;
-use just::runner::eval::expression::evaluate_expression;
 use just::runner::eval::statement::execute_statement;
 use just::runner::plugin::types::EvalContext;
 use just::runner::ds::value::{JsValue, JsNumberType};

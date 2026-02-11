@@ -1,13 +1,12 @@
 use crate::runner::ds::env_record::new_global_environment;
 use crate::runner::ds::error::JErrorType;
-use crate::runner::ds::lex_env::{JsLexEnvironmentType, LexEnvironment};
-use crate::runner::ds::object::{object_create, CoreObject, JsObjectType, ObjectType};
+use crate::runner::ds::lex_env::JsLexEnvironmentType;
+use crate::runner::ds::object::{object_create, JsObjectType, ObjectType};
 use crate::runner::ds::object_property::{
     PropertyDescriptor, PropertyDescriptorData, PropertyDescriptorSetter, PropertyKey,
 };
 use crate::runner::ds::operations::object::define_property_or_throw;
 use crate::runner::ds::value::{JsNumberType, JsValue};
-use std::borrow::BorrowMut;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -142,13 +141,13 @@ impl WellKnownIntrinsics {
     }
 }
 impl PartialEq for WellKnownIntrinsics {
-    fn eq(&self, other: &Self) -> bool {
+    fn eq(&self, _other: &Self) -> bool {
         todo!()
     }
 }
 impl Eq for WellKnownIntrinsics {}
 impl Hash for WellKnownIntrinsics {
-    fn hash<H: Hasher>(&self, state: &mut H) {
+    fn hash<H: Hasher>(&self, _state: &mut H) {
         todo!()
     }
 }

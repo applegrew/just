@@ -48,7 +48,7 @@ fn jit_or_vm_var(code: &str, var_name: &str) -> JsValue {
     let chunk = jit::compile_reg(&ast);
     let ctx = just::runner::plugin::types::EvalContext::new();
     let registry = BuiltInRegistry::with_core();
-    let (result, mut ctx_out) = jit::execute_reg_jit_or_vm(&chunk, ctx, &registry).unwrap();
+    let (_result, mut ctx_out) = jit::execute_reg_jit_or_vm(&chunk, ctx, &registry).unwrap();
     ctx_out.get_binding(var_name).unwrap_or(JsValue::Undefined)
 }
 

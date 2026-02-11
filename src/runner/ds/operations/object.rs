@@ -5,11 +5,10 @@ use crate::runner::ds::error::JErrorType;
 use crate::runner::ds::execution_context::ExecutionContextStack;
 use crate::runner::ds::object::{JsObject, JsObjectType, ObjectType};
 use crate::runner::ds::object_property::{
-    PropertyDescriptor, PropertyDescriptorData, PropertyDescriptorSetter, PropertyKey,
+    PropertyDescriptorSetter, PropertyKey,
 };
 use crate::runner::ds::operations::type_conversion::to_object;
 use crate::runner::ds::realm::CodeRealm;
-use crate::runner::ds::realm::WellKnownIntrinsics::JSON;
 use crate::runner::ds::value::{JsValue, JsValueOrSelf};
 
 pub fn get(
@@ -120,34 +119,3 @@ pub fn define_property_or_throw(
     }
 }
 
-pub fn create_data_property(
-    o: &mut dyn JsObject,
-    p: PropertyKey,
-    v: JsValue,
-) -> Result<bool, JErrorType> {
-    o.define_own_property(
-        p,
-        PropertyDescriptorSetter::new_from_property_descriptor(PropertyDescriptor::Data(
-            PropertyDescriptorData {
-                value: v,
-                writable: true,
-                enumerable: true,
-                configurable: true,
-            },
-        )),
-    )
-}
-
-pub fn create_data_property_or_throw(
-    o: &mut dyn JsObject,
-    p: PropertyKey,
-    v: JsValue,
-) -> Result<(), JErrorType> {
-    let err = format!("Defining data property \"{}\" failed", &p);
-    let r = create_data_property(o, p, v)?;
-    if r {
-        Ok(())
-    } else {
-        Err(JErrorType::TypeError(err))
-    }
-}

@@ -1,13 +1,12 @@
-use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::parser::ast::{FunctionBodyData, HasMeta, PatternType};
 use crate::runner::ds::env_record::{new_function_environment, EnvironmentRecordType};
 use crate::runner::ds::error::JErrorType;
 use crate::runner::ds::execution_context::{ExecutionContext, ExecutionContextStack};
-use crate::runner::ds::lex_env::{JsLexEnvironmentType, LexEnvironment};
-use crate::runner::ds::object::{JsObject, JsObjectType, ObjectBase, ObjectType};
-use crate::runner::ds::realm::{CodeRealm, JsCodeRealmType};
+use crate::runner::ds::lex_env::JsLexEnvironmentType;
+use crate::runner::ds::object::{JsObject, JsObjectType, ObjectBase};
+use crate::runner::ds::realm::JsCodeRealmType;
 use crate::runner::ds::value::{JsValue, JsValueOrSelf};
 use std::borrow::BorrowMut;
 use std::ptr;
@@ -148,8 +147,8 @@ pub trait JsFunctionObject: JsObject {
         &self,
         fat_self: &JsObjectType,
         ctx_stack: &mut ExecutionContextStack,
-        this: JsValueOrSelf,
-        args: Vec<JsValue>,
+        _this: JsValueOrSelf,
+        _args: Vec<JsValue>,
     ) -> Result<JsValue, JErrorType> {
         debug_assert!(ptr::eq(
             fat_self.borrow().as_js_object(),
@@ -162,13 +161,13 @@ pub trait JsFunctionObject: JsObject {
                 self.get_function_object_base().name
             )))
         } else {
-            let caller_ctx = ctx_stack.get_running_execution_ctx().unwrap();
+            let _caller_ctx = ctx_stack.get_running_execution_ctx().unwrap();
 
             todo!()
         }
     }
 
-    fn construct(&self, args: Vec<JsValue>, o: JsObjectType) -> Result<JsValue, JErrorType> {
+    fn construct(&self, _args: Vec<JsValue>, _o: JsObjectType) -> Result<JsValue, JErrorType> {
         todo!()
     }
 }
@@ -228,7 +227,7 @@ impl JsFunctionObject for BoundFunctionObject {
         &self,
         _fat_self: &JsObjectType,
         ctx_stack: &mut ExecutionContextStack,
-        this: JsValueOrSelf,
+        _this: JsValueOrSelf,
         args: Vec<JsValue>,
     ) -> Result<JsValue, JErrorType> {
         let mut input_args = args;
@@ -245,7 +244,7 @@ impl JsFunctionObject for BoundFunctionObject {
             )
     }
 
-    fn construct(&self, args: Vec<JsValue>, o: JsObjectType) -> Result<JsValue, JErrorType> {
+    fn construct(&self, _args: Vec<JsValue>, _o: JsObjectType) -> Result<JsValue, JErrorType> {
         todo!()
     }
 }
@@ -297,9 +296,9 @@ pub fn ordinary_call_bind_this(
 pub fn function_declaration_instantiation(
     f: &dyn JsFunctionObject,
     callee_context: &ExecutionContext,
-    argument_list: Vec<JsValue>,
+    _argument_list: Vec<JsValue>,
 ) {
     let env = &callee_context.lex_env;
-    let env_rec = env.borrow().inner.as_env_record();
-    let formals = &f.get_function_object_base().formal_parameters;
+    let _env_rec = env.borrow().inner.as_env_record();
+    let _formals = &f.get_function_object_base().formal_parameters;
 }

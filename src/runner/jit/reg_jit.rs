@@ -14,7 +14,7 @@ use super::reg_bytecode::{RegChunk, RegOpCode};
 pub type RegJitFn = unsafe extern "C" fn(*mut f64) -> f64;
 
 pub struct RegJitFunction {
-    func_id: FuncId,
+    _func_id: FuncId,
     code_ptr: *const u8,
 }
 
@@ -387,6 +387,7 @@ impl RegJit {
                     builder.seal_block(block);
                     continue;
                 }
+                #[allow(unreachable_patterns)]
                 _ => {
                     return Err(JErrorType::TypeError(format!(
                         "Unsupported op in JIT prototype: {:?}",
@@ -417,7 +418,7 @@ impl RegJit {
         let _ = self.module.finalize_definitions();
 
         let code_ptr = self.module.get_finalized_function(func_id);
-        Ok(RegJitFunction { func_id, code_ptr })
+        Ok(RegJitFunction { _func_id: func_id, code_ptr })
     }
 
     pub fn execute(&mut self, chunk: &RegChunk) -> Result<(f64, Vec<f64>), JErrorType> {

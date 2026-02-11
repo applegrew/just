@@ -8,7 +8,7 @@ use crate::runner::ds::value::{JsNumberType, JsValue, JsValueOrSelf};
 use crate::runner::plugin::registry::BuiltInRegistry;
 use crate::runner::plugin::types::EvalContext;
 
-use super::reg_bytecode::{RegChunk, RegInstruction, RegOpCode};
+use super::reg_bytecode::{RegChunk, RegOpCode};
 
 /// Result of VM execution.
 pub enum RegVmResult {

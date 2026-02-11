@@ -167,25 +167,6 @@ fn get_meta(pair: &Pair<Rule>, script: &Rc<String>) -> Meta {
     }
 }
 
-/// Helper to safely get the next item from a pair iterator with proper error handling.
-/// Use this instead of `.next().unwrap()` for safer error propagation.
-fn expect_next<'a, I>(
-    iter: &mut I,
-    context: &str,
-    meta: &Meta,
-) -> Result<Pair<'a, Rule>, JsRuleError>
-where
-    I: Iterator<Item = Pair<'a, Rule>>,
-{
-    iter.next().ok_or_else(|| {
-        get_validation_error_with_meta(
-            format!("Expected more tokens in {}", context),
-            AstBuilderValidationErrorType::SyntaxError,
-            meta.clone(),
-        )
-    })
-}
-
 /// Helper to safely get the first inner pair with proper error handling.
 /// Use this instead of `.into_inner().next().unwrap()` for safer error propagation.
 fn expect_inner<'a>(
@@ -258,7 +239,7 @@ fn build_ast_from_declaration(
     let inner_pair = expect_inner(pair, "build_ast_from_declaration", script)?;
     Ok(match inner_pair.as_rule() {
         Rule::hoistable_declaration | Rule::hoistable_declaration__yield => {
-            let (h, h_s) = build_ast_from_hoistable_declaration(inner_pair, script)?;
+            let (h, _h_s) = build_ast_from_hoistable_declaration(inner_pair, script)?;
             (h, Semantics::new_empty()) // empty top_level_lexically_declared_names
         }
         Rule::class_declaration | Rule::class_declaration__yield => {
@@ -661,7 +642,7 @@ fn build_ast_from_statement(
             (StatementType::BlockStatement(bsd), bsd_s)
         }
         Rule::expression_statement | Rule::expression_statement__yield => {
-            let (exp, exp_s) =
+            let (exp, _exp_s) =
                 build_ast_from_expression(inner_pair.into_inner().next().unwrap(), script)?;
             (
                 StatementType::ExpressionStatement {
@@ -700,7 +681,7 @@ fn build_ast_from_if_statement(
     let (statement_true, statement_true_s) =
         build_ast_from_statement(inner_iter.next().unwrap(), script)?;
     s.var_declared_names = statement_true_s.var_declared_names;
-    let (statement_else, statement_else_s) = if let Some(statement_else_pair) = inner_iter.next() {
+    let (statement_else, _statement_else_s) = if let Some(statement_else_pair) = inner_iter.next() {
         let (st, mut st_s) = build_ast_from_statement(statement_else_pair, script)?;
         s.var_declared_names.append(&mut st_s.var_declared_names);
         (Some(Box::new(st)), st_s)
@@ -752,7 +733,7 @@ fn build_ast_from_statement_list(
     pair: Pair<Rule>,
     script: &Rc<String>,
 ) -> Result<(Vec<StatementType>, Semantics), JsRuleError> {
-    let meta = get_meta(&pair, script);
+    let _meta = get_meta(&pair, script);
     let mut declarations = vec![];
     let mut s = Semantics::new_empty();
     for inner_pair in pair.into_inner() {
@@ -1001,7 +982,7 @@ fn build_ast_for_breakable_statement_for(
                 }
             };
             let second_pair = inner_iter.next().unwrap();
-            let ((in_of_right, in_of_right_s), is_for_of) = match second_pair.as_rule() {
+            let ((in_of_right, _in_of_right_s), is_for_of) = match second_pair.as_rule() {
                 Rule::assignment_expression__in | Rule::assignment_expression__in_yield => (
                     build_ast_from_assignment_expression(second_pair, script)?,
                     true,
@@ -1072,7 +1053,7 @@ fn build_ast_for_breakable_statement_for(
                 }
                 Rule::init_expression | Rule::init_expression__yield => {
                     if let Some(inner_pair) = first_pair.into_inner().next() {
-                        let (e, e_s) = build_ast_from_expression(inner_pair, script)?;
+                        let (e, _e_s) = build_ast_from_expression(inner_pair, script)?;
                         Some(VariableDeclarationOrExpression::Expression(Box::new(e)))
                     } else {
                         None
@@ -1086,14 +1067,14 @@ fn build_ast_for_breakable_statement_for(
                 }
             };
             let test_pair = inner_iter.next().unwrap();
-            let (test, test_s) = if let Some(test_expression_pair) = test_pair.into_inner().next() {
+            let (test, _test_s) = if let Some(test_expression_pair) = test_pair.into_inner().next() {
                 let (e, e_s) = build_ast_from_expression(test_expression_pair, script)?;
                 (Some(Box::new(e)), e_s)
             } else {
                 (None, Semantics::new_empty())
             };
             let update_pair = inner_iter.next().unwrap();
-            let (update, update_s) =
+            let (update, _update_s) =
                 if let Some(update_expression_pair) = update_pair.into_inner().next() {
                     let (e, e_s) = build_ast_from_expression(update_expression_pair, script)?;
                     (Some(Box::new(e)), e_s)
@@ -1136,7 +1117,7 @@ fn build_ast_from_binding_pattern(
     let inner_pair = pair.into_inner().next().unwrap();
     Ok(match inner_pair.as_rule() {
         Rule::object_binding_pattern | Rule::object_binding_pattern__yield => {
-            let mut binding_pattern_inner_iter = inner_pair.into_inner();
+            let binding_pattern_inner_iter = inner_pair.into_inner();
             for binding_property_pair in binding_pattern_inner_iter {
                 let (b, b_s) = build_ast_from_binding_property(binding_property_pair, script)?;
                 s.merge(b_s);
@@ -1238,7 +1219,7 @@ fn build_ast_from_binding_element(
             }
         }
         Rule::binding_pattern | Rule::binding_pattern__yield => {
-            let (pattern, mut s) = build_ast_from_binding_pattern(inner_pair, script)?;
+            let (pattern, s) = build_ast_from_binding_pattern(inner_pair, script)?;
             // Check for optional initializer
             if let Some(init_pair) = inner_iter.next() {
                 let init_inner = init_pair.into_inner().next().ok_or_else(|| {
@@ -1311,7 +1292,7 @@ fn build_ast_from_binding_property(
     } else if inner_pair.as_rule() == Rule::property_name
         || inner_pair.as_rule() == Rule::property_name__yield
     {
-        let (key, key_s) = build_ast_from_property_name(inner_pair, script)?;
+        let (key, _key_s) = build_ast_from_property_name(inner_pair, script)?;
         let (value, value_s) =
             build_ast_from_lexical_binding_or_variable_declaration_or_binding_element(
                 inner_iter.next().unwrap(),
@@ -1445,7 +1426,7 @@ fn build_ast_from_switch_statement(
     let meta = get_meta(&pair, script);
     let mut inner_iter = pair.into_inner();
     let condition_pair = inner_iter.next().unwrap();
-    let (condition, condition_s) = build_ast_from_expression(condition_pair, script)?;
+    let (condition, _condition_s) = build_ast_from_expression(condition_pair, script)?;
     let case_block_pair = inner_iter.next().unwrap();
     let mut cases = vec![];
     let mut s = Semantics::new_empty();
@@ -1493,7 +1474,7 @@ fn build_ast_from_case_clause(
     let meta = get_meta(&pair, script);
     let mut inner_iter = pair.into_inner();
     let test_pair = inner_iter.next().unwrap();
-    let (test_exp, test_exp_s) = build_ast_from_expression(test_pair, script)?;
+    let (test_exp, _test_exp_s) = build_ast_from_expression(test_pair, script)?;
     let (statements, statements_s) = if let Some(statement_pair) = inner_iter.next() {
         build_ast_from_statement_list(statement_pair, script)?
     } else {
@@ -1693,11 +1674,11 @@ fn build_ast_from_lexical_binding_or_variable_declaration_or_binding_element(
         if inner_pair.as_rule() == Rule::binding_identifier
             || inner_pair.as_rule() == Rule::binding_identifier__yield
         {
-            let (bi, mut bi_s) = get_binding_identifier_data(inner_pair, script)?;
+            let (bi, bi_s) = get_binding_identifier_data(inner_pair, script)?;
             let id = Box::new(ExpressionPatternType::Identifier(bi).convert_to_pattern());
             (
                 if let Some(initializer) = inner_iter.next() {
-                    let (a, a_s) = build_ast_from_assignment_expression(
+                    let (a, _a_s) = build_ast_from_assignment_expression(
                         initializer.into_inner().next().unwrap(),
                         script,
                     )?;
@@ -1719,10 +1700,10 @@ fn build_ast_from_lexical_binding_or_variable_declaration_or_binding_element(
         } else if inner_pair.as_rule() == Rule::binding_pattern
             || inner_pair.as_rule() == Rule::binding_pattern__yield
         {
-            let (b, mut b_s) = build_ast_from_binding_pattern(inner_pair, script)?;
+            let (b, b_s) = build_ast_from_binding_pattern(inner_pair, script)?;
             let id = Box::new(b);
             let init = if let Some(initializer) = inner_iter.next() {
-                let (a, a_s) = build_ast_from_assignment_expression(
+                let (a, _a_s) = build_ast_from_assignment_expression(
                     initializer.into_inner().next().unwrap(),
                     script,
                 )?;
@@ -1751,10 +1732,10 @@ fn build_ast_from_single_name_binding(
 ) -> Result<(VariableDeclaratorData, Semantics), JsRuleError> {
     let meta = get_meta(&pair, script);
     let mut inner_iter = pair.into_inner();
-    let (b, mut s) = get_binding_identifier_data(inner_iter.next().unwrap(), script)?;
+    let (b, s) = get_binding_identifier_data(inner_iter.next().unwrap(), script)?;
     let id = Box::new(ExpressionPatternType::Identifier(b).convert_to_pattern());
     Ok(if let Some(initializer) = inner_iter.next() {
-        let (a, a_s) = build_ast_from_assignment_expression(initializer, script)?;
+        let (a, _a_s) = build_ast_from_assignment_expression(initializer, script)?;
         // s.merge(a_s); bound_names from s is only used
         (
             VariableDeclaratorData {
@@ -2047,7 +2028,7 @@ fn build_ast_from_arrow_function(
             (Box::new(FunctionBodyOrExpression::FunctionBody(f)), f_s)
         }
         Rule::assignment_expression | Rule::assignment_expression__in => {
-            let (a, a_s) = build_ast_from_assignment_expression(inner_concise_body_pair, script)?;
+            let (a, _a_s) = build_ast_from_assignment_expression(inner_concise_body_pair, script)?;
             (
                 Box::new(FunctionBodyOrExpression::Expression(a)),
                 Semantics::new_empty(),
@@ -2112,7 +2093,7 @@ fn build_ast_from_new_expression(
             build_ast_from_member_expression(inner_pair, script)?
         } else {
             let ne_meta = get_meta(&inner_pair, script);
-            let (n, mut n_s) = build_ast_from_new_expression(inner_pair, script)?;
+            let (n, n_s) = build_ast_from_new_expression(inner_pair, script)?;
             (
                 ExpressionType::NewExpression {
                     meta: ne_meta,
@@ -2670,7 +2651,7 @@ fn build_ast_from_call_expression(
         };
         obj = match pair.as_rule() {
             Rule::expression__in_yield | Rule::expression__in => {
-                let (e, mut e_s) = build_ast_from_expression(pair, script)?;
+                let (e, e_s) = build_ast_from_expression(pair, script)?;
                 s.merge(e_s);
                 ExpressionType::MemberExpression(
                     MemberExpressionType::ComputedMemberExpression {
@@ -2954,7 +2935,7 @@ fn build_ast_from_primary_expression(
     let meta = get_meta(&inner_pair, script);
     Ok(match inner_pair.as_rule() {
         Rule::identifier_reference | Rule::identifier_reference__yield => {
-            let (i, mut i_s) = build_ast_from_identifier_reference(inner_pair, script)?;
+            let (i, i_s) = build_ast_from_identifier_reference(inner_pair, script)?;
             (i, i_s)
         }
         Rule::literal => (
@@ -2966,7 +2947,7 @@ fn build_ast_from_primary_expression(
             Semantics::new_empty(),
         ),
         Rule::array_literal | Rule::array_literal__yield => {
-            let (a, mut a_s) = build_ast_from_array_literal(inner_pair, script)?;
+            let (a, a_s) = build_ast_from_array_literal(inner_pair, script)?;
             (a, a_s)
         }
         Rule::object_literal | Rule::object_literal__yield => {
@@ -2978,7 +2959,7 @@ fn build_ast_from_primary_expression(
             (ExpressionType::FunctionOrGeneratorExpression(f), f_s)
         } /* is_valid_simple_assignment_target&is_identifier_ref=false */
         Rule::function_expression => {
-            let (f, mut f_s) =
+            let (f, f_s) =
                 build_ast_from_function_declaration_or_function_expression(inner_pair, script)?;
             (ExpressionType::FunctionOrGeneratorExpression(f), f_s)
         }
@@ -3635,7 +3616,7 @@ fn build_ast_from_identifier_reference(
             &script,
         ))
     } else {
-        let mut s = Semantics::new_empty();
+        let s = Semantics::new_empty();
         Ok((
             ExpressionPatternType::Identifier(get_identifier_data(pair, script))
                 .convert_to_expression(),

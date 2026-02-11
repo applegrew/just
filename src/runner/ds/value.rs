@@ -1,9 +1,8 @@
-use std::cell::RefCell;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::rc::Rc;
 
-use crate::runner::ds::object::{JsObject, JsObjectType, ObjectType};
+use crate::runner::ds::object::JsObjectType;
 use crate::runner::ds::operations::type_conversion::{TYPE_STR_NULL, TYPE_STR_UNDEFINED};
 use crate::runner::ds::symbol::SymbolData;
 
