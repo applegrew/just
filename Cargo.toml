@@ -20,5 +20,10 @@ cranelift-native = "0.104"
 
 [[bin]]
 name = "benchmark"
+path = "src/bin/benchmark.rs"
+
+[[bench]]
+name = "benchmark_runner"
 path = "benches/benchmark_runner.rs"
+harness = false
 

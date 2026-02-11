@@ -1,6 +1,6 @@
-//! Benchmark runner for the JavaScript interpreter.
-//!
-//! Compares performance against Node.js for reference.
+/// Benchmark runner for the JavaScript interpreter.
+///
+/// Compares performance against Node.js for reference.
 
 extern crate just;
 
