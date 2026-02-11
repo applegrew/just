@@ -42,7 +42,30 @@ impl RegJit {
         Ok(RegJit { module })
     }
 
+    /// Pre-scan: return Err if the chunk contains ops the numeric JIT cannot handle.
+    fn can_jit_compile(chunk: &RegChunk) -> Result<(), JErrorType> {
+        for instr in &chunk.code {
+            match instr.op {
+                RegOpCode::GetProp
+                | RegOpCode::SetProp
+                | RegOpCode::GetElem
+                | RegOpCode::SetElem
+                | RegOpCode::Call
+                | RegOpCode::CallMethod
+                | RegOpCode::TypeOf => {
+                    return Err(JErrorType::TypeError(format!(
+                        "JIT bail: unsupported op {:?}",
+                        instr.op
+                    )));
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
     pub fn compile(&mut self, chunk: &RegChunk) -> Result<RegJitFunction, JErrorType> {
+        Self::can_jit_compile(chunk)?;
         let ptr_ty = self.module.target_config().pointer_type();
         let mut sig = self.module.make_signature();
         sig.params.push(AbiParam::new(ptr_ty));
@@ -176,26 +199,26 @@ impl RegJit {
                         self.store_reg(&mut builder, reg_var, local_reg, val);
                     }
                 }
-                RegOpCode::DeclareVar => {
+                RegOpCode::DeclareVar | RegOpCode::DeclareLet | RegOpCode::DeclareConst => {
                     let name_idx = instr.imm as usize;
-                    if name_idx >= local_regs.len() || lexical_names[name_idx] {
+                    if name_idx >= local_regs.len() {
                         return Err(JErrorType::TypeError(
-                            "JIT supports only local var DeclareVar".to_string(),
+                            "JIT supports only local var Declare*".to_string(),
                         ));
                     }
                     let _local_reg = local_regs[name_idx].ok_or_else(|| {
-                        JErrorType::TypeError("JIT supports only local var DeclareVar".to_string())
+                        JErrorType::TypeError("JIT supports only local var Declare*".to_string())
                     })?;
                 }
-                RegOpCode::InitVar => {
+                RegOpCode::InitVar | RegOpCode::InitBinding => {
                     let name_idx = instr.imm as usize;
-                    if name_idx >= local_regs.len() || lexical_names[name_idx] {
+                    if name_idx >= local_regs.len() {
                         return Err(JErrorType::TypeError(
-                            "JIT supports only local var InitVar".to_string(),
+                            "JIT supports only local var Init*".to_string(),
                         ));
                     }
                     let local_reg = local_regs[name_idx].ok_or_else(|| {
-                        JErrorType::TypeError("JIT supports only local var InitVar".to_string())
+                        JErrorType::TypeError("JIT supports only local var Init*".to_string())
                     })?;
                     if instr.src1 != local_reg {
                         let val = self.load_reg(&mut builder, reg_var, instr.src1);
@@ -344,24 +367,15 @@ impl RegJit {
                     builder.seal_block(block);
                     continue;
                 }
-                RegOpCode::GetProp | RegOpCode::GetElem => {
-                    let val = builder.ins().f64const(f64::NAN);
-                    self.store_reg(&mut builder, reg_var, instr.dst, val);
-                }
-                RegOpCode::SetProp => {
-                    let val = self.load_reg(&mut builder, reg_var, instr.src2);
-                    self.store_reg(&mut builder, reg_var, instr.dst, val);
-                }
-                RegOpCode::SetElem => {
-                    // No-op placeholder: value already lives in dst register.
-                }
-                RegOpCode::Call => {
-                    let val = builder.ins().f64const(f64::NAN);
-                    self.store_reg(&mut builder, reg_var, instr.dst, val);
-                }
-                RegOpCode::CallMethod => {
-                    let val = builder.ins().f64const(f64::NAN);
-                    self.store_reg(&mut builder, reg_var, instr.dst, val);
+                // These ops are rejected by can_jit_compile; unreachable here.
+                RegOpCode::GetProp
+                | RegOpCode::SetProp
+                | RegOpCode::GetElem
+                | RegOpCode::SetElem
+                | RegOpCode::Call
+                | RegOpCode::CallMethod
+                | RegOpCode::TypeOf => {
+                    unreachable!("pre-scan should have rejected {:?}", instr.op);
                 }
                 RegOpCode::Return | RegOpCode::Halt => {
                     let val = if instr.op == RegOpCode::Return {
