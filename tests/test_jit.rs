@@ -344,3 +344,94 @@ fn test_reg_vm_if_else() {
     assert_eq!(reg_vm_get_int("var x = 0; if (false) { x = 1; } else { x = 2; }", "x"), 2);
 }
 
+// ── Stack VM function call tests ────────────────────────────
+
+#[test]
+fn test_jit_function_call_simple() {
+    let code = r#"
+function add(a, b) { return a + b; }
+var result = add(3, 4);
+"#;
+    assert_eq!(jit_run_get_int(code, "result"), 7);
+}
+
+#[test]
+fn test_jit_function_call_no_args() {
+    let code = r#"
+function five() { return 5; }
+var x = five();
+"#;
+    assert_eq!(jit_run_get_int(code, "x"), 5);
+}
+
+#[test]
+fn test_jit_function_call_recursive_factorial() {
+    let code = r#"
+function factorial(n) {
+    if (n <= 1) { return 1; }
+    return n * factorial(n - 1);
+}
+var result = factorial(6);
+"#;
+    assert_eq!(jit_run_get_int(code, "result"), 720);
+}
+
+#[test]
+fn test_jit_function_call_closure() {
+    let code = r#"
+function makeAdder(x) {
+    function adder(y) { return x + y; }
+    return adder;
+}
+var add5 = makeAdder(5);
+var result = add5(3);
+"#;
+    assert_eq!(jit_run_get_int(code, "result"), 8);
+}
+
+#[test]
+fn test_jit_function_expression() {
+    let code = r#"
+var double = function(n) { return n * 2; };
+var result = double(7);
+"#;
+    assert_eq!(jit_run_get_int(code, "result"), 14);
+}
+
+#[test]
+fn test_jit_function_call_multiple() {
+    let code = r#"
+function square(n) { return n * n; }
+var a = square(3);
+var b = square(4);
+var result = a + b;
+"#;
+    assert_eq!(jit_run_get_int(code, "result"), 25);
+}
+
+// ── Stack VM CallMethod tests ───────────────────────────────
+
+#[test]
+fn test_jit_call_method_math_abs() {
+    let code = "var x = Math.abs(-7);";
+    assert_eq!(jit_run_get_int(code, "x"), 7);
+}
+
+#[test]
+fn test_jit_call_method_math_max() {
+    let code = "var x = Math.max(3, 9, 1);";
+    assert_eq!(jit_run_get_int(code, "x"), 9);
+}
+
+#[test]
+fn test_jit_call_method_math_floor() {
+    let code = "var x = Math.floor(4.9);";
+    assert_eq!(jit_run_get_int(code, "x"), 4);
+}
+
+#[test]
+fn test_jit_call_method_string_index_of() {
+    let code = r#"var x = "hello world".indexOf("world");"#;
+    assert_eq!(jit_run_get_int(code, "x"), 6);
+}
+

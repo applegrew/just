@@ -169,6 +169,12 @@ pub enum OpCode {
     // ── Compound assignment helpers ──────────────────────────
     /// Get a variable for compound update. Operand: constant pool index of name.
     GetVarForUpdate,
+
+    // ── Closures ────────────────────────────────────────────
+    /// Create a closure from a function template.
+    /// Operand: index into the chunk's `functions` table.
+    /// Pushes the resulting function object onto the stack.
+    MakeClosure,
 }
 
 /// A single bytecode instruction with optional operands.
@@ -179,21 +185,40 @@ pub struct Instruction {
     pub operand: u32,
     /// Secondary operand (used by CallMethod for method name index).
     pub operand2: u32,
+    /// Tertiary operand (used by CallMethod for object name index).
+    pub operand3: u32,
 }
 
 impl Instruction {
     pub fn simple(op: OpCode) -> Self {
-        Instruction { op, operand: 0, operand2: 0 }
+        Instruction { op, operand: 0, operand2: 0, operand3: 0 }
     }
 
     pub fn with_operand(op: OpCode, operand: u32) -> Self {
-        Instruction { op, operand, operand2: 0 }
+        Instruction { op, operand, operand2: 0, operand3: 0 }
     }
 
     pub fn with_two_operands(op: OpCode, operand: u32, operand2: u32) -> Self {
-        Instruction { op, operand, operand2 }
+        Instruction { op, operand, operand2, operand3: 0 }
+    }
+
+    pub fn with_three_operands(op: OpCode, operand: u32, operand2: u32, operand3: u32) -> Self {
+        Instruction { op, operand, operand2, operand3 }
     }
 }
+
+/// A stored function template — raw pointers to AST nodes captured at compile time.
+#[derive(Debug, Clone, Copy)]
+pub struct FunctionTemplate {
+    /// Pointer to the function body AST node.
+    pub body_ptr: *const crate::parser::ast::FunctionBodyData,
+    /// Pointer to the formal parameter list.
+    pub params_ptr: *const Vec<crate::parser::ast::PatternType>,
+}
+
+// Safety: FunctionTemplate is only used within a single thread.
+unsafe impl Send for FunctionTemplate {}
+unsafe impl Sync for FunctionTemplate {}
 
 /// A compiled chunk of bytecode with its constant pool.
 #[derive(Debug, Clone)]
@@ -209,6 +234,8 @@ pub struct Chunk {
     /// Local slots table. Each entry stores an index into `names`.
     /// Slot index is used by GetLocal/SetLocal/InitLocal opcodes.
     pub locals: Vec<u32>,
+    /// Function templates for MakeClosure.
+    pub functions: Vec<FunctionTemplate>,
 }
 
 impl Chunk {
@@ -218,7 +245,15 @@ impl Chunk {
             constants: Vec::new(),
             names: Vec::new(),
             locals: Vec::new(),
+            functions: Vec::new(),
         }
+    }
+
+    /// Add a function template and return its index.
+    pub fn add_function(&mut self, template: FunctionTemplate) -> u32 {
+        let idx = self.functions.len();
+        self.functions.push(template);
+        idx as u32
     }
 
     /// Emit an instruction and return its index.
@@ -318,9 +353,13 @@ impl Chunk {
                 OpCode::Call => {
                     out.push_str(&format!("  argc={}", instr.operand));
                 }
+                OpCode::MakeClosure => {
+                    out.push_str(&format!("  func_idx={}", instr.operand));
+                }
                 OpCode::CallMethod => {
                     let method = self.get_name(instr.operand2);
-                    out.push_str(&format!("  argc={} method=\"{}\"", instr.operand, method));
+                    let obj_name = self.get_name(instr.operand3);
+                    out.push_str(&format!("  argc={} method=\"{}\" obj=\"{}\"", instr.operand, method, obj_name));
                 }
                 _ => {}
             }

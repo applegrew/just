@@ -14,7 +14,7 @@ use crate::parser::ast::{
 use crate::runner::ds::value::{JsNumberType, JsValue};
 use std::collections::{HashMap, HashSet};
 
-use super::bytecode::{Chunk, Instruction, OpCode};
+use super::bytecode::{Chunk, FunctionTemplate, Instruction, OpCode};
 
 /// Tracks loop context for break/continue resolution.
 struct LoopContext {
@@ -214,11 +214,19 @@ impl Compiler {
                 self.compile_var_declaration(var_decl);
             }
             DeclarationType::FunctionOrGeneratorDeclaration(func_data) => {
-                // Declare the function name and bind it.
-                // For now, emit as a var declaration with undefined.
                 if let Some(ref id) = func_data.id {
                     let slot = self.get_or_add_local_slot(&id.name);
-                    self.chunk.emit_op(OpCode::Undefined);
+                    let name_idx = self.chunk.add_name(&id.name);
+                    let func_idx = self.chunk.add_function(FunctionTemplate {
+                        body_ptr: func_data.body.as_ref() as *const _,
+                        params_ptr: &func_data.params.list as *const _,
+                    });
+                    // Declare in the EvalContext so the function is visible
+                    // to its own body (recursion) and to closures.
+                    self.chunk.emit_with(OpCode::DeclareVar, name_idx);
+                    self.chunk.emit_with(OpCode::MakeClosure, func_idx);
+                    self.chunk.emit_op(OpCode::Dup);
+                    self.chunk.emit_with(OpCode::InitVar, name_idx);
                     self.chunk.emit_with(OpCode::InitLocal, slot);
                 }
             }
@@ -590,17 +598,32 @@ impl Compiler {
                 self.chunk.emit_op(OpCode::Undefined);
             }
 
-            ExpressionType::FunctionOrGeneratorExpression(_) => {
-                // Function objects need runtime closure creation
-                self.chunk.emit_op(OpCode::Undefined);
+            ExpressionType::FunctionOrGeneratorExpression(func_data) => {
+                let func_idx = self.chunk.add_function(FunctionTemplate {
+                    body_ptr: func_data.body.as_ref() as *const _,
+                    params_ptr: &func_data.params.list as *const _,
+                });
+                self.chunk.emit_with(OpCode::MakeClosure, func_idx);
             }
 
             ExpressionType::NewExpression { .. } => {
                 self.chunk.emit_op(OpCode::Undefined);
             }
 
-            ExpressionType::ArrowFunctionExpression { .. } => {
-                self.chunk.emit_op(OpCode::Undefined);
+            ExpressionType::ArrowFunctionExpression { params, body, .. } => {
+                match body.as_ref() {
+                    crate::parser::ast::FunctionBodyOrExpression::FunctionBody(func_body) => {
+                        let func_idx = self.chunk.add_function(FunctionTemplate {
+                            body_ptr: func_body as *const _,
+                            params_ptr: params as *const _,
+                        });
+                        self.chunk.emit_with(OpCode::MakeClosure, func_idx);
+                    }
+                    crate::parser::ast::FunctionBodyOrExpression::Expression(_) => {
+                        // Concise arrow bodies need wrapping; fall back for now
+                        self.chunk.emit_op(OpCode::Undefined);
+                    }
+                }
             }
 
             ExpressionType::YieldExpression { .. } => {
@@ -1002,10 +1025,24 @@ impl Compiler {
                     }
 
                     let method_idx = self.chunk.add_name(&property.name);
-                    self.chunk.emit(Instruction::with_two_operands(
+                    // Extract the object variable name for built-in registry lookup
+                    let obj_name_idx = match object {
+                        ExpressionOrSuper::Expression(obj_expr) => {
+                            if let ExpressionType::ExpressionWhichCanBePattern(
+                                ExpressionPatternType::Identifier(id)
+                            ) = obj_expr.as_ref() {
+                                self.chunk.add_name(&id.name)
+                            } else {
+                                self.chunk.add_name("")
+                            }
+                        }
+                        _ => self.chunk.add_name(""),
+                    };
+                    self.chunk.emit(Instruction::with_three_operands(
                         OpCode::CallMethod,
                         argc as u32,
                         method_idx,
+                        obj_name_idx,
                     ));
                 } else {
                     // Regular function call

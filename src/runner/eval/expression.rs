@@ -640,7 +640,7 @@ fn call_value(
 }
 
 /// Call a function object.
-fn call_function_object(
+pub fn call_function_object(
     func: &crate::runner::ds::object::JsObjectType,
     this_value: JsValue,
     args: Vec<JsValue>,
