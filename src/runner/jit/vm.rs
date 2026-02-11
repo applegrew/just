@@ -6,7 +6,6 @@
 
 use crate::runner::ds::error::JErrorType;
 use crate::runner::ds::value::{JsNumberType, JsValue};
-use crate::runner::plugin::registry::BuiltInRegistry;
 use crate::runner::plugin::types::EvalContext;
 use crate::runner::ds::lex_env::JsLexEnvironmentType;
 use crate::runner::ds::object::{JsObject, ObjectType};
@@ -57,12 +56,10 @@ pub struct Vm<'a> {
     get_prop_cache: Vec<Option<PropCacheEntry>>,
     /// Evaluation context (variables, scoping, heap).
     ctx: EvalContext,
-    /// Built-in object registry for method calls.
-    registry: &'a BuiltInRegistry,
 }
 
 impl<'a> Vm<'a> {
-    pub fn new(chunk: &'a Chunk, ctx: EvalContext, registry: &'a BuiltInRegistry) -> Self {
+    pub fn new(chunk: &'a Chunk, ctx: EvalContext) -> Self {
         Vm {
             chunk,
             ip: 0,
@@ -72,7 +69,6 @@ impl<'a> Vm<'a> {
             set_var_cache: vec![None; chunk.code.len()],
             get_prop_cache: vec![None; chunk.code.len()],
             ctx,
-            registry,
         }
     }
 
@@ -269,18 +265,7 @@ impl<'a> Vm<'a> {
                     let name = self.chunk.get_name(operand);
                     match self.get_var_cached(instr_index, name) {
                         Ok(val) => self.stack.push(val),
-                        Err(_) => {
-                            // If the variable is a registered built-in object
-                            // (e.g. Math, console), push Undefined as a placeholder.
-                            // CallMethod will resolve it via the registry name.
-                            if self.registry.has_object(name) {
-                                self.stack.push(JsValue::Undefined);
-                            } else {
-                                return VmResult::Error(JErrorType::ReferenceError(
-                                    format!("{} is not defined", name),
-                                ));
-                            }
-                        }
+                        Err(e) => return VmResult::Error(e),
                     }
                 }
                 OpCode::SetVar => {
@@ -469,39 +454,43 @@ impl<'a> Vm<'a> {
                     args.reverse();
                     let object = self.stack.pop().unwrap_or(JsValue::Undefined);
 
-                    // Try to resolve via built-in registry using the
-                    // compile-time object variable name (e.g. "Math", "console")
+                    // 1. Try super-global dispatch using compile-time object name
+                    //    (e.g. "Math", "console")
                     if !obj_var_name.is_empty() {
-                        if let Some(builtin_fn) = self.registry.get_method(obj_var_name, method_name) {
-                            match builtin_fn.call(&mut self.ctx, object, args) {
-                                Ok(result) => {
-                                    self.stack.push(result);
-                                    continue;
-                                }
+                        let sg = self.ctx.super_global.clone();
+                        let result = sg.borrow().call_method(
+                            obj_var_name, method_name,
+                            &mut self.ctx, object.clone(), args.clone(),
+                        );
+                        if let Some(res) = result {
+                            match res {
+                                Ok(val) => { self.stack.push(val); continue; }
                                 Err(e) => return VmResult::Error(e),
                             }
                         }
                     }
 
-                    // Secondary: try type-based registry lookup (e.g. String, Number)
+                    // 2. Type-based super-global dispatch (e.g. String, Number)
                     let type_name = match &object {
                         JsValue::String(_) => Some("String"),
                         JsValue::Number(_) => Some("Number"),
                         _ => None,
                     };
                     if let Some(type_name) = type_name {
-                        if let Some(builtin_fn) = self.registry.get_method(type_name, method_name) {
-                            match builtin_fn.call(&mut self.ctx, object, args) {
-                                Ok(result) => {
-                                    self.stack.push(result);
-                                    continue;
-                                }
+                        let sg = self.ctx.super_global.clone();
+                        let result = sg.borrow().call_method(
+                            type_name, method_name,
+                            &mut self.ctx, object.clone(), args.clone(),
+                        );
+                        if let Some(res) = result {
+                            match res {
+                                Ok(val) => { self.stack.push(val); continue; }
                                 Err(e) => return VmResult::Error(e),
                             }
                         }
                     }
 
-                    // Fallback: look up the method as a property on the object
+                    // 3. Fallback: look up the method as a property on the object
                     if let JsValue::Object(ref obj) = object {
                         let prop_key = PropertyKey::Str(method_name.to_string());
                         let method_val = {
@@ -516,7 +505,6 @@ impl<'a> Vm<'a> {
                                     _ => None,
                                 })
                         };
-                        // If not found on own properties, check prototype chain
                         let method_val = method_val.or_else(|| {
                             let obj_ref = obj.borrow();
                             let proto = obj_ref.as_js_object().get_prototype_of();

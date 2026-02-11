@@ -7,8 +7,7 @@ use just::runner::ds::value::{JsValue, JsNumberType};
 
 fn jit_run_get_var(code: &str, var_name: &str) -> JsValue {
     let ast = JsParser::parse_to_ast_from_str(code).unwrap();
-    let registry = BuiltInRegistry::with_core();
-    let (_, mut ctx) = jit::compile_and_run_with_ctx(&ast, &registry);
+    let (_, mut ctx) = jit::compile_and_run_with_ctx(&ast);
     ctx.get_binding(var_name).unwrap_or(JsValue::Undefined)
 }
 
@@ -433,5 +432,89 @@ fn test_jit_call_method_math_floor() {
 fn test_jit_call_method_string_index_of() {
     let code = r#"var x = "hello world".indexOf("world");"#;
     assert_eq!(jit_run_get_int(code, "x"), 6);
+}
+
+// ── Super-global dynamic resolution tests ───────────────────
+
+use just::runner::plugin::resolver::PluginResolver;
+use just::runner::plugin::types::EvalContext;
+use just::runner::ds::error::JErrorType;
+
+/// A test plugin resolver that provides a single object "MyLib"
+/// with a method "double" that doubles a number.
+struct TestPluginResolver;
+
+impl PluginResolver for TestPluginResolver {
+    fn has_binding(&self, name: &str) -> bool {
+        name == "MyLib"
+    }
+
+    fn resolve(&self, name: &str, _ctx: &mut EvalContext) -> Result<JsValue, JErrorType> {
+        if name == "MyLib" {
+            Ok(JsValue::Number(JsNumberType::Integer(42)))
+        } else {
+            Err(JErrorType::ReferenceError(format!("{} is not defined", name)))
+        }
+    }
+
+    fn call_method(
+        &self,
+        object_name: &str,
+        method_name: &str,
+        _ctx: &mut EvalContext,
+        _this: JsValue,
+        args: Vec<JsValue>,
+    ) -> Option<Result<JsValue, JErrorType>> {
+        if object_name == "MyLib" && method_name == "double" {
+            let n = match args.first() {
+                Some(JsValue::Number(JsNumberType::Integer(n))) => *n,
+                _ => 0,
+            };
+            Some(Ok(JsValue::Number(JsNumberType::Integer(n * 2))))
+        } else {
+            None
+        }
+    }
+
+    fn name(&self) -> &str {
+        "test_plugin"
+    }
+}
+
+#[test]
+fn test_super_global_custom_resolver_variable() {
+    let ast = JsParser::parse_to_ast_from_str("var x = MyLib;").unwrap();
+    let chunk = jit::compile(&ast);
+    let mut ctx = EvalContext::new();
+    ctx.add_resolver(Box::new(TestPluginResolver));
+    let mut vm = jit::vm::Vm::new(&chunk, ctx);
+    let _ = vm.run();
+    let mut ctx = vm.into_ctx();
+    // MyLib resolves to 42 via the custom resolver
+    assert_eq!(
+        ctx.get_binding("x").unwrap(),
+        JsValue::Number(JsNumberType::Integer(42))
+    );
+}
+
+#[test]
+fn test_super_global_local_shadows_builtin() {
+    // A local variable named "Math" should shadow the super-global Math
+    let code = "var Math = 99; var x = Math;";
+    assert_eq!(jit_run_get_int(code, "x"), 99);
+}
+
+#[test]
+fn test_super_global_core_builtins_via_scope_chain() {
+    // Math.abs should resolve through the super-global scope chain
+    let code = "var x = Math.abs(-42);";
+    assert_eq!(jit_run_get_int(code, "x"), 42);
+}
+
+#[test]
+fn test_super_global_unresolved_name_errors() {
+    let ast = JsParser::parse_to_ast_from_str("var x = NoSuchThing;").unwrap();
+    let (result, _) = jit::compile_and_run_with_ctx(&ast);
+    assert!(result.is_err(), "Accessing undefined super-global should error");
 }
 

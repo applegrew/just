@@ -35,13 +35,13 @@ fn run_benchmark_jit(name: &str, code: &str, iterations: u32) -> Duration {
         .expect(&format!("Failed to parse benchmark: {}", name));
 
     let chunk = jit::compile(&ast);
-    let registry = BuiltInRegistry::with_core();
 
     let start = Instant::now();
 
     for _ in 0..iterations {
-        let ctx = EvalContext::new();
-        let _ = jit::execute(&chunk, ctx, &registry);
+        let mut ctx = EvalContext::new();
+        ctx.install_core_builtins(BuiltInRegistry::with_core());
+        let _ = jit::execute(&chunk, ctx);
     }
 
     start.elapsed()
@@ -60,8 +60,7 @@ fn run_and_get_var(code: &str, var_name: &str) -> JsValue {
 /// Get the result of running code via JIT.
 fn run_and_get_var_jit(code: &str, var_name: &str) -> JsValue {
     let ast = JsParser::parse_to_ast_from_str(code).unwrap();
-    let registry = BuiltInRegistry::with_core();
-    let (_, mut ctx) = jit::compile_and_run_with_ctx(&ast, &registry);
+    let (_, mut ctx) = jit::compile_and_run_with_ctx(&ast);
     ctx.get_binding(var_name).unwrap_or(JsValue::Undefined)
 }
 

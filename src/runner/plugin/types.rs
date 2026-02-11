@@ -10,12 +10,16 @@ use crate::runner::ds::lex_env::JsLexEnvironmentType;
 use crate::runner::ds::object::{JsObject, JsObjectType, ObjectBase, ObjectType};
 use crate::runner::ds::value::JsValue;
 use crate::parser::ast::FunctionData;
+use super::super_global::SuperGlobalEnvironment;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
 /// Shared heap type for use across contexts.
 pub type SharedHeap = Rc<RefCell<Heap>>;
+
+/// Shared super-global type for use across contexts.
+pub type SharedSuperGlobal = Rc<RefCell<SuperGlobalEnvironment>>;
 
 /// Execution context passed to native functions.
 /// Contains the lexical environment chain for variable resolution.
@@ -34,6 +38,8 @@ pub struct EvalContext {
     pub strict: bool,
     /// Lexical environment version for cache invalidation.
     pub lex_env_version: u64,
+    /// Super-global scope for lazy resolution of built-in and plugin objects.
+    pub super_global: SharedSuperGlobal,
 }
 
 impl EvalContext {
@@ -53,6 +59,7 @@ impl EvalContext {
             ctx_stack: ExecutionContextStack::new(),
             strict: false,
             lex_env_version: 0,
+            super_global: Rc::new(RefCell::new(SuperGlobalEnvironment::new())),
         }
     }
 
@@ -71,12 +78,24 @@ impl EvalContext {
             ctx_stack: ExecutionContextStack::new(),
             strict: false,
             lex_env_version: 0,
+            super_global: Rc::new(RefCell::new(SuperGlobalEnvironment::new())),
         }
     }
 
     /// Current lexical environment version.
     pub fn current_lex_env_version(&self) -> u64 {
         self.lex_env_version
+    }
+
+    /// Install a plugin resolver into the super-global scope.
+    pub fn add_resolver(&mut self, resolver: Box<dyn super::resolver::PluginResolver>) {
+        self.super_global.borrow_mut().add_resolver(resolver);
+    }
+
+    /// Convenience: install the core built-in objects (Math, console, etc.)
+    /// into the super-global scope via a `CorePluginResolver`.
+    pub fn install_core_builtins(&mut self, registry: super::registry::BuiltInRegistry) {
+        self.add_resolver(Box::new(super::core_resolver::CorePluginResolver::new(registry)));
     }
 
     /// Track a heap allocation.
@@ -112,6 +131,7 @@ impl EvalContext {
     ) -> Result<(JsValue, JsLexEnvironmentType), JErrorType> {
         let name_string = name.to_string();
         let mut current_env = Some(self.lex_env.clone());
+        let mut last_env: Option<JsLexEnvironmentType> = None;
 
         while let Some(env) = current_env {
             let env_borrowed = env.borrow();
@@ -124,10 +144,17 @@ impl EvalContext {
                     .get_binding_value(&mut self.ctx_stack, &name_string)?;
                 return Ok((value, env));
             }
+            last_env = Some(env.clone());
             current_env = env_borrowed.outer.clone();
         }
 
-        Err(JErrorType::ReferenceError(format!("{} is not defined", name)))
+        // Fall back to super-global scope.
+        // Return the global env as the "owning" env for cache purposes.
+        let sg = self.super_global.clone();
+        let result = sg.borrow_mut().resolve_binding(&name_string, self);
+        let value = result?;
+        let env = last_env.unwrap_or_else(|| self.lex_env.clone());
+        Ok((value, env))
     }
 
     /// Get a binding from a specific environment (used by inline caches).
@@ -143,7 +170,8 @@ impl EvalContext {
             .get_binding_value(&mut self.ctx_stack, &name_string)
     }
 
-    /// Resolve a binding by walking up the environment chain.
+    /// Resolve a binding by walking up the environment chain,
+    /// falling back to the super-global scope if not found.
     fn resolve_binding(&mut self, name: &String) -> Result<JsValue, JErrorType> {
         let mut current_env = Some(self.lex_env.clone());
 
@@ -160,7 +188,10 @@ impl EvalContext {
             current_env = env_borrowed.outer.clone();
         }
 
-        Err(JErrorType::ReferenceError(format!("{} is not defined", name)))
+        // Fall back to super-global scope
+        let sg = self.super_global.clone();
+        let result = sg.borrow_mut().resolve_binding(name, self);
+        result
     }
 
     /// Set a binding in the environment chain.
@@ -391,7 +422,8 @@ impl EvalContext {
         self.lex_env_version = self.lex_env_version.wrapping_add(1);
     }
 
-    /// Check if a binding exists in the current environment chain.
+    /// Check if a binding exists in the current environment chain
+    /// or in the super-global scope.
     pub fn has_binding(&self, name: &str) -> bool {
         let name_string = name.to_string();
         let mut current_env = Some(self.lex_env.clone());
@@ -404,7 +436,8 @@ impl EvalContext {
             current_env = env_borrowed.outer.clone();
         }
 
-        false
+        // Check super-global scope
+        self.super_global.borrow().has_name(name)
     }
 }
 

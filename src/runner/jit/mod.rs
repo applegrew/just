@@ -95,8 +95,8 @@ pub fn compile_reg(program: &ProgramData) -> RegChunk {
 }
 
 /// Execute a compiled bytecode chunk.
-pub fn execute(chunk: &Chunk, ctx: EvalContext, registry: &BuiltInRegistry) -> Result<JsValue, JErrorType> {
-    let mut vm = Vm::new(chunk, ctx, registry);
+pub fn execute(chunk: &Chunk, ctx: EvalContext) -> Result<JsValue, JErrorType> {
+    let mut vm = Vm::new(chunk, ctx);
     match vm.run() {
         VmResult::Ok(val) => Ok(val),
         VmResult::Error(e) => Err(e),
@@ -120,10 +120,9 @@ pub fn execute_reg(
 pub fn compile_and_run(
     program: &ProgramData,
     ctx: EvalContext,
-    registry: &BuiltInRegistry,
 ) -> Result<JsValue, JErrorType> {
     let chunk = compile(program);
-    execute(&chunk, ctx, registry)
+    execute(&chunk, ctx)
 }
 
 /// Compile and execute a program with the register VM.
@@ -139,11 +138,11 @@ pub fn compile_and_run_reg(
 /// Compile and execute, returning the EvalContext for variable inspection.
 pub fn compile_and_run_with_ctx(
     program: &ProgramData,
-    registry: &BuiltInRegistry,
 ) -> (Result<JsValue, JErrorType>, EvalContext) {
     let chunk = compile(program);
-    let ctx = EvalContext::new();
-    let mut vm = Vm::new(&chunk, ctx, registry);
+    let mut ctx = EvalContext::new();
+    ctx.install_core_builtins(BuiltInRegistry::with_core());
+    let mut vm = Vm::new(&chunk, ctx);
     let result = match vm.run() {
         VmResult::Ok(val) => Ok(val),
         VmResult::Error(e) => Err(e),
@@ -184,7 +183,8 @@ pub fn compile_and_run_reg_with_ctx(
     registry: &BuiltInRegistry,
 ) -> (Result<JsValue, JErrorType>, EvalContext) {
     let chunk = compile_reg(program);
-    let ctx = EvalContext::new();
+    let mut ctx = EvalContext::new();
+    ctx.install_core_builtins(BuiltInRegistry::with_core());
     let mut vm = RegVm::new(&chunk, ctx, registry);
     let result = match vm.run() {
         RegVmResult::Ok(val) => Ok(val),

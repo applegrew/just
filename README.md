@@ -12,7 +12,7 @@ This is an academic/experimental project rather than a production-ready engine.
 
 - **Parser** — An ES6 grammar coded in [Pest](https://pest.rs/) PEG, following the [ECMAScript 2015 specification](https://262.ecma-international.org/6.0/). The AST conforms to the [ESTree](https://github.com/estree/estree) specification (visualize similar trees at [astexplorer.net](https://astexplorer.net/)).
 - **Three execution backends** — A tree-walking interpreter, a bytecode compiler + VM (in both stack and register flavours), and a Cranelift native-code JIT for numeric-heavy paths.
-- **Plugin architecture** — Built-in objects (`Math`, `JSON`, `String`, …) are registered through a pluggable registry that supports native and JS extensions.
+- **Plugin architecture** — Built-in and plugin-provided objects (`Math`, `JSON`, `String`, …) are exposed via a **super-global scope** that resolves objects lazily at runtime through pluggable resolvers.
 
 ## Building & Testing
 
@@ -20,7 +20,7 @@ This is an academic/experimental project rather than a production-ready engine.
 # Build
 cargo build
 
-# Run all tests (415 tests across 7 suites)
+# Run all tests (430 tests across 7 suites)
 cargo test
 
 # Run specific test suites
@@ -77,8 +77,11 @@ src/
     │   ├── symbol.rs               # Symbol primitives
     │   └── operations/             # Abstract operations (type conversion, comparison)
     ├── plugin/                     # Plugin architecture
-    │   ├── types.rs                # EvalContext, BuiltInFn, BuiltInObject, NativeFn
-    │   ├── registry.rs             # BuiltInRegistry: object/method lookup + plugin loading
+    │   ├── types.rs                # EvalContext, super-global integration, BuiltInFn, BuiltInObject
+    │   ├── resolver.rs             # PluginResolver trait (lazy dynamic object resolution)
+    │   ├── super_global.rs         # SuperGlobalEnvironment (resolver chain + caching)
+    │   ├── core_resolver.rs        # CorePluginResolver (BuiltInRegistry adapter)
+    │   ├── registry.rs             # BuiltInRegistry: built-in object/method definitions + plugin loading
     │   └── config.rs               # Plugin configuration file parsing
     └── std_lib/                    # Built-in object implementations
         ├── core.rs                 # Registers all built-ins into the registry
@@ -143,8 +146,9 @@ The engine provides three execution paths, selectable at the API level:
 
 **2. Stack-Based Bytecode VM** (`runner::jit::compiler` → `runner::jit::vm`)
 - Single-pass AST compiler emits flat stack-based bytecode (`OpCode` instructions with a `Chunk`).
-- The VM uses an operand stack, inline caches for variable/property lookups, and a `BuiltInRegistry` for native method dispatch.
-- Supports the same feature set as the interpreter (objects, functions, closures, etc.).
+- The VM uses an operand stack and inline caches for variable/property lookups.
+- Built-in/plugin objects are resolved through the `EvalContext` **super-global scope** (lazy resolution via plugin resolvers) rather than being preloaded into the JS global scope.
+- Supports user-defined function declarations/expressions, calls, and closures, and method calls (`CallMethod`) including built-ins like `Math.abs`.
 
 **3. Register-Based Bytecode VM + Cranelift JIT** (`runner::jit::reg_compiler` → `runner::jit::reg_vm` / `runner::jit::reg_jit`)
 - Single-pass AST compiler emits 3-address register bytecode (`RegOpCode` instructions with `dst`, `src1`, `src2`, `imm` fields).
@@ -158,8 +162,27 @@ The engine provides three execution paths, selectable at the API level:
 - **Environment Records** — ES6-compliant declarative, function, and global environment records with lexical environment chains (`Rc<RefCell<LexEnvironment>>`).
 - **Completion Records** — Statement evaluation returns `Completion { type, value, target }` to propagate `return`, `break`, `continue`, `throw`, and `yield` through the call stack.
 - **Inline Caches** — Both VMs cache variable lookups (`EnvCacheEntry` keyed by environment version) and property accesses to avoid repeated scope-chain walks.
-- **Plugin Registry** — Built-in objects are registered as `BuiltInObject` entries containing `HashMap<String, BuiltInFn>` method maps. The registry supports plugin loading from native libraries or JS files, with method override chains.
+- **Super-Global Scope (lazy built-ins/plugins)** — Name lookup walks lexical scopes → global → **super-global**. The super-global is read-only to JS code and resolves names dynamically by querying a chain of `PluginResolver`s in registration order. Resolved values are cached, so plugins are invoked only on first use.
+- **Plugin Registry** — `BuiltInRegistry` still defines built-in objects as `BuiltInObject` entries containing `HashMap<String, BuiltInFn>` method maps, but it is consumed via a resolver adapter (`CorePluginResolver`) rather than being directly consulted by the stack VM.
 - **Heap Tracking** — An optional `Heap` with configurable memory limits tracks allocations for resource-constrained environments.
+
+### Super-Global Scope (Lazy Built-ins & Plugins)
+
+The runtime models a special scope *below* the JS global environment called the **super-global**:
+
+- **Lookup order**
+  - **lexical scopes** (block/function)
+  - **global scope**
+  - **super-global scope** (dynamic; queried on demand)
+- **Read-only to JS**
+  - JS code cannot create bindings in super-global.
+  - It can still shadow super-global names by declaring local/global variables with the same name.
+- **Lazy resolution**
+  - When a name reaches super-global, the runtime asks each registered `PluginResolver`:
+    - `has_binding(name)` (cheap probe)
+    - `resolve(name, ctx)` (materialize value; cached after first resolution)
+
+The intended implication is that hundreds of potential APIs do **not** need to be preloaded at startup; plugins are only consulted when code actually references their objects.
 
 ## Performance
 
@@ -197,7 +220,7 @@ The parser supports most ES6 syntax:
 
 **Interpreter (tree-walking)** — All literal types, unary/binary/bitwise/logical/comparison operators, `typeof`, conditional and sequence expressions, update expressions, assignment (including destructuring with defaults/rest), type coercion, `var`/`let`/`const` with proper scoping, object/array creation, property access (dot, bracket, computed), getters/setters, `new` expressions, classes + inheritance, `delete`, `in`/`instanceof`, spread in calls/arrays, function declarations and calls, closures, `if`/`else`, `while`, `do-while`, `for`, `for-in`, `for-of`, `switch`/`case` with fall-through, `break`/`continue`, `try`/`catch`/`finally`, `throw`, generators and `yield`.
 
-**Bytecode VMs (stack + register)** — Core arithmetic, control flow, variables, property access, and built-in method dispatch are present, but several ES6 features are not yet compiled/executed in bytecode. Missing: `new` expressions, classes/inheritance, `delete`, `in`/`instanceof`, getters/setters, spread in calls/arrays, destructuring assignment, and full function/constructor call dispatch.
+**Bytecode VMs (stack + register)** — Core arithmetic, control flow, variables, and property access are present. The **stack VM** supports user-defined function objects + calls + closures and method calls (including built-in/plugin dispatch via the super-global). Several ES6 features are still not yet compiled/executed in bytecode, including: `new` expressions, classes/inheritance, `delete`, `in`/`instanceof`, getters/setters, spread in calls/arrays, and destructuring assignment.
 
 **Not Yet Implemented (global)** — `eval()`.
 
@@ -219,12 +242,12 @@ The parser supports most ES6 syntax:
 | Suite | Tests | Description |
 |---|---:|---|
 | Parser unit tests | 70 | Grammar and AST construction |
-| Integration tests | 117 | End-to-end interpreter scenarios |
-| JIT tests | 38 | Stack-based VM + bytecode compiler |
+| Integration tests | 118 | End-to-end interpreter scenarios |
+| JIT tests | 52 | Stack-based VM + bytecode compiler |
 | Register JIT tests | 41 | Register VM + Cranelift JIT |
 | Standard library | 76 | Built-in object methods |
 | Eval tests | 73 | Expression and statement evaluation |
-| **Total** | **415** | |
+| **Total** | **430** | |
 
 ## Dependencies
 
