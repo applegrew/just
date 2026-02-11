@@ -6,6 +6,8 @@ A ground-up implementation of an ES6 JavaScript engine written in Rust, featurin
 
 This is an academic/experimental project rather than a production-ready engine.
 
+[![Video Overview](https://img.youtube.com/vi/tbqD0wiAeDA/maxresdefault.jpg)](https://youtu.be/tbqD0wiAeDA)
+
 ## Overview
 
 - **Parser** — An ES6 grammar coded in [Pest](https://pest.rs/) PEG, following the [ECMAScript 2015 specification](https://262.ecma-international.org/6.0/). The AST conforms to the [ESTree](https://github.com/estree/estree) specification (visualize similar trees at [astexplorer.net](https://astexplorer.net/)).
