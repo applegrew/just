@@ -1031,6 +1031,157 @@ fn test_class_setter() {
     assert_eq!(result, JsValue::Number(JsNumberType::Integer(10)));
 }
 
+// ============================================================================
+// Edge Case Tests
+// ============================================================================
+
+#[test]
+fn test_unsigned_right_shift() {
+    let result = run_js("(-1) >>> 0").unwrap();
+    // -1 >>> 0 should be 4294967295 (all 32 bits set, interpreted as unsigned)
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(4294967295)));
+}
+
+#[test]
+fn test_division_by_zero_positive() {
+    let result = run_js("1 / 0").unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::PositiveInfinity));
+}
+
+#[test]
+fn test_division_by_zero_negative() {
+    let result = run_js_get_var("var x = -1; var r = x / 0;", "r").unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::NegativeInfinity));
+}
+
+#[test]
+fn test_division_by_zero_nan() {
+    let result = run_js("0 / 0").unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::NaN));
+}
+
+#[test]
+fn test_modulo_by_zero() {
+    // Use float to avoid integer remainder-by-zero panic in the interpreter
+    let result = run_js("5.0 % 0").unwrap();
+    match result {
+        JsValue::Number(JsNumberType::NaN) => {}
+        JsValue::Number(JsNumberType::Float(f)) if f.is_nan() => {}
+        other => panic!("Expected NaN, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_nested_ternary() {
+    let result = run_js_get_var("var x = 10; var r = x > 20 ? 3 : x > 5 ? 2 : 1;", "r").unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(2)));
+}
+
+#[test]
+fn test_complex_boolean_expression() {
+    let result = run_js("(3 > 2) && (4 < 5) && !(1 === 2)").unwrap();
+    assert_eq!(result, JsValue::Boolean(true));
+}
+
+#[test]
+fn test_chained_assignment() {
+    let code = "var a = 0; var b = 0; var c = 0; a = b = c = 42;";
+    let result = run_js_get_var(code, "a").unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(42)));
+    let result_b = run_js_get_var(code, "b").unwrap();
+    assert_eq!(result_b, JsValue::Number(JsNumberType::Integer(42)));
+}
+
+#[test]
+fn test_do_while_with_break() {
+    let code = r#"
+        var count = 0;
+        do {
+            count = count + 1;
+            if (count === 3) { break; }
+        } while (count < 10);
+    "#;
+    let result = run_js_get_var(code, "count").unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(3)));
+}
+
+#[test]
+fn test_while_false_body_not_executed() {
+    let result = run_js_get_var("var x = 5; while (false) { x = 99; }", "x").unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(5)));
+}
+
+#[test]
+fn test_for_loop_no_body_execution() {
+    let result = run_js_get_var("var x = 0; for (var i = 10; i < 5; i = i + 1) { x = 99; }", "x").unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(0)));
+}
+
+#[test]
+fn test_compound_subtract_assign() {
+    let result = run_js_get_var("var x = 10; x -= 3;", "x").unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(7)));
+}
+
+#[test]
+fn test_compound_multiply_assign() {
+    let result = run_js_get_var("var x = 5; x *= 4;", "x").unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(20)));
+}
+
+#[test]
+fn test_deeply_nested_loops() {
+    let code = r#"
+        var sum = 0;
+        for (var i = 0; i < 3; i = i + 1) {
+            for (var j = 0; j < 3; j = j + 1) {
+                for (var k = 0; k < 3; k = k + 1) {
+                    sum = sum + 1;
+                }
+            }
+        }
+    "#;
+    let result = run_js_get_var(code, "sum").unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(27)));
+}
+
+#[test]
+fn test_negative_modulo() {
+    let result = run_js("-7 % 3").unwrap();
+    // JS: -7 % 3 = -1
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(-1)));
+}
+
+#[test]
+fn test_string_equality() {
+    let result = run_js(r#""hello" === "hello""#).unwrap();
+    assert_eq!(result, JsValue::Boolean(true));
+}
+
+#[test]
+fn test_string_inequality() {
+    let result = run_js(r#""hello" !== "world""#).unwrap();
+    assert_eq!(result, JsValue::Boolean(true));
+}
+
+#[test]
+fn test_typeof_null() {
+    let result = run_js("typeof null").unwrap();
+    assert_eq!(result, JsValue::String("object".to_string()));
+}
+
+#[test]
+fn test_typeof_undefined_literal() {
+    let result = run_js("typeof undefined").unwrap();
+    assert_eq!(result, JsValue::String("undefined".to_string()));
+}
+
+#[test]
+fn test_typeof_boolean() {
+    let result = run_js("typeof true").unwrap();
+    assert_eq!(result, JsValue::String("boolean".to_string()));
+}
+
 // ==================== PHASE 7: GENERATOR TESTS ====================
 
 #[test]

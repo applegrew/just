@@ -22,6 +22,9 @@ struct LoopContext {
     continue_target: usize,
     /// Indices of break jumps that need patching when the loop ends.
     break_jumps: Vec<usize>,
+    /// Indices of continue jumps that need patching (for for-loops where
+    /// the update position isn't known when continue is compiled).
+    continue_jumps: Vec<usize>,
 }
 
 /// The bytecode compiler.
@@ -293,6 +296,7 @@ impl Compiler {
         self.loop_stack.push(LoopContext {
             continue_target: loop_start,
             break_jumps: Vec::new(),
+            continue_jumps: Vec::new(),
         });
 
         self.compile_expression(test);
@@ -315,6 +319,7 @@ impl Compiler {
         self.loop_stack.push(LoopContext {
             continue_target: loop_start,
             break_jumps: Vec::new(),
+            continue_jumps: Vec::new(),
         });
 
         self.compile_statement(body);
@@ -329,6 +334,9 @@ impl Compiler {
         self.chunk.emit_with(OpCode::JumpIfTrue, loop_start as u32);
 
         let ctx = self.loop_stack.pop().unwrap();
+        for cj in &ctx.continue_jumps {
+            self.chunk.code[*cj].operand = continue_target as u32;
+        }
         for bj in ctx.break_jumps {
             self.chunk.patch_jump(bj);
         }
@@ -364,6 +372,7 @@ impl Compiler {
         self.loop_stack.push(LoopContext {
             continue_target: loop_start, // will be updated
             break_jumps: Vec::new(),
+            continue_jumps: Vec::new(),
         });
 
         // Test
@@ -395,6 +404,10 @@ impl Compiler {
         }
 
         let ctx = self.loop_stack.pop().unwrap();
+        // Patch continue jumps to the update position
+        for cj in &ctx.continue_jumps {
+            self.chunk.code[*cj].operand = update_pos as u32;
+        }
         for bj in ctx.break_jumps {
             self.chunk.patch_jump(bj);
         }
@@ -447,6 +460,7 @@ impl Compiler {
         self.loop_stack.push(LoopContext {
             continue_target: 0, // not used for switch
             break_jumps: Vec::new(),
+            continue_jumps: Vec::new(),
         });
 
         // Phase 2: emit all the bodies
@@ -487,7 +501,12 @@ impl Compiler {
     fn compile_continue(&mut self) {
         if let Some(ctx) = self.loop_stack.last() {
             let target = ctx.continue_target;
-            self.chunk.emit_with(OpCode::Jump, target as u32);
+            let jump = self.chunk.emit_with(OpCode::Jump, target as u32);
+            // Record the jump so it can be patched later (for for-loops where
+            // the update position isn't known yet when continue is compiled).
+            if let Some(ctx) = self.loop_stack.last_mut() {
+                ctx.continue_jumps.push(jump);
+            }
         }
     }
 

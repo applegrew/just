@@ -105,3 +105,242 @@ for (var i = 0; i < 10; i = i + 1) {
 "#;
     assert_eq!(jit_run_get_int(code, "count"), 5);
 }
+
+// ============================================================================
+// Bitwise operations
+// ============================================================================
+
+#[test]
+fn test_jit_bitwise_and() {
+    assert_eq!(jit_run_get_int("var x = 5 & 3;", "x"), 1);
+}
+
+#[test]
+fn test_jit_bitwise_or() {
+    assert_eq!(jit_run_get_int("var x = 5 | 3;", "x"), 7);
+}
+
+#[test]
+fn test_jit_bitwise_xor() {
+    assert_eq!(jit_run_get_int("var x = 5 ^ 3;", "x"), 6);
+}
+
+#[test]
+fn test_jit_bitwise_not() {
+    assert_eq!(jit_run_get_int("var x = ~5;", "x"), -6);
+}
+
+#[test]
+fn test_jit_shift_left() {
+    assert_eq!(jit_run_get_int("var x = 1 << 4;", "x"), 16);
+}
+
+#[test]
+fn test_jit_shift_right() {
+    assert_eq!(jit_run_get_int("var x = 16 >> 2;", "x"), 4);
+}
+
+#[test]
+fn test_jit_unsigned_shift_right() {
+    assert_eq!(jit_run_get_int("var x = 16 >>> 2;", "x"), 4);
+}
+
+// ============================================================================
+// Modulo and unary
+// ============================================================================
+
+#[test]
+fn test_jit_modulo() {
+    assert_eq!(jit_run_get_int("var x = 17 % 5;", "x"), 2);
+}
+
+#[test]
+fn test_jit_negate() {
+    assert_eq!(jit_run_get_int("var x = -42;", "x"), -42);
+}
+
+#[test]
+fn test_jit_unary_plus() {
+    assert_eq!(jit_run_get_int("var x = +7;", "x"), 7);
+}
+
+#[test]
+fn test_jit_not_truthy() {
+    assert_eq!(jit_run_get_int("var x = 0; if (!false) { x = 1; }", "x"), 1);
+}
+
+#[test]
+fn test_jit_not_falsy() {
+    assert_eq!(jit_run_get_int("var x = 0; if (!true) { x = 1; }", "x"), 0);
+}
+
+// ============================================================================
+// Let / const declarations
+// ============================================================================
+
+#[test]
+fn test_jit_let_declaration() {
+    assert_eq!(jit_run_get_int("let x = 99;", "x"), 99);
+}
+
+#[test]
+fn test_jit_const_declaration() {
+    assert_eq!(jit_run_get_int("const x = 77;", "x"), 77);
+}
+
+#[test]
+fn test_jit_let_reassignment() {
+    assert_eq!(jit_run_get_int("let x = 1; x = 50;", "x"), 50);
+}
+
+// ============================================================================
+// Complex control flow
+// ============================================================================
+
+#[test]
+fn test_jit_nested_if() {
+    let code = r#"
+var x = 10;
+var result = 0;
+if (x > 5) {
+    if (x > 8) {
+        result = 1;
+    } else {
+        result = 2;
+    }
+} else {
+    result = 3;
+}
+"#;
+    assert_eq!(jit_run_get_int(code, "result"), 1);
+}
+
+#[test]
+fn test_jit_continue() {
+    let code = r#"
+var sum = 0;
+for (var i = 0; i < 10; i = i + 1) {
+    if (i % 2 === 0) { continue; }
+    sum = sum + i;
+}
+"#;
+    assert_eq!(jit_run_get_int(code, "sum"), 25); // 1+3+5+7+9
+}
+
+#[test]
+fn test_jit_factorial() {
+    let code = r#"
+var n = 6;
+var result = 1;
+for (var i = 2; i <= n; i = i + 1) {
+    result = result * i;
+}
+"#;
+    assert_eq!(jit_run_get_int(code, "result"), 720);
+}
+
+#[test]
+fn test_jit_gcd() {
+    let code = r#"
+var a = 48;
+var b = 18;
+while (b !== 0) {
+    var temp = b;
+    b = a % b;
+    a = temp;
+}
+"#;
+    assert_eq!(jit_run_get_int(code, "a"), 6);
+}
+
+#[test]
+fn test_jit_sum_of_squares() {
+    let code = r#"
+var sum = 0;
+for (var i = 1; i <= 10; i = i + 1) {
+    sum = sum + i * i;
+}
+"#;
+    assert_eq!(jit_run_get_int(code, "sum"), 385);
+}
+
+#[test]
+fn test_jit_bitwise_loop() {
+    let code = r#"
+var val = 255;
+for (var i = 0; i < 8; i = i + 1) {
+    val = val & (val - 1);
+}
+"#;
+    assert_eq!(jit_run_get_int(code, "val"), 0);
+}
+
+// ============================================================================
+// Register VM path
+// ============================================================================
+
+fn reg_vm_get_int(code: &str, var_name: &str) -> i64 {
+    let ast = JsParser::parse_to_ast_from_str(code).unwrap();
+    let registry = BuiltInRegistry::with_core();
+    let (_, mut ctx) = jit::compile_and_run_reg_with_ctx(&ast, &registry);
+    match ctx.get_binding(var_name).unwrap_or(JsValue::Undefined) {
+        JsValue::Number(JsNumberType::Integer(n)) => n,
+        JsValue::Number(JsNumberType::Float(f)) => f as i64,
+        other => panic!("{} was {:?}, expected integer", var_name, other),
+    }
+}
+
+#[test]
+fn test_reg_vm_simple_add() {
+    assert_eq!(reg_vm_get_int("var x = 3 + 4;", "x"), 7);
+}
+
+#[test]
+fn test_reg_vm_for_loop() {
+    let code = "var sum = 0; for (var i = 0; i < 5; i = i + 1) { sum = sum + i; }";
+    assert_eq!(reg_vm_get_int(code, "sum"), 10);
+}
+
+#[test]
+fn test_reg_vm_bitwise_and() {
+    assert_eq!(reg_vm_get_int("var x = 5 & 3;", "x"), 1);
+}
+
+#[test]
+fn test_reg_vm_modulo() {
+    assert_eq!(reg_vm_get_int("var x = 17 % 5;", "x"), 2);
+}
+
+#[test]
+fn test_reg_vm_fibonacci() {
+    let code = r#"
+var a = 0;
+var b = 1;
+for (var i = 0; i < 10; i = i + 1) {
+    var temp = a;
+    a = b;
+    b = temp + b;
+}
+"#;
+    assert_eq!(reg_vm_get_int(code, "a"), 55);
+}
+
+#[test]
+fn test_reg_vm_nested_loops() {
+    let code = r#"
+var count = 0;
+for (var i = 0; i < 3; i = i + 1) {
+    for (var j = 0; j < 4; j = j + 1) {
+        count = count + 1;
+    }
+}
+"#;
+    assert_eq!(reg_vm_get_int(code, "count"), 12);
+}
+
+#[test]
+fn test_reg_vm_if_else() {
+    assert_eq!(reg_vm_get_int("var x = 0; if (true) { x = 1; } else { x = 2; }", "x"), 1);
+    assert_eq!(reg_vm_get_int("var x = 0; if (false) { x = 1; } else { x = 2; }", "x"), 2);
+}
+

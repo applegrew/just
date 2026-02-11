@@ -18,6 +18,7 @@ use super::reg_bytecode::{RegChunk, RegInstruction, RegOpCode};
 struct LoopContext {
     continue_target: usize,
     break_jumps: Vec<usize>,
+    continue_jumps: Vec<usize>,
 }
 
 pub struct RegCompiler {
@@ -257,7 +258,7 @@ impl RegCompiler {
 
     fn compile_while(&mut self, test: &ExpressionType, body: &StatementType) {
         let loop_start = self.chunk.code.len();
-        self.loop_stack.push(LoopContext { continue_target: loop_start, break_jumps: Vec::new() });
+        self.loop_stack.push(LoopContext { continue_target: loop_start, break_jumps: Vec::new(), continue_jumps: Vec::new() });
 
         let test_reg = self.compile_expression(test);
         let exit_jump = self.emit_jump(RegOpCode::JumpIfFalse, test_reg, 0);
@@ -275,7 +276,7 @@ impl RegCompiler {
 
     fn compile_do_while(&mut self, body: &StatementType, test: &ExpressionType) {
         let loop_start = self.chunk.code.len();
-        self.loop_stack.push(LoopContext { continue_target: loop_start, break_jumps: Vec::new() });
+        self.loop_stack.push(LoopContext { continue_target: loop_start, break_jumps: Vec::new(), continue_jumps: Vec::new() });
 
         self.compile_statement(body);
 
@@ -288,6 +289,9 @@ impl RegCompiler {
         self.release_reg(test_reg);
 
         let ctx = self.loop_stack.pop().unwrap();
+        for cj in &ctx.continue_jumps {
+            self.chunk.code[*cj].imm = continue_target as u32;
+        }
         for bj in ctx.break_jumps {
             self.patch_jump(bj);
         }
@@ -315,7 +319,7 @@ impl RegCompiler {
         }
 
         let loop_start = self.chunk.code.len();
-        self.loop_stack.push(LoopContext { continue_target: loop_start, break_jumps: Vec::new() });
+        self.loop_stack.push(LoopContext { continue_target: loop_start, break_jumps: Vec::new(), continue_jumps: Vec::new() });
 
         let exit_jump = if let Some(test) = test {
             let test_reg = self.compile_expression(test);
@@ -345,6 +349,10 @@ impl RegCompiler {
         }
 
         let ctx = self.loop_stack.pop().unwrap();
+        // Patch continue jumps to the update position
+        for cj in &ctx.continue_jumps {
+            self.chunk.code[*cj].imm = update_pos as u32;
+        }
         for bj in ctx.break_jumps {
             self.patch_jump(bj);
         }
@@ -378,7 +386,7 @@ impl RegCompiler {
 
         let jump_to_default_or_end = self.emit_jump(RegOpCode::Jump, 0, 0);
 
-        self.loop_stack.push(LoopContext { continue_target: 0, break_jumps: Vec::new() });
+        self.loop_stack.push(LoopContext { continue_target: 0, break_jumps: Vec::new(), continue_jumps: Vec::new() });
 
         for (i, case) in cases.iter().enumerate() {
             let body_pos = self.chunk.code.len();
@@ -419,7 +427,12 @@ impl RegCompiler {
     fn compile_continue(&mut self) {
         if let Some(ctx) = self.loop_stack.last() {
             let target = ctx.continue_target;
-            self.chunk.emit(RegInstruction::with_dst_imm(RegOpCode::Jump, 0, target as u32));
+            let jump = self.chunk.emit(RegInstruction::with_dst_imm(RegOpCode::Jump, 0, target as u32));
+            // Record the jump so it can be patched later (for for-loops where
+            // the update position isn't known yet when continue is compiled).
+            if let Some(ctx) = self.loop_stack.last_mut() {
+                ctx.continue_jumps.push(jump);
+            }
         }
     }
 
@@ -459,6 +472,33 @@ impl RegCompiler {
             ExpressionType::MemberExpression(member) => self.compile_member_expression(member),
             ExpressionType::CallExpression { callee, arguments, .. } => self.compile_call_expression(callee, arguments),
             ExpressionType::UpdateExpression { operator, argument, prefix, .. } => self.compile_update(operator, argument, *prefix),
+            ExpressionType::SequenceExpression { expressions, .. } => {
+                let mut last_reg = self.alloc_reg();
+                self.chunk.emit(RegInstruction::with_dst(RegOpCode::LoadUndefined, last_reg));
+                for (i, expr) in expressions.iter().enumerate() {
+                    if i > 0 {
+                        self.release_reg(last_reg);
+                    }
+                    last_reg = self.compile_expression(expr);
+                }
+                last_reg
+            }
+            ExpressionType::ConditionalExpression { test, consequent, alternate, .. } => {
+                let test_reg = self.compile_expression(test);
+                let result_reg = self.alloc_reg();
+                let jump_to_alt = self.emit_jump(RegOpCode::JumpIfFalse, test_reg, 0);
+                self.release_reg(test_reg);
+                let cons_reg = self.compile_expression(consequent);
+                self.chunk.emit(RegInstruction::with_dst_src(RegOpCode::Move, result_reg, cons_reg));
+                self.release_reg(cons_reg);
+                let jump_to_end = self.emit_jump(RegOpCode::Jump, 0, 0);
+                self.patch_jump(jump_to_alt);
+                let alt_reg = self.compile_expression(alternate);
+                self.chunk.emit(RegInstruction::with_dst_src(RegOpCode::Move, result_reg, alt_reg));
+                self.release_reg(alt_reg);
+                self.patch_jump(jump_to_end);
+                result_reg
+            }
             _ => {
                 let reg = self.alloc_reg();
                 self.chunk.emit(RegInstruction::with_dst(RegOpCode::LoadUndefined, reg));

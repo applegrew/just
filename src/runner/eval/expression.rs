@@ -1663,13 +1663,20 @@ fn divide_values(left: &JsValue, right: &JsValue) -> ValueResult {
     let left_num = to_number(left)?;
     let right_num = to_number(right)?;
 
-    if let JsValue::Number(JsNumberType::Integer(0)) = right_num {
-        return Ok(JsValue::Number(JsNumberType::PositiveInfinity));
-    }
-    if let JsValue::Number(JsNumberType::Float(f)) = right_num {
-        if f == 0.0 {
-            return Ok(JsValue::Number(JsNumberType::PositiveInfinity));
-        }
+    if matches!(right_num, JsValue::Number(JsNumberType::Integer(0)))
+        || matches!(right_num, JsValue::Number(JsNumberType::Float(f)) if f == 0.0)
+    {
+        let left_f = match &left_num {
+            JsValue::Number(n) => number_to_f64(n),
+            _ => f64::NAN,
+        };
+        return Ok(if left_f.is_nan() || left_f == 0.0 {
+            JsValue::Number(JsNumberType::NaN)
+        } else if left_f > 0.0 {
+            JsValue::Number(JsNumberType::PositiveInfinity)
+        } else {
+            JsValue::Number(JsNumberType::NegativeInfinity)
+        });
     }
 
     apply_numeric_op(&left_num, &right_num, |a, b| a / b, |a, b| a / b)
