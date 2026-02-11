@@ -20,7 +20,7 @@ This is an academic/experimental project rather than a production-ready engine.
 # Build
 cargo build
 
-# Run all tests (430 tests across 7 suites)
+# Run all tests (444 tests across 8 suites)
 cargo test
 
 # Run specific test suites
@@ -68,7 +68,14 @@ cargo build --release --bin just
 - `.exit` or `.quit` — Exit the REPL
 - `Ctrl+D` — Exit the REPL (EOF)
 
-**Note:** The CLI currently uses the tree-walking interpreter. Built-in method calls (e.g., `Math.abs`, `console.log`) work in the bytecode VMs but require additional integration work for the interpreter.
+**Built-in Support:**
+The CLI uses the tree-walking interpreter with full super-global scope integration. Built-in objects like `Math`, `console`, `JSON`, etc. are resolved lazily through the super-global scope:
+
+```bash
+./target/release/just -e "console.log('Hello!'); Math.abs(-42)"
+# Output: Hello!
+#         JsValue::Number(Integer(42))
+```
 
 ## Architecture
 
@@ -276,11 +283,12 @@ The parser supports most ES6 syntax:
 |---|---:|---|
 | Parser unit tests | 70 | Grammar and AST construction |
 | Integration tests | 118 | End-to-end interpreter scenarios |
+| Interpreter super-global | 14 | Built-in resolution & custom plugins in interpreter |
 | JIT tests | 52 | Stack-based VM + bytecode compiler |
 | Register JIT tests | 41 | Register VM + Cranelift JIT |
 | Standard library | 76 | Built-in object methods |
 | Eval tests | 73 | Expression and statement evaluation |
-| **Total** | **430** | |
+| **Total** | **444** | |
 
 ## Dependencies
 

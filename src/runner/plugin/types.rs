@@ -172,7 +172,7 @@ impl EvalContext {
 
     /// Resolve a binding by walking up the environment chain,
     /// falling back to the super-global scope if not found.
-    fn resolve_binding(&mut self, name: &String) -> Result<JsValue, JErrorType> {
+    pub fn resolve_binding(&mut self, name: &String) -> Result<JsValue, JErrorType> {
         let mut current_env = Some(self.lex_env.clone());
 
         while let Some(env) = current_env {

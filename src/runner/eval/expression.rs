@@ -433,7 +433,46 @@ fn evaluate_call_expression(
     arguments: &[ExpressionOrSpreadElement],
     ctx: &mut EvalContext,
 ) -> ValueResult {
-    // Evaluate the callee to get the function
+    // Check if this is a member expression call (e.g., Math.abs, console.log)
+    // If so, try super-global method dispatch first
+    if let ExpressionOrSuper::Expression(expr) = callee {
+        if let ExpressionType::MemberExpression(member) = expr.as_ref() {
+            if let MemberExpressionType::SimpleMemberExpression { object, property, .. } = member {
+                // Try to get the object name for super-global lookup
+                if let ExpressionOrSuper::Expression(obj_expr) = object {
+                    if let ExpressionType::ExpressionWhichCanBePattern(
+                        ExpressionPatternType::Identifier(id)
+                    ) = obj_expr.as_ref() {
+                        let obj_name = &id.name;
+                        let method_name = &property.name;
+                        
+                        // Evaluate arguments first
+                        let args = evaluate_arguments(arguments, ctx)?;
+                        
+                        // Try super-global method dispatch
+                        let sg = ctx.super_global.clone();
+                        let this_value = ctx.resolve_binding(obj_name).unwrap_or(JsValue::Undefined);
+                        
+                        let sg_result = sg.borrow().call_method(
+                            obj_name,
+                            method_name,
+                            ctx,
+                            this_value.clone(),
+                            args.clone(),
+                        );
+                        
+                        if let Some(result) = sg_result {
+                            return result;
+                        }
+                        
+                        // Fall through to normal property lookup if super-global doesn't handle it
+                    }
+                }
+            }
+        }
+    }
+    
+    // Normal call path: evaluate the callee to get the function
     let callee_value = evaluate_expression_or_super(callee, ctx)?;
 
     // Get the 'this' value for the call
