@@ -1027,6 +1027,23 @@ fn evaluate_assignment_expression(
         }
     }
 
+    // Handle destructuring assignment patterns
+    if let PatternOrExpression::Pattern(pattern) = left {
+        if !matches!(
+            &**pattern,
+            PatternType::PatternWhichCanBeExpression(ExpressionPatternType::Identifier(_))
+        ) {
+            if !matches!(operator, AssignmentOperator::Equals) {
+                return Err(JErrorType::TypeError(
+                    "Compound assignment not supported for destructuring patterns".to_string(),
+                ));
+            }
+            let rhs_value = evaluate_expression(right, ctx)?;
+            assign_pattern(pattern, rhs_value.clone(), ctx)?;
+            return Ok(rhs_value);
+        }
+    }
+
     // Get the name to assign to (simple variable assignment)
     let name = match left {
         PatternOrExpression::Pattern(pattern) => get_pattern_name(pattern)?,
@@ -1088,6 +1105,178 @@ fn evaluate_assignment_expression(
     // Set the binding and return the value
     ctx.set_binding(&name, final_value.clone())?;
     Ok(final_value)
+}
+
+/// Assign a value to a binding pattern (destructuring assignment).
+fn assign_pattern(
+    pattern: &PatternType,
+    value: JsValue,
+    ctx: &mut EvalContext,
+) -> Result<(), JErrorType> {
+    match pattern {
+        PatternType::PatternWhichCanBeExpression(ExpressionPatternType::Identifier(id)) => {
+            ctx.set_binding(&id.name, value)?;
+            Ok(())
+        }
+        PatternType::ObjectPattern { properties, .. } => {
+            for prop in properties {
+                let prop_data = &prop.0;
+                let key_name = get_assignment_property_key(prop_data, ctx)?;
+                let prop_value = get_object_property_value(&value, &key_name, ctx)?;
+                assign_pattern(&prop_data.value, prop_value, ctx)?;
+            }
+            Ok(())
+        }
+        PatternType::ArrayPattern { elements, .. } => {
+            for (index, element) in elements.iter().enumerate() {
+                if let Some(elem_pattern) = element {
+                    if let PatternType::RestElement { argument, .. } = elem_pattern.as_ref() {
+                        let rest_value = get_rest_elements_for_assignment(&value, index, ctx)?;
+                        assign_pattern(argument, rest_value, ctx)?;
+                    } else {
+                        let elem_value = get_array_element_for_assignment(&value, index, ctx)?;
+                        assign_pattern(elem_pattern, elem_value, ctx)?;
+                    }
+                }
+            }
+            Ok(())
+        }
+        PatternType::AssignmentPattern { left, right, .. } => {
+            let actual_value = if matches!(value, JsValue::Undefined) {
+                evaluate_expression(right, ctx)?
+            } else {
+                value
+            };
+            assign_pattern(left, actual_value, ctx)
+        }
+        PatternType::RestElement { argument, .. } => assign_pattern(argument, value, ctx),
+    }
+}
+
+fn get_assignment_property_key(
+    prop: &PropertyData<Box<PatternType>>,
+    ctx: &mut EvalContext,
+) -> Result<String, JErrorType> {
+    if prop.computed {
+        let key_value = evaluate_expression(prop.key.as_ref(), ctx)?;
+        Ok(to_string(&key_value))
+    } else {
+        match prop.key.as_ref() {
+            ExpressionType::ExpressionWhichCanBePattern(ExpressionPatternType::Identifier(id)) => {
+                Ok(id.name.clone())
+            }
+            ExpressionType::Literal(lit_data) => match &lit_data.value {
+                LiteralType::StringLiteral(s) => Ok(s.clone()),
+                LiteralType::NumberLiteral(num) => {
+                    use crate::parser::ast::NumberLiteralType;
+                    match num {
+                        NumberLiteralType::IntegerLiteral(n) => Ok(n.to_string()),
+                        NumberLiteralType::FloatLiteral(n) => Ok(n.to_string()),
+                    }
+                }
+                _ => Err(JErrorType::TypeError(
+                    "Invalid property key in destructuring assignment".to_string(),
+                )),
+            },
+            _ => Err(JErrorType::TypeError(
+                "Invalid property key in destructuring assignment".to_string(),
+            )),
+        }
+    }
+}
+
+fn get_object_property_value(
+    obj: &JsValue,
+    key: &str,
+    ctx: &mut EvalContext,
+) -> Result<JsValue, JErrorType> {
+    match obj {
+        JsValue::Object(_) => get_property_with_ctx(obj, key, ctx),
+        _ => Err(JErrorType::TypeError(
+            "Cannot destructure non-object".to_string(),
+        )),
+    }
+}
+
+fn get_array_element_for_assignment(
+    arr: &JsValue,
+    index: usize,
+    ctx: &mut EvalContext,
+) -> Result<JsValue, JErrorType> {
+    match arr {
+        JsValue::Object(_) => {
+            let key = index.to_string();
+            get_property_with_ctx(arr, &key, ctx)
+        }
+        _ => Err(JErrorType::TypeError(
+            "Cannot destructure non-array".to_string(),
+        )),
+    }
+}
+
+fn get_rest_elements_for_assignment(
+    arr: &JsValue,
+    start_index: usize,
+    ctx: &mut EvalContext,
+) -> Result<JsValue, JErrorType> {
+    use crate::runner::ds::object::{JsObject, JsObjectType, ObjectType};
+    use crate::runner::ds::object_property::{PropertyDescriptor, PropertyDescriptorData, PropertyKey};
+    use crate::runner::plugin::types::SimpleObject;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    let length = match arr {
+        JsValue::Object(_) => {
+            let length_value = get_property_with_ctx(arr, "length", ctx)?;
+            match length_value {
+                JsValue::Number(JsNumberType::Integer(n)) => n.max(0) as usize,
+                JsValue::Number(JsNumberType::Float(n)) => {
+                    if n.is_nan() || n < 0.0 {
+                        0
+                    } else {
+                        n as usize
+                    }
+                }
+                _ => 0,
+            }
+        }
+        _ => {
+            return Err(JErrorType::TypeError(
+                "Cannot use rest with non-array".to_string(),
+            ))
+        }
+    };
+
+    let mut rest_obj = SimpleObject::new();
+    let mut rest_index = 0;
+
+    for i in start_index..length {
+        let key = i.to_string();
+        let value = get_property_with_ctx(arr, &key, ctx)?;
+        rest_obj.get_object_base_mut().properties.insert(
+            PropertyKey::Str(rest_index.to_string()),
+            PropertyDescriptor::Data(PropertyDescriptorData {
+                value,
+                writable: true,
+                enumerable: true,
+                configurable: true,
+            }),
+        );
+        rest_index += 1;
+    }
+
+    rest_obj.get_object_base_mut().properties.insert(
+        PropertyKey::Str("length".to_string()),
+        PropertyDescriptor::Data(PropertyDescriptorData {
+            value: JsValue::Number(JsNumberType::Integer(rest_index as i64)),
+            writable: true,
+            enumerable: false,
+            configurable: false,
+        }),
+    );
+
+    let obj: JsObjectType = Rc::new(RefCell::new(ObjectType::Ordinary(Box::new(rest_obj))));
+    Ok(JsValue::Object(obj))
 }
 
 /// Evaluate assignment to a member expression (obj.prop = value or obj[prop] = value).

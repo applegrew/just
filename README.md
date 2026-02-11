@@ -193,9 +193,11 @@ The parser supports most ES6 syntax:
 
 ### Interpreter & VMs
 
-**Supported** — All literal types, unary/binary/bitwise/logical/comparison operators, `typeof`, conditional and sequence expressions, update expressions, all assignment operators, type coercion, `var`/`let`/`const` with proper scoping, object/array creation, property access (dot and bracket), string indexing, function declarations and calls, closures, `if`/`else`, `while`, `do-while`, `for`, `for-in`, `for-of`, `switch`/`case` with fall-through, `break`/`continue`, `try`/`catch`/`finally`, `throw`, generators and `yield`.
+**Interpreter (tree-walking)** — All literal types, unary/binary/bitwise/logical/comparison operators, `typeof`, conditional and sequence expressions, update expressions, assignment (including destructuring with defaults/rest), type coercion, `var`/`let`/`const` with proper scoping, object/array creation, property access (dot, bracket, computed), getters/setters, `new` expressions, classes + inheritance, `delete`, `in`/`instanceof`, spread in calls/arrays, function declarations and calls, closures, `if`/`else`, `while`, `do-while`, `for`, `for-in`, `for-of`, `switch`/`case` with fall-through, `break`/`continue`, `try`/`catch`/`finally`, `throw`, generators and `yield`.
 
-**Not Yet Implemented** — `new` expressions, classes and inheritance, `eval()`, `delete`, `in`/`instanceof`, getters/setters, spread in calls/arrays, destructuring assignment.
+**Bytecode VMs (stack + register)** — Core arithmetic, control flow, variables, property access, and built-in method dispatch are present, but several ES6 features are not yet compiled/executed in bytecode. Missing: `new` expressions, classes/inheritance, `delete`, `in`/`instanceof`, getters/setters, spread in calls/arrays, destructuring assignment, and full function/constructor call dispatch.
+
+**Not Yet Implemented (global)** — `eval()`.
 
 ### Built-in Objects
 
