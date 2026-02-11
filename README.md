@@ -37,6 +37,39 @@ cargo bench
 cargo run --release --bin benchmark
 ```
 
+## CLI Usage
+
+The `just` binary provides a command-line interface for executing JavaScript:
+
+```bash
+# Build the CLI
+cargo build --release --bin just
+
+# Execute a JavaScript file
+./target/release/just script.js
+
+# Evaluate JavaScript code directly
+./target/release/just -e "var x = 5 + 3; x"
+# Output: JsValue::Number(Integer(8))
+
+./target/release/just --eval "function factorial(n) { if (n <= 1) return 1; return n * factorial(n - 1); } factorial(5)"
+# Output: JsValue::Number(Integer(120))
+
+# Start interactive REPL
+./target/release/just
+# > var x = 10;
+# > var y = 20;
+# > x + y
+# JsValue::Number(Integer(30))
+# > .exit
+```
+
+**REPL Commands:**
+- `.exit` or `.quit` — Exit the REPL
+- `Ctrl+D` — Exit the REPL (EOF)
+
+**Note:** The CLI currently uses the tree-walking interpreter. Built-in method calls (e.g., `Math.abs`, `console.log`) work in the bytecode VMs but require additional integration work for the interpreter.
+
 ## Architecture
 
 ```

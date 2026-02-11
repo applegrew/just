@@ -19,6 +19,10 @@ cranelift-module = "0.104"
 cranelift-native = "0.104"
 
 [[bin]]
+name = "just"
+path = "src/bin/just.rs"
+
+[[bin]]
 name = "benchmark"
 path = "src/bin/benchmark.rs"
 
