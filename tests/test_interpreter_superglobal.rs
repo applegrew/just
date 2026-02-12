@@ -73,6 +73,63 @@ fn test_interpreter_console_log() {
 // Note: String primitive methods require additional infrastructure in the interpreter
 // that's beyond super-global resolution. The VM handles these via type-based dispatch.
 
+// ── Constructor tests ────────────────────────────────────────────────
+
+#[test]
+fn test_interpreter_string_constructor() {
+    let mut ctx = EvalContext::new();
+    ctx.install_core_builtins(BuiltInRegistry::with_core());
+    
+    let code = "var s = new String('hello world'); s";
+    let result = run_interpreter(code, &mut ctx).unwrap();
+    assert_eq!(result, JsValue::String("hello world".to_string()));
+}
+
+#[test]
+fn test_interpreter_number_constructor() {
+    let mut ctx = EvalContext::new();
+    ctx.install_core_builtins(BuiltInRegistry::with_core());
+    
+    let code = "var n = new Number(42); n";
+    let result = run_interpreter(code, &mut ctx).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(42)));
+}
+
+#[test]
+fn test_interpreter_number_constructor_float() {
+    let mut ctx = EvalContext::new();
+    ctx.install_core_builtins(BuiltInRegistry::with_core());
+    
+    let code = "var n = new Number(3.14); n";
+    let result = run_interpreter(code, &mut ctx).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Float(3.14)));
+}
+
+#[test]
+fn test_interpreter_string_constructor_empty() {
+    let mut ctx = EvalContext::new();
+    ctx.install_core_builtins(BuiltInRegistry::with_core());
+    
+    let code = "var s = new String(); s";
+    let result = run_interpreter(code, &mut ctx).unwrap();
+    assert_eq!(result, JsValue::String("".to_string()));
+}
+
+#[test]
+fn test_interpreter_multiple_constructors() {
+    let mut ctx = EvalContext::new();
+    ctx.install_core_builtins(BuiltInRegistry::with_core());
+    
+    let code = r#"
+        var s = new String("test");
+        var n = new Number(100);
+        var result = s;
+        result
+    "#;
+    let result = run_interpreter(code, &mut ctx).unwrap();
+    assert_eq!(result, JsValue::String("test".to_string()));
+}
+
 #[test]
 fn test_interpreter_builtin_in_expression() {
     let mut ctx = EvalContext::new();
@@ -121,11 +178,11 @@ impl TestLibPlugin {
 
 impl PluginResolver for TestLibPlugin {
     fn has_binding(&self, name: &str) -> bool {
-        name == "TestLib"
+        name == "TestLib" || name == "CustomObject"
     }
     
     fn resolve(&self, name: &str, _ctx: &mut EvalContext) -> Result<JsValue, JErrorType> {
-        if name == "TestLib" {
+        if name == "TestLib" || name == "CustomObject" {
             // Return a sentinel value to indicate the object exists
             Ok(JsValue::Number(JsNumberType::Integer(42)))
         } else {
@@ -181,6 +238,28 @@ impl PluginResolver for TestLibPlugin {
                 Some(Ok(JsValue::Number(JsNumberType::Integer(a + b))))
             }
             _ => None,
+        }
+    }
+    
+    fn call_constructor(
+        &self,
+        object_name: &str,
+        _ctx: &mut EvalContext,
+        args: Vec<JsValue>,
+    ) -> Option<Result<JsValue, JErrorType>> {
+        if object_name == "CustomObject" {
+            // Create a custom object with a value property
+            let value = match args.first() {
+                Some(JsValue::Number(JsNumberType::Integer(n))) => *n,
+                Some(JsValue::Number(JsNumberType::Float(f))) => *f as i64,
+                _ => 0,
+            };
+            
+            // For simplicity, return a number representing the constructed object
+            // In a real implementation, this would return a proper object
+            Some(Ok(JsValue::Number(JsNumberType::Integer(value * 10))))
+        } else {
+            None
         }
     }
     
@@ -316,4 +395,33 @@ fn test_custom_plugin_undefined_method() {
     // The call will fail because TestLib.nonexistent is undefined
     // and we try to call it, which should error
     assert!(result.is_ok()); // Getting the property succeeds
+}
+
+#[test]
+fn test_custom_plugin_constructor() {
+    let mut ctx = EvalContext::new();
+    ctx.add_resolver(Box::new(TestLibPlugin::new()));
+    
+    let code = "var obj = new CustomObject(5);";
+    run_interpreter(code, &mut ctx).unwrap();
+    
+    let obj = get_var(&mut ctx, "obj");
+    // CustomObject constructor multiplies by 10
+    assert_eq!(obj, JsValue::Number(JsNumberType::Integer(50)));
+}
+
+#[test]
+fn test_custom_plugin_constructor_with_builtin() {
+    let mut ctx = EvalContext::new();
+    ctx.install_core_builtins(BuiltInRegistry::with_core());
+    ctx.add_resolver(Box::new(TestLibPlugin::new()));
+    
+    let code = r#"
+        var s = new String("test");
+        var custom = new CustomObject(7);
+        custom
+    "#;
+    
+    let result = run_interpreter(code, &mut ctx).unwrap();
+    assert_eq!(result, JsValue::Number(JsNumberType::Integer(70)));
 }

@@ -491,7 +491,28 @@ fn evaluate_new_expression(
     arguments: &[ExpressionOrSpreadElement],
     ctx: &mut EvalContext,
 ) -> ValueResult {
-    // Evaluate the callee to get the constructor function
+    // Check if this is a simple identifier constructor (e.g., new String(), new Number())
+    // If so, try super-global constructor dispatch first
+    if let ExpressionType::ExpressionWhichCanBePattern(
+        ExpressionPatternType::Identifier(id)
+    ) = callee {
+        let ctor_name = &id.name;
+        
+        // Evaluate arguments first
+        let args = evaluate_arguments(arguments, ctx)?;
+        
+        // Try super-global constructor dispatch
+        let sg = ctx.super_global.clone();
+        let sg_result = sg.borrow().call_constructor(ctor_name, ctx, args.clone());
+        
+        if let Some(result) = sg_result {
+            return result;
+        }
+        
+        // Fall through to normal evaluation if super-global doesn't handle it
+    }
+    
+    // Normal constructor path: evaluate the callee to get the constructor function
     let constructor = evaluate_expression(callee, ctx)?;
 
     // Verify it's callable

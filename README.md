@@ -20,7 +20,7 @@ This is an academic/experimental project rather than a production-ready engine.
 # Build
 cargo build
 
-# Run all tests (444 tests across 8 suites)
+# Run all tests (451 tests across 8 suites)
 cargo test
 
 # Run specific test suites
@@ -283,12 +283,12 @@ The parser supports most ES6 syntax:
 |---|---:|---|
 | Parser unit tests | 70 | Grammar and AST construction |
 | Integration tests | 118 | End-to-end interpreter scenarios |
-| Interpreter super-global | 14 | Built-in resolution & custom plugins in interpreter |
+| Interpreter super-global | 21 | Built-in resolution, constructors & custom plugins |
 | JIT tests | 52 | Stack-based VM + bytecode compiler |
 | Register JIT tests | 41 | Register VM + Cranelift JIT |
 | Standard library | 76 | Built-in object methods |
 | Eval tests | 73 | Expression and statement evaluation |
-| **Total** | **444** | |
+| **Total** | **451** | |
 
 ## Dependencies
 
