@@ -1,7 +1,7 @@
 [package]
 name = "just"
 version = "0.1.0"
-authors = ["Nirupam Biswas <email@nirupam.com>"]
+authors = ["Nirupam Biswas <applegrew+cratesio@gmail.com>"]
 edition = "2018"
 description = "A ground-up ES6 JavaScript engine with tree-walking interpreter, bytecode VMs, and Cranelift JIT compiler"
 license = "MIT OR Apache-2.0"
