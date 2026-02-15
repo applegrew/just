@@ -22,6 +22,21 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Instant;
 
+/// JavaScript parser using PEG grammar.
+///
+/// Parses ES6 JavaScript source code into an ESTree-compliant AST.
+/// The parser is built on [Pest](https://pest.rs/) and follows the
+/// [ECMAScript 2015 specification](https://262.ecma-international.org/6.0/).
+///
+/// # Examples
+///
+/// ```
+/// use just::parser::JsParser;
+///
+/// let code = "var x = 5 + 3;";
+/// let ast = JsParser::parse_to_ast_from_str(code).unwrap();
+/// assert_eq!(ast.body.len(), 1);
+/// ```
 #[derive(Parser)]
 #[grammar = "parser/js_grammar.pest"] // relative to src
 pub struct JsParser;
@@ -50,6 +65,20 @@ fn pair_to_string(pair: Pair<Rule>, level: usize) -> Vec<String> {
 }
 
 impl JsParser {
+    /// Parse JavaScript source into a debug token tree.
+    ///
+    /// Returns a formatted string representation of the parse tree,
+    /// useful for debugging the parser grammar.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use just::parser::JsParser;
+    ///
+    /// let code = "var x = 5;";
+    /// let tree = JsParser::parse_to_token_tree(code).unwrap();
+    /// assert!(tree.contains("script"));
+    /// ```
     pub fn parse_to_token_tree(script: &str) -> Result<String, String> {
         let mut tree = vec![];
         let start = Instant::now();
@@ -71,6 +100,21 @@ impl JsParser {
         Ok(tree.join("\n"))
     }
 
+    /// Parse JavaScript source into an AST.
+    ///
+    /// Takes an `Rc<String>` to allow efficient sharing of the source text
+    /// across AST nodes for error reporting and formatting.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use just::parser::JsParser;
+    /// use std::rc::Rc;
+    ///
+    /// let code = Rc::new("var x = 5 + 3;".to_string());
+    /// let ast = JsParser::parse_to_ast(code).unwrap();
+    /// assert_eq!(ast.body.len(), 1);
+    /// ```
     pub fn parse_to_ast(script: Rc<String>) -> Result<ProgramData, JsRuleError> {
         let result = Self::parse(Rule::script, &script);
         match result {
@@ -84,15 +128,60 @@ impl JsParser {
         }
     }
 
+    /// Parse JavaScript source string into an AST.
+    ///
+    /// Convenience method that wraps the source in an `Rc<String>`.
+    /// This is the most commonly used parsing method.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use just::parser::JsParser;
+    ///
+    /// let code = "function add(a, b) { return a + b; }";
+    /// let ast = JsParser::parse_to_ast_from_str(code).unwrap();
+    /// assert_eq!(ast.body.len(), 1);
+    /// ```
     pub fn parse_to_ast_from_str(script: &str) -> Result<ProgramData, JsRuleError> {
         Self::parse_to_ast(Rc::new(script.to_string()))
     }
 
+    /// Parse JavaScript and return a formatted AST string.
+    ///
+    /// Useful for debugging and visualizing the AST structure.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use just::parser::JsParser;
+    ///
+    /// let code = "var x = 5;";
+    /// let formatted = JsParser::parse_to_ast_formatted_string(code).unwrap();
+    /// assert!(formatted.contains("VariableDeclaration"));
+    /// ```
     pub fn parse_to_ast_formatted_string(script: &str) -> Result<String, JsRuleError> {
         let result = Self::parse_to_ast_from_str(script)?;
         Ok(result.to_formatted_string(script))
     }
 
+    /// Parse a numeric literal string.
+    ///
+    /// Supports decimal, hexadecimal (0x), binary (0b), octal (0o),
+    /// floating point, and scientific notation.
+    ///
+    /// # Arguments
+    ///
+    /// * `s` - The numeric string to parse
+    /// * `is_error_on_empty` - Whether to return an error on empty string
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use just::parser::JsParser;
+    ///
+    /// let hex = "0xFF".to_string();
+    /// let result = JsParser::parse_numeric_string(&hex, true).unwrap();
+    /// ```
     pub fn parse_numeric_string(
         s: &String,
         is_error_on_empty: bool,

@@ -6,13 +6,36 @@ use crate::runner::ds::object::JsObjectType;
 use crate::runner::ds::operations::type_conversion::{TYPE_STR_NULL, TYPE_STR_UNDEFINED};
 use crate::runner::ds::symbol::SymbolData;
 
+/// JavaScript value representation.
+///
+/// Represents all possible JavaScript values including primitives and objects.
+/// This is the primary value type used throughout the engine.
+///
+/// # Examples
+///
+/// ```
+/// use just::runner::ds::value::{JsValue, JsNumberType};
+///
+/// let undefined = JsValue::Undefined;
+/// let null = JsValue::Null;
+/// let boolean = JsValue::Boolean(true);
+/// let string = JsValue::String("hello".to_string());
+/// let number = JsValue::Number(JsNumberType::Integer(42));
+/// ```
 pub enum JsValue {
+    /// The `undefined` value.
     Undefined,
+    /// The `null` value.
     Null,
+    /// A boolean value (`true` or `false`).
     Boolean(bool),
+    /// A string value.
     String(String),
+    /// A symbol value (ES6 symbols).
     Symbol(SymbolData),
+    /// A numeric value (integer or float).
     Number(JsNumberType),
+    /// An object value (including arrays, functions, etc.).
     Object(JsObjectType),
 }
 impl Clone for JsValue {
@@ -75,8 +98,23 @@ impl PartialEq for JsValue {
     }
 }
 
+/// JavaScript number type.
+///
+/// JavaScript numbers can be represented as either integers or floats.
+/// The engine uses integers when possible for better performance.
+///
+/// # Examples
+///
+/// ```
+/// use just::runner::ds::value::JsNumberType;
+///
+/// let int = JsNumberType::Integer(42);
+/// let float = JsNumberType::Float(3.14);
+/// let infinity = JsNumberType::Float(f64::INFINITY);
+/// ```
 #[derive(Debug, PartialEq)]
 pub enum JsNumberType {
+    /// An integer value (64-bit signed).
     Integer(i64),
     Float(f64),
     NaN,

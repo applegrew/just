@@ -3,6 +3,65 @@
 //! This environment sits below the global scope and lazily resolves
 //! built-in and plugin-provided objects on first access. Objects are
 //! cached after first resolution so each name is materialized at most once.
+//!
+//! ## How It Works
+//!
+//! When JavaScript code references a name that isn't found in the lexical
+//! environment chain or global scope, the super-global environment is consulted:
+//!
+//! ```text
+//! JavaScript: Math.abs(-5)
+//!      ↓
+//! 1. Check local scope → not found
+//! 2. Check outer scopes → not found  
+//! 3. Check global scope → not found
+//! 4. Check super-global → "Math" found!
+//!      ↓
+//! 5. Query resolvers: Does anyone provide "Math"?
+//! 6. CorePluginResolver says "yes"
+//! 7. Cache the result
+//! 8. Dispatch Math.abs() via resolver
+//! ```
+//!
+//! ## Caching Strategy
+//!
+//! - **First lookup**: Query all resolvers in order, cache which one owns the name
+//! - **Subsequent lookups**: Use cached resolver index directly
+//! - **Method calls**: Can bypass object materialization entirely
+//!
+//! ## Example
+//!
+//! ```
+//! use just::runner::plugin::super_global::SuperGlobalEnvironment;
+//! use just::runner::plugin::resolver::PluginResolver;
+//! use just::runner::plugin::types::EvalContext;
+//! use just::runner::ds::value::{JsValue, JsNumberType};
+//! use just::runner::ds::error::JErrorType;
+//!
+//! struct MyPlugin;
+//!
+//! impl PluginResolver for MyPlugin {
+//!     fn has_binding(&self, name: &str) -> bool {
+//!         name == "MyObject"
+//!     }
+//!     
+//!     fn resolve(&self, _name: &str, _ctx: &mut EvalContext) -> Result<JsValue, JErrorType> {
+//!         Ok(JsValue::Number(JsNumberType::Integer(42)))
+//!     }
+//!     
+//!     fn call_method(&self, _obj: &str, _method: &str, _ctx: &mut EvalContext,
+//!                    _this: JsValue, _args: Vec<JsValue>) -> Option<Result<JsValue, JErrorType>> {
+//!         None
+//!     }
+//!     
+//!     fn name(&self) -> &str { "my_plugin" }
+//! }
+//!
+//! let mut sg = SuperGlobalEnvironment::new();
+//! sg.add_resolver(Box::new(MyPlugin));
+//!
+//! // Now "MyObject" is available in the super-global scope
+//! ```
 
 use std::collections::HashMap;
 
@@ -11,11 +70,40 @@ use crate::runner::ds::value::JsValue;
 use crate::runner::plugin::resolver::PluginResolver;
 use crate::runner::plugin::types::EvalContext;
 
-/// An environment record that lazily resolves bindings from plugin resolvers.
+/// The super-global environment for lazy resolution of built-in objects.
 ///
-/// JS code cannot create bindings here — it is read-only from the JS perspective.
-/// Resolvers are queried in registration order; the first to claim a name wins.
-/// Resolved values are cached so each resolver is consulted at most once per name.
+/// This is the outermost scope in the resolution chain, sitting below even
+/// the global scope. It provides built-in objects (Math, console, etc.) and
+/// plugin-provided objects through a lazy resolution mechanism.
+///
+/// ## Key Features
+///
+/// - **Lazy Resolution**: Objects are only materialized when first accessed
+/// - **Caching**: Once resolved, values are cached for fast subsequent access
+/// - **Read-Only**: JavaScript code cannot create or modify super-global bindings
+/// - **Plugin System**: Multiple resolvers can be registered, queried in order
+/// - **Method Dispatch**: Efficient method calls without object materialization
+///
+/// ## Resolution Order
+///
+/// When a name is looked up:
+/// 1. Check if it's in the cache → return cached value
+/// 2. Query each resolver's `has_binding()` in registration order
+/// 3. First resolver that claims the name wins
+/// 4. Call resolver's `resolve()` to materialize the value
+/// 5. Cache the value and resolver index
+/// 6. Return the value
+///
+/// ## Method Call Optimization
+///
+/// For method calls like `Math.abs(-5)`, the super-global can dispatch directly
+/// to the resolver's `call_method()` without materializing the Math object,
+/// providing better performance for built-in method calls.
+///
+/// ## Thread Safety
+///
+/// This struct is typically wrapped in `Rc<RefCell<>>` (see [`SharedSuperGlobal`](super::types::SharedSuperGlobal))
+/// to allow shared mutable access across the evaluation context.
 pub struct SuperGlobalEnvironment {
     /// Registered plugin resolvers, queried in order.
     resolvers: Vec<Box<dyn PluginResolver>>,

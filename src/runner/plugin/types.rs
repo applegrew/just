@@ -21,8 +21,33 @@ pub type SharedHeap = Rc<RefCell<Heap>>;
 /// Shared super-global type for use across contexts.
 pub type SharedSuperGlobal = Rc<RefCell<SuperGlobalEnvironment>>;
 
-/// Execution context passed to native functions.
-/// Contains the lexical environment chain for variable resolution.
+/// Execution context for JavaScript evaluation.
+///
+/// Contains the lexical environment chain, heap, and super-global scope.
+/// This is the main context object passed through the interpreter and VMs.
+///
+/// # Examples
+///
+/// ```
+/// use just::parser::JsParser;
+/// use just::runner::plugin::types::EvalContext;
+/// use just::runner::plugin::registry::BuiltInRegistry;
+/// use just::runner::eval::statement::execute_statement;
+///
+/// // Create context with built-ins
+/// let mut ctx = EvalContext::new();
+/// ctx.install_core_builtins(BuiltInRegistry::with_core());
+///
+/// // Parse and execute code
+/// let code = "var x = Math.abs(-42);";
+/// let ast = JsParser::parse_to_ast_from_str(code).unwrap();
+/// for stmt in &ast.body {
+///     execute_statement(stmt, &mut ctx).unwrap();
+/// }
+///
+/// // Access variables
+/// let x = ctx.get_binding("x").unwrap();
+/// ```
 pub struct EvalContext {
     /// The global `this` value.
     pub global_this: Option<JsValue>,
@@ -44,6 +69,20 @@ pub struct EvalContext {
 
 impl EvalContext {
     /// Create a new evaluation context with default heap configuration.
+    ///
+    /// Creates a fresh context with:
+    /// - Empty super-global scope (call `install_core_builtins` to add built-ins)
+    /// - Default heap with no memory limits
+    /// - Global lexical environment
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use just::runner::plugin::types::EvalContext;
+    ///
+    /// let mut ctx = EvalContext::new();
+    /// // Context is ready to use, but has no built-ins yet
+    /// ```
     pub fn new() -> Self {
         // Create a simple global object
         let global_obj: JsObjectType = Rc::new(RefCell::new(ObjectType::Ordinary(Box::new(
@@ -64,6 +103,21 @@ impl EvalContext {
     }
 
     /// Create a new evaluation context with a specific heap configuration.
+    ///
+    /// Use this to set memory limits or custom heap behavior.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use just::runner::plugin::types::EvalContext;
+    /// use just::runner::ds::heap::HeapConfig;
+    ///
+    /// let config = HeapConfig {
+    ///     max_bytes: Some(10 * 1024 * 1024), // 10MB limit
+    ///     gc_threshold: 1024 * 1024,
+    /// };
+    /// let mut ctx = EvalContext::with_heap_config(config);
+    /// ```
     pub fn with_heap_config(config: HeapConfig) -> Self {
         let global_obj: JsObjectType = Rc::new(RefCell::new(ObjectType::Ordinary(Box::new(
             SimpleObject::new(),
@@ -88,12 +142,60 @@ impl EvalContext {
     }
 
     /// Install a plugin resolver into the super-global scope.
+    ///
+    /// Resolvers are queried in registration order. The first resolver
+    /// that claims a name wins.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use just::runner::plugin::types::EvalContext;
+    /// use just::runner::plugin::resolver::PluginResolver;
+    /// use just::runner::ds::value::JsValue;
+    /// use just::runner::ds::error::JErrorType;
+    ///
+    /// struct MyPlugin;
+    ///
+    /// impl PluginResolver for MyPlugin {
+    ///     fn has_binding(&self, name: &str) -> bool {
+    ///         name == "MyObject"
+    ///     }
+    ///     
+    ///     fn resolve(&self, _name: &str, _ctx: &mut EvalContext) -> Result<JsValue, JErrorType> {
+    ///         Ok(JsValue::Undefined)
+    ///     }
+    ///     
+    ///     fn call_method(&self, _obj: &str, _method: &str, _ctx: &mut EvalContext,
+    ///                    _this: JsValue, _args: Vec<JsValue>) -> Option<Result<JsValue, JErrorType>> {
+    ///         None
+    ///     }
+    ///     
+    ///     fn name(&self) -> &str { "my_plugin" }
+    /// }
+    ///
+    /// let mut ctx = EvalContext::new();
+    /// ctx.add_resolver(Box::new(MyPlugin));
+    /// ```
     pub fn add_resolver(&mut self, resolver: Box<dyn super::resolver::PluginResolver>) {
         self.super_global.borrow_mut().add_resolver(resolver);
     }
 
-    /// Convenience: install the core built-in objects (Math, console, etc.)
-    /// into the super-global scope via a `CorePluginResolver`.
+    /// Install the core built-in objects (Math, console, JSON, etc.).
+    ///
+    /// This is a convenience method that wraps the `BuiltInRegistry`
+    /// in a `CorePluginResolver` and adds it to the super-global scope.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use just::runner::plugin::types::EvalContext;
+    /// use just::runner::plugin::registry::BuiltInRegistry;
+    ///
+    /// let mut ctx = EvalContext::new();
+    /// ctx.install_core_builtins(BuiltInRegistry::with_core());
+    ///
+    /// // Now Math, console, etc. are available
+    /// ```
     pub fn install_core_builtins(&mut self, registry: super::registry::BuiltInRegistry) {
         self.add_resolver(Box::new(super::core_resolver::CorePluginResolver::new(registry)));
     }

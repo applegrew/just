@@ -57,8 +57,24 @@ pub enum PluginSource {
     JavaScript(String),
 }
 
-/// Registry for built-in objects.
-/// Manages all built-in objects and their methods, supports plugin loading and overrides.
+/// Registry for built-in objects and methods.
+///
+/// Manages all built-in JavaScript objects (Math, console, Array, etc.)
+/// and their methods. Supports plugin loading and method overrides.
+///
+/// # Examples
+///
+/// ```
+/// use just::runner::plugin::registry::BuiltInRegistry;
+/// use just::runner::plugin::types::EvalContext;
+///
+/// // Create registry with core built-ins
+/// let registry = BuiltInRegistry::with_core();
+///
+/// // Use with evaluation context
+/// let mut ctx = EvalContext::new();
+/// ctx.install_core_builtins(registry);
+/// ```
 pub struct BuiltInRegistry {
     /// All registered built-in objects.
     objects: HashMap<String, BuiltInObject>,
@@ -72,6 +88,18 @@ pub struct BuiltInRegistry {
 
 impl BuiltInRegistry {
     /// Create an empty registry.
+    ///
+    /// Use [`with_core`](Self::with_core) instead to get a registry
+    /// with standard built-in objects.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use just::runner::plugin::registry::BuiltInRegistry;
+    ///
+    /// let registry = BuiltInRegistry::new();
+    /// // Registry is empty, no built-ins registered
+    /// ```
     pub fn new() -> Self {
         BuiltInRegistry {
             objects: HashMap::new(),
@@ -80,7 +108,29 @@ impl BuiltInRegistry {
         }
     }
 
-    /// Create a registry with core built-ins (console, Object, Array basics).
+    /// Create a registry with core built-in objects.
+    ///
+    /// Includes: Math, console, JSON, String, Number, Array, Object, Error types.
+    /// This is the most common way to create a registry.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use just::parser::JsParser;
+    /// use just::runner::plugin::registry::BuiltInRegistry;
+    /// use just::runner::plugin::types::EvalContext;
+    /// use just::runner::eval::statement::execute_statement;
+    ///
+    /// let mut ctx = EvalContext::new();
+    /// ctx.install_core_builtins(BuiltInRegistry::with_core());
+    ///
+    /// // Now you can use Math, console, etc.
+    /// let code = "var x = Math.abs(-42);";
+    /// let ast = JsParser::parse_to_ast_from_str(code).unwrap();
+    /// for stmt in &ast.body {
+    ///     execute_statement(stmt, &mut ctx).unwrap();
+    /// }
+    /// ```
     pub fn with_core() -> Self {
         let mut registry = Self::new();
 
@@ -106,12 +156,37 @@ impl BuiltInRegistry {
         registry
     }
 
-    /// Register a built-in object (programmatic API).
+    /// Register a custom built-in object.
+    ///
+    /// Use this to add your own built-in objects to the registry.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use just::runner::plugin::registry::BuiltInRegistry;
+    /// use just::runner::plugin::types::BuiltInObject;
+    ///
+    /// let mut registry = BuiltInRegistry::new();
+    /// let my_object = BuiltInObject::new("MyObject");
+    /// registry.register_object(my_object);
+    /// ```
     pub fn register_object(&mut self, obj: BuiltInObject) {
         self.objects.insert(obj.name.clone(), obj);
     }
 
     /// Get a registered object by name.
+    ///
+    /// Returns `None` if the object is not registered.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use just::runner::plugin::registry::BuiltInRegistry;
+    ///
+    /// let registry = BuiltInRegistry::with_core();
+    /// let math = registry.get_object("Math");
+    /// assert!(math.is_some());
+    /// ```
     pub fn get_object(&self, name: &str) -> Option<&BuiltInObject> {
         self.objects.get(name)
     }

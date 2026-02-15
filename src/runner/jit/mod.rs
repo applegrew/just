@@ -32,13 +32,47 @@ use self::reg_jit::RegJit;
 use self::reg_vm::{RegVm, RegVmResult};
 use self::vm::{Vm, VmResult};
 
-/// Compile an AST program into bytecode.
+/// Compile an AST program into stack-based bytecode.
+///
+/// Transforms the AST into a linear sequence of bytecode instructions
+/// for execution by the stack-based VM.
+///
+/// # Examples
+///
+/// ```
+/// use just::parser::JsParser;
+/// use just::runner::jit;
+///
+/// let code = "var x = 5 + 3;";
+/// let ast = JsParser::parse_to_ast_from_str(code).unwrap();
+/// let chunk = jit::compile(&ast);
+/// ```
 pub fn compile(program: &ProgramData) -> Chunk {
     let compiler = Compiler::new();
     compiler.compile_program(program)
 }
 
-/// Execute a compiled register bytecode chunk with the numeric JIT prototype.
+/// Execute register bytecode with Cranelift JIT compilation.
+///
+/// Uses the Cranelift code generator to compile numeric-heavy code paths
+/// to native machine code for maximum performance.
+///
+/// # Examples
+///
+/// ```
+/// use just::parser::JsParser;
+/// use just::runner::plugin::types::EvalContext;
+/// use just::runner::jit::reg_compiler::RegCompiler;
+/// use just::runner::jit;
+///
+/// let code = "var sum = 0; for (var i = 0; i < 100; i++) { sum = sum + i; }";
+/// let ast = JsParser::parse_to_ast_from_str(code).unwrap();
+/// let compiler = RegCompiler::new();
+/// let chunk = compiler.compile_program(&ast);
+///
+/// let ctx = EvalContext::new();
+/// let (result, ctx) = jit::execute_reg_jit(&chunk, ctx).unwrap();
+/// ```
 pub fn execute_reg_jit(chunk: &RegChunk, mut ctx: EvalContext) -> Result<(JsValue, EvalContext), JErrorType> {
     let mut jit = RegJit::new()?;
     let (result, regs) = jit.execute(chunk)?;
@@ -88,13 +122,47 @@ pub fn execute_reg_jit_or_vm(
     result.map(|val| (val, ctx_out))
 }
 
-/// Compile an AST program into register bytecode.
+/// Compile an AST program into register-based bytecode.
+///
+/// Register-based bytecode is more suitable for JIT compilation
+/// compared to stack-based bytecode.
+///
+/// # Examples
+///
+/// ```
+/// use just::parser::JsParser;
+/// use just::runner::jit;
+///
+/// let code = "var x = 5 + 3;";
+/// let ast = JsParser::parse_to_ast_from_str(code).unwrap();
+/// let chunk = jit::compile_reg(&ast);
+/// ```
 pub fn compile_reg(program: &ProgramData) -> RegChunk {
     let compiler = RegCompiler::new();
     compiler.compile_program(program)
 }
 
-/// Execute a compiled bytecode chunk.
+/// Execute stack-based bytecode.
+///
+/// Runs the bytecode through the stack-based VM.
+///
+/// # Examples
+///
+/// ```
+/// use just::parser::JsParser;
+/// use just::runner::plugin::types::EvalContext;
+/// use just::runner::plugin::registry::BuiltInRegistry;
+/// use just::runner::jit;
+///
+/// let code = "var x = Math.abs(-42);";
+/// let ast = JsParser::parse_to_ast_from_str(code).unwrap();
+/// let chunk = jit::compile(&ast);
+///
+/// let mut ctx = EvalContext::new();
+/// ctx.install_core_builtins(BuiltInRegistry::with_core());
+///
+/// let result = jit::execute(&chunk, ctx).unwrap();
+/// ```
 pub fn execute(chunk: &Chunk, ctx: EvalContext) -> Result<JsValue, JErrorType> {
     let mut vm = Vm::new(chunk, ctx);
     match vm.run() {
@@ -117,6 +185,25 @@ pub fn execute_reg(
 }
 
 /// Compile and execute a program in one step.
+///
+/// Convenience function that combines [`compile`] and [`execute`].
+///
+/// # Examples
+///
+/// ```
+/// use just::parser::JsParser;
+/// use just::runner::plugin::types::EvalContext;
+/// use just::runner::plugin::registry::BuiltInRegistry;
+/// use just::runner::jit;
+///
+/// let code = "var sum = 0; for (var i = 0; i < 10; i++) { sum = sum + i; } sum";
+/// let ast = JsParser::parse_to_ast_from_str(code).unwrap();
+///
+/// let mut ctx = EvalContext::new();
+/// ctx.install_core_builtins(BuiltInRegistry::with_core());
+///
+/// let result = jit::compile_and_run(&ast, ctx).unwrap();
+/// ```
 pub fn compile_and_run(
     program: &ProgramData,
     ctx: EvalContext,
@@ -135,7 +222,24 @@ pub fn compile_and_run_reg(
     execute_reg(&chunk, ctx, registry)
 }
 
-/// Compile and execute, returning the EvalContext for variable inspection.
+/// Compile and execute, returning the context for variable inspection.
+///
+/// Returns both the result and the evaluation context, allowing you to
+/// inspect variables after execution.
+///
+/// # Examples
+///
+/// ```
+/// use just::parser::JsParser;
+/// use just::runner::plugin::registry::BuiltInRegistry;
+/// use just::runner::jit;
+///
+/// let code = "var x = 42; var y = x * 2;";
+/// let ast = JsParser::parse_to_ast_from_str(code).unwrap();
+///
+/// let (result, ctx) = jit::compile_and_run_with_ctx(&ast);
+/// let y = ctx.get_binding("y").unwrap();
+/// ```
 pub fn compile_and_run_with_ctx(
     program: &ProgramData,
 ) -> (Result<JsValue, JErrorType>, EvalContext) {
