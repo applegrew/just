@@ -3,6 +3,14 @@ name = "just"
 version = "0.1.0"
 authors = ["Nirupam Biswas <email@nirupam.com>"]
 edition = "2018"
+description = "A ground-up ES6 JavaScript engine with tree-walking interpreter, bytecode VMs, and Cranelift JIT compiler"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/applegrew/just"
+homepage = "https://github.com/applegrew/just"
+documentation = "https://docs.rs/just"
+readme = "README.md"
+keywords = ["javascript", "js", "interpreter", "jit", "compiler"]
+categories = ["compilers", "parser-implementations"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
