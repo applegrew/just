@@ -5,11 +5,11 @@
 //!   just -e "code"              # Evaluate JavaScript code
 //!   just                        # Start REPL (interactive mode)
 
-use just::parser::JsParser;
-use just::runner::plugin::registry::BuiltInRegistry;
-use just::runner::plugin::types::EvalContext;
-use just::runner::eval::statement::execute_statement;
-use just::runner::ds::value::JsValue;
+use just_engine::parser::JsParser;
+use just_engine::runner::plugin::registry::BuiltInRegistry;
+use just_engine::runner::plugin::types::EvalContext;
+use just_engine::runner::eval::statement::execute_statement;
+use just_engine::runner::ds::value::JsValue;
 use std::env;
 use std::fs;
 use std::io::{self, Write};

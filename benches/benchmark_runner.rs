@@ -2,14 +2,14 @@
 ///
 /// Compares performance against Node.js for reference.
 
-extern crate just;
+extern crate just_engine;
 
-use just::parser::JsParser;
-use just::runner::eval::statement::execute_statement;
-use just::runner::jit;
-use just::runner::plugin::registry::BuiltInRegistry;
-use just::runner::plugin::types::EvalContext;
-use just::runner::ds::value::{JsValue, JsNumberType};
+use just_engine::parser::JsParser;
+use just_engine::runner::eval::statement::execute_statement;
+use just_engine::runner::jit;
+use just_engine::runner::plugin::registry::BuiltInRegistry;
+use just_engine::runner::plugin::types::EvalContext;
+use just_engine::runner::ds::value::{JsValue, JsNumberType};
 use std::time::{Duration, Instant};
 
 /// Run a benchmark and return the execution time.

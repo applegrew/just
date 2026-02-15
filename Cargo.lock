@@ -297,7 +297,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "just"
+name = "just-engine"
 version = "0.1.0"
 dependencies = [
  "cranelift",

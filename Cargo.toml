@@ -1,5 +1,5 @@
 [package]
-name = "just"
+name = "just-engine"
 version = "0.1.0"
 authors = ["Nirupam Biswas <applegrew+cratesio@gmail.com>"]
 edition = "2018"
@@ -7,7 +7,7 @@ description = "A ground-up ES6 JavaScript engine with tree-walking interpreter, 
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/applegrew/just"
 homepage = "https://github.com/applegrew/just"
-documentation = "https://docs.rs/just"
+documentation = "https://docs.rs/just-engine"
 readme = "README.md"
 keywords = ["javascript", "js", "interpreter", "jit", "compiler"]
 categories = ["compilers", "parser-implementations"]

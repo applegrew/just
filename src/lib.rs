@@ -1,4 +1,4 @@
-//! # just - JavaScript Engine in Rust
+//! # just-engine - JavaScript Engine in Rust
 //!
 //! A ground-up implementation of an ES6 JavaScript engine featuring:
 //! - PEG parser with ESTree-compliant AST
@@ -22,10 +22,10 @@
 //! ### Running JavaScript with the Interpreter
 //!
 //! ```
-//! use just::parser::JsParser;
-//! use just::runner::plugin::types::EvalContext;
-//! use just::runner::plugin::registry::BuiltInRegistry;
-//! use just::runner::eval::statement::execute_statement;
+//! use just_engine::parser::JsParser;
+//! use just_engine::runner::plugin::types::EvalContext;
+//! use just_engine::runner::plugin::registry::BuiltInRegistry;
+//! use just_engine::runner::eval::statement::execute_statement;
 //!
 //! // Parse the code
 //! let code = "var x = Math.abs(-42);";
@@ -48,10 +48,10 @@
 //! ### Using the JIT Compiler
 //!
 //! ```
-//! use just::parser::JsParser;
-//! use just::runner::plugin::types::EvalContext;
-//! use just::runner::plugin::registry::BuiltInRegistry;
-//! use just::runner::jit;
+//! use just_engine::parser::JsParser;
+//! use just_engine::runner::plugin::types::EvalContext;
+//! use just_engine::runner::plugin::registry::BuiltInRegistry;
+//! use just_engine::runner::jit;
 //!
 //! let code = "var sum = 0; for (var i = 0; i < 100; i++) { sum = sum + i; } sum";
 //! let ast = JsParser::parse_to_ast_from_str(code).unwrap();
@@ -89,13 +89,13 @@
 //! ### Example: Custom Plugin
 //!
 //! ```
-//! use just::parser::JsParser;
-//! use just::runner::plugin::types::EvalContext;
-//! use just::runner::plugin::resolver::PluginResolver;
-//! use just::runner::plugin::registry::BuiltInRegistry;
-//! use just::runner::ds::value::{JsValue, JsNumberType};
-//! use just::runner::ds::error::JErrorType;
-//! use just::runner::eval::statement::execute_statement;
+//! use just_engine::parser::JsParser;
+//! use just_engine::runner::plugin::types::EvalContext;
+//! use just_engine::runner::plugin::resolver::PluginResolver;
+//! use just_engine::runner::plugin::registry::BuiltInRegistry;
+//! use just_engine::runner::ds::value::{JsValue, JsNumberType};
+//! use just_engine::runner::ds::error::JErrorType;
+//! use just_engine::runner::eval::statement::execute_statement;
 //!
 //! // Define a custom plugin that provides a "MyMath" object
 //! struct MyMathPlugin;
